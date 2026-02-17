@@ -1,0 +1,7 @@
+{
+  "name": "LegacyBot",
+  "description": "A voice-first life story preservation tool that acts as an active interviewer for seniors using Gemini Live.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
