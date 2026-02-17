@@ -21,7 +21,7 @@
  * References: design.md §2.1, §4 | GitHub Issues #4, #5, #6, #7
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   collection,
   doc,
@@ -149,6 +149,14 @@ export function useDossier(uid: string | undefined, dossierId: string | undefine
 
     return unsubscribe;
   }, [uid, dossierId]);
+
+  // Clean up the debounce timer on unmount to prevent async writes after
+  // the component is gone (which would cause a React state update warning).
+  useEffect(() => {
+    return () => {
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
+    };
+  }, []);
 
   /**
    * Update Dossier fields (debounced 500ms).

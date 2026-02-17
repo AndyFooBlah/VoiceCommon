@@ -19,6 +19,26 @@ import { getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 
+/**
+ * Validates that all required Firebase config values are present.
+ * Fails fast at startup rather than producing cryptic errors later.
+ */
+const REQUIRED_ENV_VARS = [
+  'VITE_FIREBASE_API_KEY',
+  'VITE_FIREBASE_AUTH_DOMAIN',
+  'VITE_FIREBASE_PROJECT_ID',
+  'VITE_FIREBASE_STORAGE_BUCKET',
+  'VITE_FIREBASE_APP_ID',
+] as const;
+
+const missing = REQUIRED_ENV_VARS.filter((key) => !import.meta.env[key]);
+if (missing.length > 0) {
+  throw new Error(
+    `Missing required Firebase environment variables: ${missing.join(', ')}. ` +
+      'Copy .env.example to .env.local and fill in your Firebase config values.',
+  );
+}
+
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
