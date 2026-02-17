@@ -1,0 +1,24 @@
+/**
+ * Firestore Security Rules for LegacyBot.
+ *
+ * Enforces per-user data isolation: each authenticated user can only
+ * read and write documents under their own users/{uid} path. This
+ * protects all Dossiers, sessions, transcripts, and questions.
+ *
+ * References: design.md §2.3 | GitHub Issue #3
+ */
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Deny all access by default
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Users can only access their own data subtree
+    match /users/{uid}/{document=**} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+  }
+}
