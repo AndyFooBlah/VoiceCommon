@@ -1,8 +1,8 @@
 /**
  * Tests for the useAuth hook.
  *
- * Verifies sign-in flows (Google, email), auto-registration only on
- * user-not-found, user profile creation, sign-out, and auth state management.
+ * Verifies sign-in flows (Google, email), separate sign-up flow,
+ * user profile creation, sign-out, and auth state management.
  *
  * References: design.md §5.3 (Priority 1) | src/hooks/useAuth.ts
  */
@@ -122,23 +122,7 @@ describe('useAuth — signInWithEmail', () => {
     );
   });
 
-  it('auto-registers when user is not found', async () => {
-    mockAuth.signInWithEmailAndPassword.mockRejectedValueOnce({ code: 'auth/user-not-found' });
-    mockFirestore.getDoc.mockResolvedValueOnce({ exists: () => false });
-
-    const { result } = renderHook(() => useAuth());
-    await act(async () => {
-      await result.current.signInWithEmail('new@example.com', 'pass123');
-    });
-
-    expect(mockAuth.createUserWithEmailAndPassword).toHaveBeenCalledWith(
-      expect.anything(),
-      'new@example.com',
-      'pass123',
-    );
-  });
-
-  it('does NOT auto-register on invalid-credential (wrong password)', async () => {
+  it('propagates errors directly (no auto-registration)', async () => {
     mockAuth.signInWithEmailAndPassword.mockRejectedValueOnce({
       code: 'auth/invalid-credential',
     });
@@ -151,35 +135,72 @@ describe('useAuth — signInWithEmail', () => {
       }),
     ).rejects.toEqual({ code: 'auth/invalid-credential' });
 
+    // Sign-in errors should never trigger account creation
     expect(mockAuth.createUserWithEmailAndPassword).not.toHaveBeenCalled();
   });
 
-  it('does NOT auto-register on wrong-password', async () => {
-    mockAuth.signInWithEmailAndPassword.mockRejectedValueOnce({
-      code: 'auth/wrong-password',
+  it('creates user profile on successful sign-in', async () => {
+    mockFirestore.getDoc.mockResolvedValueOnce({ exists: () => false });
+
+    const { result } = renderHook(() => useAuth());
+    await act(async () => {
+      await result.current.signInWithEmail('test@example.com', 'pass123');
+    });
+
+    expect(mockFirestore.setDoc).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('useAuth — signUpWithEmail', () => {
+  it('creates a new account', async () => {
+    mockFirestore.getDoc.mockResolvedValueOnce({ exists: () => false });
+
+    const { result } = renderHook(() => useAuth());
+    await act(async () => {
+      await result.current.signUpWithEmail('new@example.com', 'pass123');
+    });
+
+    expect(mockAuth.createUserWithEmailAndPassword).toHaveBeenCalledWith(
+      expect.anything(),
+      'new@example.com',
+      'pass123',
+    );
+  });
+
+  it('does not call signInWithEmailAndPassword', async () => {
+    mockFirestore.getDoc.mockResolvedValueOnce({ exists: () => false });
+
+    const { result } = renderHook(() => useAuth());
+    await act(async () => {
+      await result.current.signUpWithEmail('new@example.com', 'pass123');
+    });
+
+    expect(mockAuth.signInWithEmailAndPassword).not.toHaveBeenCalled();
+  });
+
+  it('creates user profile after registration', async () => {
+    mockFirestore.getDoc.mockResolvedValueOnce({ exists: () => false });
+
+    const { result } = renderHook(() => useAuth());
+    await act(async () => {
+      await result.current.signUpWithEmail('new@example.com', 'pass123');
+    });
+
+    expect(mockFirestore.setDoc).toHaveBeenCalledTimes(1);
+  });
+
+  it('propagates errors (e.g. email-already-in-use)', async () => {
+    mockAuth.createUserWithEmailAndPassword.mockRejectedValueOnce({
+      code: 'auth/email-already-in-use',
     });
 
     const { result } = renderHook(() => useAuth());
 
     await expect(
       act(async () => {
-        await result.current.signInWithEmail('test@example.com', 'wrongpass');
+        await result.current.signUpWithEmail('existing@example.com', 'pass123');
       }),
-    ).rejects.toEqual({ code: 'auth/wrong-password' });
-
-    expect(mockAuth.createUserWithEmailAndPassword).not.toHaveBeenCalled();
-  });
-
-  it('creates user profile on successful registration', async () => {
-    mockAuth.signInWithEmailAndPassword.mockRejectedValueOnce({ code: 'auth/user-not-found' });
-    mockFirestore.getDoc.mockResolvedValueOnce({ exists: () => false });
-
-    const { result } = renderHook(() => useAuth());
-    await act(async () => {
-      await result.current.signInWithEmail('new@example.com', 'pass123');
-    });
-
-    expect(mockFirestore.setDoc).toHaveBeenCalledTimes(1);
+    ).rejects.toEqual({ code: 'auth/email-already-in-use' });
   });
 });
 

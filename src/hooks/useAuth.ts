@@ -68,27 +68,15 @@ export function useAuth() {
     await ensureUserProfile(result.user);
   }
 
-  /**
-   * Sign in with email and password.
-   * If the account doesn't exist, it's created automatically (registration).
-   *
-   * IMPORTANT: We only auto-register on 'auth/user-not-found'. Other errors
-   * like 'auth/wrong-password' or 'auth/invalid-credential' (wrong password
-   * in newer Firebase SDK versions) must NOT trigger account creation —
-   * otherwise a typo in the password would silently create a new account.
-   */
+  /** Sign in an existing user with email and password. */
   async function signInWithEmail(email: string, password: string): Promise<void> {
-    let result;
-    try {
-      result = await signInWithEmailAndPassword(auth, email, password);
-    } catch (error: any) {
-      if (error.code === 'auth/user-not-found') {
-        // User doesn't exist yet — create the account automatically
-        result = await createUserWithEmailAndPassword(auth, email, password);
-      } else {
-        throw error;
-      }
-    }
+    const result = await signInWithEmailAndPassword(auth, email, password);
+    await ensureUserProfile(result.user);
+  }
+
+  /** Create a new account with email and password. */
+  async function signUpWithEmail(email: string, password: string): Promise<void> {
+    const result = await createUserWithEmailAndPassword(auth, email, password);
     await ensureUserProfile(result.user);
   }
 
@@ -97,5 +85,5 @@ export function useAuth() {
     await firebaseSignOut(auth);
   }
 
-  return { user, loading, signInWithGoogle, signInWithEmail, signOut };
+  return { user, loading, signInWithGoogle, signInWithEmail, signUpWithEmail, signOut };
 }

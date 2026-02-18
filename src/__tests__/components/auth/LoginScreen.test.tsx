@@ -2,7 +2,7 @@
  * Tests for the LoginScreen component.
  *
  * Verifies form validation, error display, loading states,
- * and both sign-in paths (Google + email/password).
+ * sign-in/sign-up mode switching, and all authentication paths.
  *
  * References: design.md §5.3 (Priority 2) | src/components/auth/LoginScreen.tsx
  */
@@ -13,10 +13,12 @@ import { LoginScreen } from '../../../components/auth/LoginScreen';
 
 let mockGoogleSignIn: Mock<() => Promise<void>>;
 let mockEmailSignIn: Mock<(email: string, password: string) => Promise<void>>;
+let mockEmailSignUp: Mock<(email: string, password: string) => Promise<void>>;
 
 beforeEach(() => {
   mockGoogleSignIn = vi.fn().mockResolvedValue(undefined);
   mockEmailSignIn = vi.fn().mockResolvedValue(undefined);
+  mockEmailSignUp = vi.fn().mockResolvedValue(undefined);
 });
 
 function renderLogin() {
@@ -24,6 +26,7 @@ function renderLogin() {
     <LoginScreen
       onGoogleSignIn={mockGoogleSignIn}
       onEmailSignIn={mockEmailSignIn}
+      onEmailSignUp={mockEmailSignUp}
     />,
   );
 }
@@ -50,16 +53,14 @@ describe('LoginScreen — rendering', () => {
     expect(screen.getByPlaceholderText('Enter your password')).toBeInTheDocument();
   });
 
-  it('shows the Sign In button', () => {
+  it('shows the Sign In button by default', () => {
     renderLogin();
     expect(screen.getByText('Sign In')).toBeInTheDocument();
   });
 
-  it('shows new user hint text', () => {
+  it('shows create account link', () => {
     renderLogin();
-    expect(
-      screen.getByText(/Signing in with a new email will create your account automatically/),
-    ).toBeInTheDocument();
+    expect(screen.getByText('Create an account')).toBeInTheDocument();
   });
 });
 
@@ -86,7 +87,6 @@ describe('LoginScreen — Google sign-in', () => {
   });
 
   it('disables buttons during loading', async () => {
-    // Make the sign-in hang
     mockGoogleSignIn.mockImplementation(() => new Promise(() => {}));
     renderLogin();
 
@@ -125,12 +125,11 @@ describe('LoginScreen — email sign-in', () => {
       expect(screen.getByText('Please enter both email and password.')).toBeInTheDocument();
     });
 
-    // Should NOT call the sign-in handler
     expect(mockEmailSignIn).not.toHaveBeenCalled();
   });
 
-  it('shows error when email sign-in fails', async () => {
-    mockEmailSignIn.mockRejectedValueOnce(new Error('Invalid credentials'));
+  it('shows friendly error for invalid credentials', async () => {
+    mockEmailSignIn.mockRejectedValueOnce({ code: 'auth/invalid-credential' });
     renderLogin();
 
     fireEvent.change(screen.getByPlaceholderText('you@example.com'), {
@@ -142,7 +141,7 @@ describe('LoginScreen — email sign-in', () => {
     fireEvent.click(screen.getByText('Sign In'));
 
     await waitFor(() => {
-      expect(screen.getByText('Invalid credentials')).toBeInTheDocument();
+      expect(screen.getByText('Incorrect email or password.')).toBeInTheDocument();
     });
   });
 
@@ -153,12 +152,102 @@ describe('LoginScreen — email sign-in', () => {
       target: { value: 'test@example.com' },
     });
     fireEvent.change(screen.getByPlaceholderText('Enter your password'), {
-      target: { value: 'pass' },
+      target: { value: 'pass123' },
     });
     fireEvent.submit(screen.getByPlaceholderText('you@example.com').closest('form')!);
 
     await waitFor(() => {
-      expect(mockEmailSignIn).toHaveBeenCalledWith('test@example.com', 'pass');
+      expect(mockEmailSignIn).toHaveBeenCalledWith('test@example.com', 'pass123');
     });
+  });
+});
+
+describe('LoginScreen — sign-up mode', () => {
+  it('switches to sign-up mode when Create an account is clicked', () => {
+    renderLogin();
+    fireEvent.click(screen.getByText('Create an account'));
+
+    expect(screen.getByText('Create Account')).toBeInTheDocument();
+    expect(screen.getByText('Sign in')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/Choose a password/)).toBeInTheDocument();
+  });
+
+  it('calls onEmailSignUp in sign-up mode', async () => {
+    renderLogin();
+    fireEvent.click(screen.getByText('Create an account'));
+
+    fireEvent.change(screen.getByPlaceholderText('you@example.com'), {
+      target: { value: 'new@example.com' },
+    });
+    fireEvent.change(screen.getByPlaceholderText(/Choose a password/), {
+      target: { value: 'newpass123' },
+    });
+    fireEvent.click(screen.getByText('Create Account'));
+
+    await waitFor(() => {
+      expect(mockEmailSignUp).toHaveBeenCalledWith('new@example.com', 'newpass123');
+    });
+
+    expect(mockEmailSignIn).not.toHaveBeenCalled();
+  });
+
+  it('validates minimum password length on sign-up', async () => {
+    renderLogin();
+    fireEvent.click(screen.getByText('Create an account'));
+
+    fireEvent.change(screen.getByPlaceholderText('you@example.com'), {
+      target: { value: 'new@example.com' },
+    });
+    fireEvent.change(screen.getByPlaceholderText(/Choose a password/), {
+      target: { value: '12345' },
+    });
+    fireEvent.click(screen.getByText('Create Account'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Password must be at least 6 characters.')).toBeInTheDocument();
+    });
+
+    expect(mockEmailSignUp).not.toHaveBeenCalled();
+  });
+
+  it('shows friendly error for email-already-in-use', async () => {
+    mockEmailSignUp.mockRejectedValueOnce({ code: 'auth/email-already-in-use' });
+    renderLogin();
+    fireEvent.click(screen.getByText('Create an account'));
+
+    fireEvent.change(screen.getByPlaceholderText('you@example.com'), {
+      target: { value: 'existing@example.com' },
+    });
+    fireEvent.change(screen.getByPlaceholderText(/Choose a password/), {
+      target: { value: 'password123' },
+    });
+    fireEvent.click(screen.getByText('Create Account'));
+
+    await waitFor(() => {
+      expect(screen.getByText(/already exists/)).toBeInTheDocument();
+    });
+  });
+
+  it('switches back to sign-in mode', () => {
+    renderLogin();
+    fireEvent.click(screen.getByText('Create an account'));
+    fireEvent.click(screen.getByText('Sign in'));
+
+    expect(screen.getByText('Sign In')).toBeInTheDocument();
+    expect(screen.getByText('Create an account')).toBeInTheDocument();
+  });
+
+  it('clears error when switching modes', async () => {
+    renderLogin();
+
+    // Trigger an error in sign-in mode
+    fireEvent.click(screen.getByText('Sign In'));
+    await waitFor(() => {
+      expect(screen.getByText('Please enter both email and password.')).toBeInTheDocument();
+    });
+
+    // Switch to sign-up — error should be cleared
+    fireEvent.click(screen.getByText('Create an account'));
+    expect(screen.queryByText('Please enter both email and password.')).not.toBeInTheDocument();
   });
 });

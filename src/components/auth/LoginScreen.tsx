@@ -1,9 +1,15 @@
 /**
  * LoginScreen — the authentication entry point for LegacyBot.
  *
- * Displays a branded login form with two sign-in options:
+ * Displays a branded login form with three sign-in options:
  *   1. Google OAuth (one-click popup)
- *   2. Email/Password (with auto-registration for new users)
+ *   2. Email/Password sign-in (existing accounts)
+ *   3. Email/Password sign-up (new accounts)
+ *
+ * Sign-in and sign-up are separate flows because Firebase SDK v10+
+ * returns the same error code (auth/invalid-credential) for both
+ * "user doesn't exist" and "wrong password", making it impossible
+ * to auto-register reliably from a single button.
  *
  * This screen is shown to unauthenticated users via the auth guard in
  * Layout.tsx. Once signed in, the user is redirected to the Dossier list.
@@ -16,16 +22,19 @@ import React, { useState } from 'react';
 interface LoginScreenProps {
   onGoogleSignIn: () => Promise<void>;
   onEmailSignIn: (email: string, password: string) => Promise<void>;
+  onEmailSignUp: (email: string, password: string) => Promise<void>;
 }
 
 export const LoginScreen: React.FC<LoginScreenProps> = ({
   onGoogleSignIn,
   onEmailSignIn,
+  onEmailSignUp,
 }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [mode, setMode] = useState<'signin' | 'signup'>('signin');
 
   async function handleGoogleSignIn() {
     setError(null);
@@ -46,14 +55,35 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
       setError('Please enter both email and password.');
       return;
     }
+    if (mode === 'signup' && password.length < 6) {
+      setError('Password must be at least 6 characters.');
+      return;
+    }
     setIsLoading(true);
     try {
-      await onEmailSignIn(email, password);
+      if (mode === 'signup') {
+        await onEmailSignUp(email, password);
+      } else {
+        await onEmailSignIn(email, password);
+      }
     } catch (err: any) {
-      setError(err.message ?? 'Sign-in failed.');
+      // Map Firebase error codes to friendly messages
+      const friendlyMessages: Record<string, string> = {
+        'auth/invalid-credential': 'Incorrect email or password.',
+        'auth/email-already-in-use': 'An account with this email already exists. Try signing in instead.',
+        'auth/weak-password': 'Password must be at least 6 characters.',
+        'auth/invalid-email': 'Please enter a valid email address.',
+        'auth/too-many-requests': 'Too many attempts. Please wait a moment and try again.',
+      };
+      setError(friendlyMessages[err.code] ?? err.message ?? 'Authentication failed.');
     } finally {
       setIsLoading(false);
     }
+  }
+
+  function switchMode() {
+    setMode(mode === 'signin' ? 'signup' : 'signin');
+    setError(null);
   }
 
   return (
@@ -113,7 +143,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="Enter your password"
+              placeholder={mode === 'signup' ? 'Choose a password (min 6 characters)' : 'Enter your password'}
               className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
             />
           </div>
@@ -122,7 +152,9 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
             disabled={isLoading}
             className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-colors disabled:opacity-50"
           >
-            {isLoading ? 'Signing in...' : 'Sign In'}
+            {isLoading
+              ? (mode === 'signup' ? 'Creating account...' : 'Signing in...')
+              : (mode === 'signup' ? 'Create Account' : 'Sign In')}
           </button>
         </form>
 
@@ -133,8 +165,23 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
           </p>
         )}
 
-        <p className="text-xs text-slate-400 text-center">
-          New here? Signing in with a new email will create your account automatically.
+        {/* Toggle between sign-in and sign-up */}
+        <p className="text-sm text-slate-400 text-center">
+          {mode === 'signin' ? (
+            <>
+              New here?{' '}
+              <button onClick={switchMode} className="text-indigo-600 font-semibold hover:text-indigo-700">
+                Create an account
+              </button>
+            </>
+          ) : (
+            <>
+              Already have an account?{' '}
+              <button onClick={switchMode} className="text-indigo-600 font-semibold hover:text-indigo-700">
+                Sign in
+              </button>
+            </>
+          )}
         </p>
       </div>
     </div>

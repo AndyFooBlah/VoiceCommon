@@ -19,7 +19,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { LoginScreen } from '../auth/LoginScreen';
 
 export const Layout: React.FC = () => {
-  const { user, loading, signInWithGoogle, signInWithEmail, signOut } = useAuth();
+  const { user, loading, signInWithGoogle, signInWithEmail, signUpWithEmail, signOut } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -38,6 +38,7 @@ export const Layout: React.FC = () => {
       <LoginScreen
         onGoogleSignIn={signInWithGoogle}
         onEmailSignIn={signInWithEmail}
+        onEmailSignUp={signUpWithEmail}
       />
     );
   }
