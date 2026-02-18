@@ -103,7 +103,7 @@ export const TranscriptViewer: React.FC = () => {
         )}
       </div>
 
-      {session?.audioUrl && <AudioPlayer audioUrl={session.audioUrl} />}
+      {session?.audioUrl && <AudioPlayer audioUrl={session.audioUrl} durationSeconds={session.durationSeconds} />}
       {session && !session.audioUrl && (
         <div className="bg-slate-50 rounded-xl p-4 text-sm text-slate-400 italic text-center">
           Audio not available for this session.
