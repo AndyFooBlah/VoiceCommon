@@ -61,7 +61,18 @@ export function useAudioMixer(): AudioMixerHandle {
 
   const start = useCallback(async () => {
     // Request microphone access
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (err: any) {
+      if (err.name === 'NotAllowedError') {
+        throw Object.assign(new Error('Microphone access denied. Please allow microphone access in your browser settings.'), { name: 'NotAllowedError' });
+      }
+      if (err.name === 'NotFoundError') {
+        throw Object.assign(new Error('No microphone found. Please connect a microphone and try again.'), { name: 'NotFoundError' });
+      }
+      throw Object.assign(new Error('Could not access microphone. Please check your device and browser settings.'), { name: err.name });
+    }
     streamRef.current = stream;
 
     // Create AudioContexts:

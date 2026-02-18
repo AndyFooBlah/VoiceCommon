@@ -1,10 +1,6 @@
 /**
  * Tests for the storage service (Firestore + GCS operations).
- *
- * All Firebase calls are mocked — these tests verify that the correct
- * Firestore paths, document shapes, and Storage paths are used.
- *
- * References: design.md §5.3 (Priority 1) | src/services/storage.ts
+ * Now uses familyId instead of uid for family-based paths.
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
@@ -18,7 +14,6 @@ import {
 } from '../../services/storage';
 
 beforeEach(() => {
-  // Reset all mocks between tests
   Object.values(mockFirestore).forEach((fn) => {
     if (typeof fn === 'function' && 'mockClear' in fn) fn.mockClear();
   });
@@ -31,28 +26,29 @@ describe('createSession', () => {
   it('creates a session document and returns the ID', async () => {
     mockFirestore.addDoc.mockResolvedValueOnce({ id: 'session-123' });
 
-    const id = await createSession('uid-1', 'dossier-1');
+    const id = await createSession('family-1', 'dossier-1', 'storyteller-uid');
 
     expect(id).toBe('session-123');
     expect(mockFirestore.addDoc).toHaveBeenCalledTimes(1);
   });
 
-  it('creates the session with status=active and no endTime', async () => {
+  it('creates the session with status=active, storytellerUid, and no endTime', async () => {
     mockFirestore.addDoc.mockResolvedValueOnce({ id: 'session-123' });
 
-    await createSession('uid-1', 'dossier-1');
+    await createSession('family-1', 'dossier-1', 'storyteller-uid');
 
     const sessionData = mockFirestore.addDoc.mock.calls[0][1];
     expect(sessionData.status).toBe('active');
     expect(sessionData.endTime).toBeNull();
     expect(sessionData.audioUrl).toBe('');
     expect(sessionData.durationSeconds).toBe(0);
+    expect(sessionData.storytellerUid).toBe('storyteller-uid');
   });
 
   it('sets a startTime timestamp', async () => {
     mockFirestore.addDoc.mockResolvedValueOnce({ id: 'session-123' });
 
-    await createSession('uid-1', 'dossier-1');
+    await createSession('family-1', 'dossier-1', 'storyteller-uid');
 
     const sessionData = mockFirestore.addDoc.mock.calls[0][1];
     expect(sessionData.startTime).toBeDefined();
@@ -61,7 +57,7 @@ describe('createSession', () => {
 
 describe('finalizeSession', () => {
   it('updates the session with completed status', async () => {
-    await finalizeSession('uid-1', 'dossier-1', 'session-1', 'completed', 3600);
+    await finalizeSession('family-1', 'dossier-1', 'session-1', 'completed', 3600);
 
     expect(mockFirestore.updateDoc).toHaveBeenCalledTimes(1);
     const updateData = mockFirestore.updateDoc.mock.calls[0][1];
@@ -71,21 +67,21 @@ describe('finalizeSession', () => {
   });
 
   it('updates the session with interrupted status', async () => {
-    await finalizeSession('uid-1', 'dossier-1', 'session-1', 'interrupted', 120);
+    await finalizeSession('family-1', 'dossier-1', 'session-1', 'interrupted', 120);
 
     const updateData = mockFirestore.updateDoc.mock.calls[0][1];
     expect(updateData.status).toBe('interrupted');
   });
 
   it('includes audioUrl when provided', async () => {
-    await finalizeSession('uid-1', 'dossier-1', 'session-1', 'completed', 3600, 'https://audio.url');
+    await finalizeSession('family-1', 'dossier-1', 'session-1', 'completed', 3600, 'https://audio.url');
 
     const updateData = mockFirestore.updateDoc.mock.calls[0][1];
     expect(updateData.audioUrl).toBe('https://audio.url');
   });
 
   it('omits audioUrl when not provided', async () => {
-    await finalizeSession('uid-1', 'dossier-1', 'session-1', 'completed', 3600);
+    await finalizeSession('family-1', 'dossier-1', 'session-1', 'completed', 3600);
 
     const updateData = mockFirestore.updateDoc.mock.calls[0][1];
     expect(updateData).not.toHaveProperty('audioUrl');
@@ -97,27 +93,27 @@ describe('archiveAudioToGCS', () => {
     mockStorage.getDownloadURL.mockResolvedValueOnce('https://storage.example.com/audio.webm');
     const blob = new Blob(['audio-data'], { type: 'audio/webm' });
 
-    const url = await archiveAudioToGCS(blob, 'uid-1', 'dossier-1', 'session-1');
+    const url = await archiveAudioToGCS(blob, 'family-1', 'dossier-1', 'session-1');
 
     expect(url).toBe('https://storage.example.com/audio.webm');
     expect(mockStorage.uploadBytes).toHaveBeenCalledTimes(1);
   });
 
-  it('uses the correct GCS path convention: {uid}/{dossierId}/{sessionId}.webm', async () => {
+  it('uses the correct GCS path convention: {familyId}/{dossierId}/{sessionId}.webm', async () => {
     const blob = new Blob(['audio-data']);
 
-    await archiveAudioToGCS(blob, 'uid-1', 'dossier-1', 'session-1');
+    await archiveAudioToGCS(blob, 'family-1', 'dossier-1', 'session-1');
 
     expect(mockStorage.ref).toHaveBeenCalledWith(
       expect.anything(),
-      'uid-1/dossier-1/session-1.webm',
+      'family-1/dossier-1/session-1.webm',
     );
   });
 
   it('sets the correct content type on upload', async () => {
     const blob = new Blob(['audio-data']);
 
-    await archiveAudioToGCS(blob, 'uid-1', 'dossier-1', 'session-1');
+    await archiveAudioToGCS(blob, 'family-1', 'dossier-1', 'session-1');
 
     const uploadOptions = mockStorage.uploadBytes.mock.calls[0][2];
     expect(uploadOptions.contentType).toBe('audio/webm;codecs=opus');
@@ -131,7 +127,7 @@ describe('syncTranscriptToFirestore', () => {
       { role: 'user' as const, text: 'Hi there.', timestamp: mockFirestore.Timestamp.now() },
     ] as any;
 
-    await syncTranscriptToFirestore('uid-1', 'dossier-1', 'session-1', entries);
+    await syncTranscriptToFirestore('family-1', 'dossier-1', 'session-1', entries);
 
     expect(mockFirestore.setDoc).toHaveBeenCalledTimes(1);
     const writtenData = mockFirestore.setDoc.mock.calls[0][1];
@@ -143,7 +139,7 @@ describe('syncTranscriptToFirestore', () => {
   it('overwrites previous entries (merge: false)', async () => {
     const entries = [{ role: 'bot' as const, text: 'Hello!', timestamp: mockFirestore.Timestamp.now() }] as any;
 
-    await syncTranscriptToFirestore('uid-1', 'dossier-1', 'session-1', entries);
+    await syncTranscriptToFirestore('family-1', 'dossier-1', 'session-1', entries);
 
     const mergeOption = mockFirestore.setDoc.mock.calls[0][2];
     expect(mergeOption).toEqual({ merge: false });
@@ -152,7 +148,7 @@ describe('syncTranscriptToFirestore', () => {
 
 describe('updateQuestionStateInFirestore', () => {
   it('updates the question document with status and findings', async () => {
-    await updateQuestionStateInFirestore('uid-1', 'dossier-1', 'q1', 'InProgress', 'User mentioned a farm.');
+    await updateQuestionStateInFirestore('family-1', 'dossier-1', 'q1', 'InProgress', 'User mentioned a farm.');
 
     expect(mockFirestore.updateDoc).toHaveBeenCalledTimes(1);
     const updateData = mockFirestore.updateDoc.mock.calls[0][1];

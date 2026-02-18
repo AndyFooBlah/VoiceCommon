@@ -1,10 +1,6 @@
 /**
  * Tests for the SessionView component.
- *
- * Verifies start/stop button states, error dialog, reconnect flow,
- * storyteller name display, and loading state.
- *
- * References: design.md §5.3 (Priority 2) | src/components/session/SessionView.tsx
+ * Now uses familyId from route params.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -15,7 +11,7 @@ import { ConnectionStatus } from '../../../types';
 
 const mockNavigate = vi.fn();
 vi.mock('react-router-dom', () => ({
-  useParams: () => ({ dossierId: 'dossier-1' }),
+  useParams: () => ({ familyId: 'family-1', dossierId: 'dossier-1' }),
   useNavigate: () => mockNavigate,
 }));
 
@@ -104,7 +100,6 @@ describe('SessionView — disconnected state', () => {
 
   it('calls startSession when start button is clicked', () => {
     render(<SessionView />);
-    // The start button contains the play SVG — find the button
     const buttons = screen.getAllByRole('button');
     const startBtn = buttons.find((b) => !b.textContent?.includes('Back'));
     fireEvent.click(startBtn!);
@@ -116,10 +111,10 @@ describe('SessionView — disconnected state', () => {
     expect(screen.getByText(/Back to Dossier/)).toBeInTheDocument();
   });
 
-  it('navigates back on Back link click', () => {
+  it('navigates back with familyId prefix on Back link click', () => {
     render(<SessionView />);
     fireEvent.click(screen.getByText(/Back to Dossier/));
-    expect(mockNavigate).toHaveBeenCalledWith('/dossier/dossier-1');
+    expect(mockNavigate).toHaveBeenCalledWith('/family/family-1/dossier/dossier-1');
   });
 });
 
@@ -127,7 +122,6 @@ describe('SessionView — connecting state', () => {
   it('disables the start button while connecting', () => {
     mockStatus = ConnectionStatus.CONNECTING;
     const { container } = render(<SessionView />);
-    // The button should have the disabled attribute and show a spinner
     const spinner = container.querySelector('.animate-spin');
     expect(spinner).not.toBeNull();
   });
@@ -156,7 +150,6 @@ describe('SessionView — connected state', () => {
   it('calls stopSession when stop button is clicked', () => {
     render(<SessionView />);
     const buttons = screen.getAllByRole('button');
-    // The stop button is the non-Back, non-link button
     const stopBtn = buttons.find((b) => !b.textContent?.includes('Back'));
     fireEvent.click(stopBtn!);
     expect(mockStopSession).toHaveBeenCalledTimes(1);

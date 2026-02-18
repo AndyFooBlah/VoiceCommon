@@ -1,31 +1,22 @@
 /**
  * TranscriptViewer — read-only view of a past session's transcript.
- *
  * Loads the transcript from Firestore and displays it as a conversation
- * with speaker labels (Storyteller vs Bot) and timestamps. Styled
- * similarly to the live transcript feed but clearly marked as a
- * past recording.
- *
- * Includes the AudioPlayer component for playback of the session's
- * archived audio alongside the transcript.
- *
- * References: product_requirements.md §3.6 | GitHub Issue #14
+ * with speaker labels (Storyteller vs Bot) and timestamps.
  */
 
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../../services/firebase';
-import { useAuth } from '../../hooks/useAuth';
 import { TranscriptEntry, SessionMetadata } from '../../types';
 import { AudioPlayer } from './AudioPlayer';
 
 export const TranscriptViewer: React.FC = () => {
-  const { dossierId, sessionId } = useParams<{
+  const { familyId, dossierId, sessionId } = useParams<{
+    familyId: string;
     dossierId: string;
     sessionId: string;
   }>();
-  const { user } = useAuth();
   const navigate = useNavigate();
 
   const [entries, setEntries] = useState<TranscriptEntry[]>([]);
@@ -33,14 +24,13 @@ export const TranscriptViewer: React.FC = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!user?.uid || !dossierId || !sessionId) return;
+    if (!familyId || !dossierId || !sessionId) return;
 
     async function loadData() {
-      // Load session metadata (for audio URL and date)
       const sessionRef = doc(
         db,
-        'users',
-        user!.uid,
+        'families',
+        familyId!,
         'dossiers',
         dossierId!,
         'sessions',
@@ -51,11 +41,10 @@ export const TranscriptViewer: React.FC = () => {
         setSession({ ...sessionSnap.data(), id: sessionSnap.id } as SessionMetadata);
       }
 
-      // Load transcript entries
       const transcriptRef = doc(
         db,
-        'users',
-        user!.uid,
+        'families',
+        familyId!,
         'dossiers',
         dossierId!,
         'sessions',
@@ -72,7 +61,7 @@ export const TranscriptViewer: React.FC = () => {
     }
 
     loadData();
-  }, [user?.uid, dossierId, sessionId]);
+  }, [familyId, dossierId, sessionId]);
 
   if (loading) {
     return (
@@ -84,10 +73,9 @@ export const TranscriptViewer: React.FC = () => {
 
   return (
     <div className="max-w-3xl mx-auto p-8 space-y-6">
-      {/* Header */}
       <div>
         <button
-          onClick={() => navigate(`/dossier/${dossierId}/history`)}
+          onClick={() => navigate(`/family/${familyId}/dossier/${dossierId}/history`)}
           className="text-sm text-indigo-600 font-medium hover:underline mb-1"
         >
           &larr; Back to Session History
@@ -115,7 +103,6 @@ export const TranscriptViewer: React.FC = () => {
         )}
       </div>
 
-      {/* Audio Player */}
       {session?.audioUrl && <AudioPlayer audioUrl={session.audioUrl} />}
       {session && !session.audioUrl && (
         <div className="bg-slate-50 rounded-xl p-4 text-sm text-slate-400 italic text-center">
@@ -123,7 +110,6 @@ export const TranscriptViewer: React.FC = () => {
         </div>
       )}
 
-      {/* Transcript entries */}
       <div className="bg-white rounded-3xl border border-slate-200 p-8 space-y-6 shadow-sm">
         {entries.length === 0 ? (
           <p className="text-slate-400 italic text-center py-8">

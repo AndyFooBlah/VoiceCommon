@@ -33,8 +33,9 @@ import {
 } from '../services/storage';
 
 interface UseSessionOptions {
-  uid: string;
+  familyId: string;
   dossierId: string;
+  storytellerUid: string;
   dossier: Dossier;
   questions: InterviewQuestion[];
   /** Called when the bot updates a question's status via function calling. */
@@ -42,8 +43,9 @@ interface UseSessionOptions {
 }
 
 export function useSession({
-  uid,
+  familyId,
   dossierId,
+  storytellerUid,
   dossier,
   questions,
   onQuestionUpdate,
@@ -52,6 +54,7 @@ export function useSession({
   const [messages, setMessages] = useState<Message[]>([]);
   const [isBotSpeaking, setIsBotSpeaking] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [deviceError, setDeviceError] = useState<string | null>(null);
 
   const mixer = useAudioMixer();
 
@@ -64,6 +67,9 @@ export function useSession({
   const sessionStartTimeRef = useRef<number>(0);
   // Keep a ref copy of transcript entries for Firestore sync
   const transcriptEntriesRef = useRef<TranscriptEntry[]>([]);
+  // Ref for sessionId so Gemini callbacks always have the current value
+  // (state-based sessionId creates stale closures in the onmessage handler)
+  const sessionIdRef = useRef<string | null>(null);
 
   /** Convert Float32 audio samples to PCM Int16 and base64-encode for Gemini. */
   const createPCMData = useCallback((data: Float32Array) => {
@@ -103,13 +109,14 @@ export function useSession({
       });
 
       // Sync to Firestore (fire-and-forget — errors are logged, not thrown)
-      if (sessionId) {
-        syncTranscriptToFirestore(uid, dossierId, sessionId, transcriptEntriesRef.current).catch(
+      const currentSessionId = sessionIdRef.current;
+      if (currentSessionId) {
+        syncTranscriptToFirestore(familyId, dossierId, currentSessionId, [...transcriptEntriesRef.current]).catch(
           (err) => console.error('[Firestore] Transcript sync error:', err),
         );
       }
     },
-    [uid, dossierId, sessionId],
+    [familyId, dossierId],
   );
 
   /**
@@ -131,8 +138,9 @@ export function useSession({
       await mixer.start();
 
       // 2. Create Firestore session
-      const sId = await createSession(uid, dossierId);
+      const sId = await createSession(familyId, dossierId, storytellerUid);
       setSessionId(sId);
+      sessionIdRef.current = sId;
       sessionStartTimeRef.current = Date.now();
 
       // 3. Set up the Gemini function-calling tool for question tracking
@@ -184,10 +192,16 @@ export function useSession({
             source.connect(scriptProcessor);
             scriptProcessor.connect(inputCtx.destination);
 
-            // Send an empty audio frame to trigger the bot's first greeting
+            // Send a text prompt to trigger the bot's first greeting immediately
             sessionPromise.then((session) =>
-              session.sendRealtimeInput({
-                media: { data: '', mimeType: 'audio/pcm;rate=16000' },
+              session.sendClientContent({
+                turns: [
+                  {
+                    role: 'user',
+                    parts: [{ text: `[Session started. Greet ${dossier.storytellerName} now.]` }],
+                  },
+                ],
+                turnComplete: true,
               }),
             );
           },
@@ -200,7 +214,7 @@ export function useSession({
                   const { id, status, findings } = fc.args as any;
                   // Update local state + Firestore
                   onQuestionUpdate(id, status, findings);
-                  updateQuestionStateInFirestore(uid, dossierId, id, status, findings).catch(
+                  updateQuestionStateInFirestore(familyId, dossierId, id, status, findings).catch(
                     (err) => console.error('[Firestore] Question update error:', err),
                   );
                   // Respond to the tool call so the model can continue
@@ -287,11 +301,14 @@ export function useSession({
       });
 
       sessionRef.current = await sessionPromise;
-    } catch (err) {
+    } catch (err: any) {
       console.error('[Session] Start error:', err);
+      if (err.name === 'NoMicrophoneError' || err.name === 'NotFoundError' || err.name === 'NotAllowedError' || err.message?.includes('microphone')) {
+        setDeviceError(err.message);
+      }
       setStatus(ConnectionStatus.ERROR);
     }
-  }, [uid, dossierId, dossier, questions, mixer, addMessage, createPCMData, handleInterruption, onQuestionUpdate, status]);
+  }, [familyId, dossierId, storytellerUid, dossier, questions, mixer, addMessage, createPCMData, handleInterruption, onQuestionUpdate, status]);
 
   /**
    * Gracefully stop the current session.
@@ -317,19 +334,34 @@ export function useSession({
     const durationSeconds = Math.round((Date.now() - sessionStartTimeRef.current) / 1000);
 
     // Upload audio and finalize session
-    if (sessionId && audioBlob) {
-      try {
-        const audioUrl = await archiveAudioToGCS(audioBlob, uid, dossierId, sessionId);
-        await finalizeSession(uid, dossierId, sessionId, 'completed', durationSeconds, audioUrl);
-      } catch (err) {
-        console.error('[Session] Archive error:', err);
-        // Still mark session as completed even if upload fails
-        await finalizeSession(uid, dossierId, sessionId, 'completed', durationSeconds).catch(() => {});
+    const currentSessionId = sessionIdRef.current;
+    if (currentSessionId) {
+      // Final transcript sync — ensure all entries are persisted
+      if (transcriptEntriesRef.current.length > 0) {
+        try {
+          await syncTranscriptToFirestore(familyId, dossierId, currentSessionId, [...transcriptEntriesRef.current]);
+        } catch (err) {
+          console.error('[Session] Final transcript sync error:', err);
+        }
+      }
+
+      if (audioBlob) {
+        try {
+          const audioUrl = await archiveAudioToGCS(audioBlob, familyId, dossierId, currentSessionId);
+          await finalizeSession(familyId, dossierId, currentSessionId, 'completed', durationSeconds, audioUrl);
+        } catch (err) {
+          console.error('[Session] Archive error:', err);
+          // Still mark session as completed even if upload fails
+          await finalizeSession(familyId, dossierId, currentSessionId, 'completed', durationSeconds).catch(() => {});
+        }
+      } else {
+        await finalizeSession(familyId, dossierId, currentSessionId, 'completed', durationSeconds).catch(() => {});
       }
     }
 
+    sessionIdRef.current = null;
     setStatus(ConnectionStatus.DISCONNECTED);
-  }, [uid, dossierId, sessionId, mixer, handleInterruption]);
+  }, [familyId, dossierId, mixer, handleInterruption]);
 
   /**
    * Flush partial session data on error (for partial recovery).
@@ -338,35 +370,45 @@ export function useSession({
   const flushPartialSession = useCallback(async () => {
     const partialBlob = mixer.flush();
     const durationSeconds = Math.round((Date.now() - sessionStartTimeRef.current) / 1000);
+    const currentSessionId = sessionIdRef.current;
 
-    if (sessionId) {
+    if (currentSessionId) {
+      // Ensure transcript is synced first
+      if (transcriptEntriesRef.current.length > 0) {
+        try {
+          await syncTranscriptToFirestore(familyId, dossierId, currentSessionId, [...transcriptEntriesRef.current]);
+        } catch (err) {
+          console.error('[Firestore] Final transcript sync error:', err);
+        }
+      }
+
       // Upload whatever audio we have
       if (partialBlob) {
         try {
-          const audioUrl = await archiveAudioToGCS(partialBlob, uid, dossierId, sessionId);
-          await finalizeSession(uid, dossierId, sessionId, 'interrupted', durationSeconds, audioUrl);
+          const audioUrl = await archiveAudioToGCS(partialBlob, familyId, dossierId, currentSessionId);
+          await finalizeSession(familyId, dossierId, currentSessionId, 'interrupted', durationSeconds, audioUrl);
         } catch (err) {
           console.error('[Session] Partial archive error:', err);
-          await finalizeSession(uid, dossierId, sessionId, 'interrupted', durationSeconds).catch(() => {});
+          await finalizeSession(familyId, dossierId, currentSessionId, 'interrupted', durationSeconds).catch(() => {});
         }
       } else {
-        await finalizeSession(uid, dossierId, sessionId, 'interrupted', durationSeconds).catch(() => {});
-      }
-
-      // Ensure transcript is synced
-      if (transcriptEntriesRef.current.length > 0) {
-        syncTranscriptToFirestore(uid, dossierId, sessionId, transcriptEntriesRef.current).catch(
-          (err) => console.error('[Firestore] Final transcript sync error:', err),
-        );
+        await finalizeSession(familyId, dossierId, currentSessionId, 'interrupted', durationSeconds).catch(() => {});
       }
     }
-  }, [uid, dossierId, sessionId, mixer]);
+  }, [familyId, dossierId, mixer]);
+
+  const clearDeviceError = useCallback(() => {
+    setDeviceError(null);
+    setStatus(ConnectionStatus.DISCONNECTED);
+  }, []);
 
   return {
     status,
     messages,
     isBotSpeaking,
     sessionId,
+    deviceError,
+    clearDeviceError,
     startSession,
     stopSession,
     flushPartialSession,

@@ -9,12 +9,10 @@
  * appended or created, never overwritten or removed.
  *
  * GCS path convention:
- *   gs://{bucket}/{uid}/{dossierId}/{sessionId}.webm
+ *   gs://{bucket}/{familyId}/{dossierId}/{sessionId}.webm
  *
  * Firestore path for transcripts:
- *   users/{uid}/dossiers/{dossierId}/sessions/{sessionId}/transcript/entries
- *
- * References: design.md §2.2, §3.3, §3.4 | GitHub Issues #10, #11
+ *   families/{familyId}/dossiers/{dossierId}/sessions/{sessionId}/transcript/entries
  */
 
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
@@ -38,11 +36,13 @@ import { TranscriptEntry, SessionMetadata, InterviewQuestion } from '../types';
  * Called when the Storyteller presses "Start" to begin a recording.
  */
 export async function createSession(
-  uid: string,
+  familyId: string,
   dossierId: string,
+  storytellerUid: string,
 ): Promise<string> {
-  const colRef = collection(db, 'users', uid, 'dossiers', dossierId, 'sessions');
+  const colRef = collection(db, 'families', familyId, 'dossiers', dossierId, 'sessions');
   const session: Omit<SessionMetadata, 'id'> = {
+    storytellerUid,
     startTime: Timestamp.now(),
     endTime: null,
     audioUrl: '',
@@ -58,14 +58,14 @@ export async function createSession(
  * Sets the end time, duration, status, and (optionally) the audio URL.
  */
 export async function finalizeSession(
-  uid: string,
+  familyId: string,
   dossierId: string,
   sessionId: string,
   status: 'completed' | 'interrupted',
   durationSeconds: number,
   audioUrl?: string,
 ): Promise<void> {
-  const docRef = doc(db, 'users', uid, 'dossiers', dossierId, 'sessions', sessionId);
+  const docRef = doc(db, 'families', familyId, 'dossiers', dossierId, 'sessions', sessionId);
   await updateDoc(docRef, {
     endTime: Timestamp.now(),
     status,
@@ -84,15 +84,15 @@ export async function finalizeSession(
  * The blob is the mixed User+Bot WebM/Opus recording from the MediaRecorder.
  * Returns the public download URL, which is stored on the session document.
  *
- * Path: {uid}/{dossierId}/{sessionId}.webm
+ * Path: {familyId}/{dossierId}/{sessionId}.webm
  */
 export async function archiveAudioToGCS(
   audioBlob: Blob,
-  uid: string,
+  familyId: string,
   dossierId: string,
   sessionId: string,
 ): Promise<string> {
-  const storagePath = `${uid}/${dossierId}/${sessionId}.webm`;
+  const storagePath = `${familyId}/${dossierId}/${sessionId}.webm`;
   const storageRef = ref(storage, storagePath);
 
   await uploadBytes(storageRef, audioBlob, {
@@ -108,26 +108,22 @@ export async function archiveAudioToGCS(
 // ---------------------------------------------------------------------------
 
 /**
- * Appends a transcript entry to the session's transcript document.
+ * Writes the full transcript to the session's transcript document.
  *
  * Called in real-time as each turn completes during a live session.
- * Uses arrayUnion-style writes — we store the full transcript as an array
- * in a single document for efficient reads during session review.
- *
- * Note: For very long sessions (>1MB document limit), a future improvement
- * would be to split into multiple chunks. For typical 1-hour sessions
- * this is not a concern.
+ * Stores the full transcript as an array in a single document for
+ * efficient reads during session review.
  */
 export async function syncTranscriptToFirestore(
-  uid: string,
+  familyId: string,
   dossierId: string,
   sessionId: string,
   entries: TranscriptEntry[],
 ): Promise<void> {
   const docRef = doc(
     db,
-    'users',
-    uid,
+    'families',
+    familyId,
     'dossiers',
     dossierId,
     'sessions',
@@ -148,13 +144,13 @@ export async function syncTranscriptToFirestore(
  * a live session, and by the Archivist when manually overriding status.
  */
 export async function updateQuestionStateInFirestore(
-  uid: string,
+  familyId: string,
   dossierId: string,
   questionId: string,
   status: string,
   findings: string,
 ): Promise<void> {
-  const docRef = doc(db, 'users', uid, 'dossiers', dossierId, 'questions', questionId);
+  const docRef = doc(db, 'families', familyId, 'dossiers', dossierId, 'questions', questionId);
   await updateDoc(docRef, {
     status,
     findings,

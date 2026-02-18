@@ -28,7 +28,7 @@ import { TranscriptFeed } from './TranscriptFeed';
 import { ConnectionStatus } from '../../types';
 
 export const SessionView: React.FC = () => {
-  const { dossierId } = useParams<{ dossierId: string }>();
+  const { familyId, dossierId } = useParams<{ familyId: string; dossierId: string }>();
   const { user } = useAuth();
   const navigate = useNavigate();
   const {
@@ -36,7 +36,7 @@ export const SessionView: React.FC = () => {
     questions,
     loading: dossierLoading,
     updateQuestion,
-  } = useDossier(user?.uid, dossierId);
+  } = useDossier(familyId, dossierId);
 
   /** Handler for Gemini function-calling question updates during a session. */
   const handleQuestionUpdate = useCallback(
@@ -51,12 +51,15 @@ export const SessionView: React.FC = () => {
     messages,
     isBotSpeaking,
     sessionId,
+    deviceError,
+    clearDeviceError,
     startSession,
     stopSession,
     flushPartialSession,
   } = useSession({
-    uid: user?.uid ?? '',
+    familyId: familyId ?? '',
     dossierId: dossierId ?? '',
+    storytellerUid: user?.uid ?? '',
     dossier: dossier!,
     questions,
     onQuestionUpdate: handleQuestionUpdate,
@@ -74,7 +77,7 @@ export const SessionView: React.FC = () => {
     <div className="flex flex-col items-center justify-center min-h-screen bg-slate-50 p-6 space-y-8">
       {/* Back to Dossier link (small, unobtrusive) */}
       <button
-        onClick={() => navigate(`/dossier/${dossierId}`)}
+        onClick={() => navigate(`/family/${familyId}/dossier/${dossierId}`)}
         className="absolute top-4 left-4 text-sm text-slate-400 hover:text-slate-600 transition-colors"
       >
         &larr; Back to Dossier
@@ -152,8 +155,44 @@ export const SessionView: React.FC = () => {
       {/* Live transcript feed */}
       <TranscriptFeed messages={messages} sessionId={sessionId} />
 
-      {/* Error recovery dialog */}
-      {status === ConnectionStatus.ERROR && (
+      {/* Device error dialog (microphone issues) */}
+      {status === ConnectionStatus.ERROR && deviceError && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/80 backdrop-blur-sm p-4 text-center">
+          <div className="bg-white p-8 rounded-[2rem] shadow-2xl max-w-md space-y-6">
+            <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mx-auto">
+              <svg className="w-8 h-8 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+              </svg>
+            </div>
+            <h2 className="text-2xl font-bold text-slate-800">
+              Microphone Issue
+            </h2>
+            <p className="text-slate-500">
+              {deviceError}
+            </p>
+            <div className="flex flex-col gap-3">
+              <button
+                onClick={() => {
+                  clearDeviceError();
+                  startSession();
+                }}
+                className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-colors"
+              >
+                Try Again
+              </button>
+              <button
+                onClick={() => navigate(`/family/${familyId}/dossier/${dossierId}`)}
+                className="w-full py-3 text-slate-500 font-medium hover:text-slate-700 transition-colors"
+              >
+                Back to Dossier
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Connection error dialog (non-device errors) */}
+      {status === ConnectionStatus.ERROR && !deviceError && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/80 backdrop-blur-sm p-4 text-center">
           <div className="bg-white p-8 rounded-[2rem] shadow-2xl max-w-md space-y-6">
             <h2 className="text-2xl font-bold text-slate-800">
@@ -176,7 +215,7 @@ export const SessionView: React.FC = () => {
               <button
                 onClick={async () => {
                   await flushPartialSession();
-                  navigate(`/dossier/${dossierId}`);
+                  navigate(`/family/${familyId}/dossier/${dossierId}`);
                 }}
                 className="w-full py-3 text-slate-500 font-medium hover:text-slate-700 transition-colors"
               >

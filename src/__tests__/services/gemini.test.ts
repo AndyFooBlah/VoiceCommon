@@ -15,6 +15,7 @@ import { Dossier, InterviewQuestion } from '../../types';
 /** Minimal valid Dossier for testing. */
 function makeDossier(overrides: Partial<Dossier> = {}): Dossier {
   return {
+    storytellerUid: null,
     storytellerName: 'Margaret',
     storytellerContext: 'Grew up on a farm in Iowa.',
     historicalContext: 'Post-war rural America, 1950s.',
