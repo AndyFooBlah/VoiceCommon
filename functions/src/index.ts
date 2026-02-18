@@ -4,11 +4,12 @@
  * onInvitationCreated: Triggered when a new invitation document is created.
  * Sends an email to the invitee with a link to accept the invitation.
  *
- * Environment variables (set via firebase functions:config:set):
- *   smtp.host, smtp.port, smtp.user, smtp.pass, app.url
+ * Environment variables (set via .env or .env.<project> in functions/):
+ *   SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, APP_URL
  */
 
 import * as functions from 'firebase-functions';
+import { defineString, defineSecret } from 'firebase-functions/params';
 import * as admin from 'firebase-admin';
 import * as nodemailer from 'nodemailer';
 
@@ -16,12 +17,20 @@ admin.initializeApp();
 
 const db = admin.firestore();
 
+// Environment parameters (set via functions/.env or Firebase Console)
+const smtpHost = defineString('SMTP_HOST', { default: '' });
+const smtpPort = defineString('SMTP_PORT', { default: '587' });
+const smtpUser = defineString('SMTP_USER', { default: '' });
+const smtpPass = defineSecret('SMTP_PASS');
+const appUrl = defineString('APP_URL', { default: 'https://legacybot.web.app' });
+
 /**
  * Triggered when a new document is created in the invitations collection.
  * Sends an invitation email with a link to join the family.
  */
-export const onInvitationCreated = functions.firestore
-  .document('invitations/{inviteId}')
+export const onInvitationCreated = functions
+  .runWith({ secrets: [smtpPass] })
+  .firestore.document('invitations/{inviteId}')
   .onCreate(async (snapshot, context) => {
     const invitation = snapshot.data();
     const inviteId = context.params.inviteId;
@@ -56,32 +65,31 @@ export const onInvitationCreated = functions.firestore
     }
 
     // Build the invitation URL
-    const appUrl = functions.config().app?.url ?? 'https://legacybot.web.app';
-    const inviteUrl = `${appUrl}/invite?token=${inviteId}`;
+    const inviteUrl = `${appUrl.value()}/invite?token=${inviteId}`;
 
     // Set up email transport
-    const smtpConfig = functions.config().smtp;
-    if (!smtpConfig?.host || !smtpConfig?.user || !smtpConfig?.pass) {
+    if (!smtpHost.value() || !smtpUser.value() || !smtpPass.value()) {
       functions.logger.error(
-        'SMTP not configured. Set smtp.host, smtp.port, smtp.user, smtp.pass via firebase functions:config:set',
+        'SMTP not configured. Set SMTP_HOST, SMTP_USER, SMTP_PASS via functions/.env or Firebase secrets.',
       );
       return;
     }
 
+    const port = parseInt(smtpPort.value(), 10);
     const transporter = nodemailer.createTransport({
-      host: smtpConfig.host,
-      port: parseInt(smtpConfig.port ?? '587', 10),
-      secure: smtpConfig.port === '465',
+      host: smtpHost.value(),
+      port,
+      secure: port === 465,
       auth: {
-        user: smtpConfig.user,
-        pass: smtpConfig.pass,
+        user: smtpUser.value(),
+        pass: smtpPass.value(),
       },
     });
 
     const roleText = roles.join(' and ');
 
     const mailOptions = {
-      from: `"LegacyBot" <${smtpConfig.user}>`,
+      from: `"LegacyBot" <${smtpUser.value()}>`,
       to: email,
       subject: `${inviterName} invited you to ${familyName} on LegacyBot`,
       html: `

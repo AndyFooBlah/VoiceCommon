@@ -58,6 +58,7 @@ export function useSession({
   const [isBotSpeaking, setIsBotSpeaking] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [deviceError, setDeviceError] = useState<string | null>(null);
+  const [connectivityWarning, setConnectivityWarning] = useState<string | null>(null);
 
   const mixer = useAudioMixer();
 
@@ -136,6 +137,31 @@ export function useSession({
       setStatus(ConnectionStatus.CONNECTING);
       setMessages([]);
       transcriptEntriesRef.current = [];
+      setConnectivityWarning(null);
+
+      // 0. Connectivity check + session history fetch (combined to avoid duplicate call)
+      let completedSessionCount = 0;
+      let previousSessionSummary: string | undefined;
+      try {
+        const start = Date.now();
+        [completedSessionCount, previousSessionSummary] = await Promise.all([
+          Promise.race([
+            getCompletedSessionCount(familyId, dossierId),
+            new Promise<number>((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000)),
+          ]).catch(() => 0),
+          getPreviousSessionSummary(familyId, dossierId).catch(() => undefined),
+        ]);
+        const latency = Date.now() - start;
+        if (latency > 500) {
+          setConnectivityWarning(
+            `Your connection seems slow (${Math.round(latency)}ms latency). The session may experience interruptions.`,
+          );
+        }
+      } catch {
+        setConnectivityWarning(
+          'Network connectivity issue detected. The session may be unreliable — check your internet connection.',
+        );
+      }
 
       // 1. Start audio mixer
       await mixer.start();
@@ -145,12 +171,6 @@ export function useSession({
       setSessionId(sId);
       sessionIdRef.current = sId;
       sessionStartTimeRef.current = Date.now();
-
-      // 3. Fetch session history for context-aware greeting
-      const [completedSessionCount, previousSessionSummary] = await Promise.all([
-        getCompletedSessionCount(familyId, dossierId).catch(() => 0),
-        getPreviousSessionSummary(familyId, dossierId).catch(() => undefined),
-      ]);
 
       // 4. Set up Gemini function-calling tools
       const updateQuestionStatusTool: FunctionDeclaration = {
@@ -452,13 +472,19 @@ export function useSession({
     setStatus(ConnectionStatus.DISCONNECTED);
   }, []);
 
+  const dismissConnectivityWarning = useCallback(() => {
+    setConnectivityWarning(null);
+  }, []);
+
   return {
     status,
     messages,
     isBotSpeaking,
     sessionId,
     deviceError,
+    connectivityWarning,
     clearDeviceError,
+    dismissConnectivityWarning,
     startSession,
     stopSession,
     flushPartialSession,
