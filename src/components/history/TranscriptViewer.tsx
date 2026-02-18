@@ -9,9 +9,15 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../hooks/useAuth';
-import { TranscriptEntry, SessionMetadata, SessionEngagement, SuggestedQuestion } from '../../types';
+import { TranscriptEntry, SessionMetadata, SessionEngagement, SuggestedQuestion, AudioClip } from '../../types';
 import { AudioPlayer } from './AudioPlayer';
-import { getEngagementAssessment, getSuggestedQuestions, saveEditedTranscript } from '../../services/storage';
+import { getEngagementAssessment, getSuggestedQuestions, saveEditedTranscript, saveAudioClip, getAudioClips, deleteAudioClip } from '../../services/storage';
+
+function formatClipTime(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  return `${m}:${s.toString().padStart(2, '0')}`;
+}
 
 export const TranscriptViewer: React.FC = () => {
   const { familyId, dossierId, sessionId } = useParams<{
@@ -27,6 +33,7 @@ export const TranscriptViewer: React.FC = () => {
   const [session, setSession] = useState<SessionMetadata | null>(null);
   const [engagement, setEngagement] = useState<SessionEngagement | null>(null);
   const [suggestions, setSuggestions] = useState<SuggestedQuestion[]>([]);
+  const [clips, setClips] = useState<AudioClip[]>([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
   const [savingEdits, setSavingEdits] = useState(false);
@@ -69,9 +76,10 @@ export const TranscriptViewer: React.FC = () => {
         }
       }
 
-      // Load analysis data (non-blocking)
+      // Load analysis data and clips (non-blocking)
       getEngagementAssessment(familyId!, dossierId!, sessionId!).then(setEngagement).catch(() => {});
       getSuggestedQuestions(familyId!, dossierId!, sessionId!).then(setSuggestions).catch(() => {});
+      getAudioClips(familyId!, dossierId!).then((all) => setClips(all.filter((c) => c.sessionId === sessionId))).catch(() => {});
 
       setLoading(false);
     }
@@ -172,10 +180,71 @@ export const TranscriptViewer: React.FC = () => {
         )}
       </div>
 
-      {session?.audioUrl && <AudioPlayer audioUrl={session.audioUrl} durationSeconds={session.durationSeconds} />}
+      {session?.audioUrl && (
+        <AudioPlayer
+          audioUrl={session.audioUrl}
+          durationSeconds={session.durationSeconds}
+          onCreateClip={async (startSeconds, endSeconds) => {
+            if (!familyId || !dossierId || !sessionId || !user || !session.audioUrl) return;
+            const title = prompt('Name this clip:');
+            if (!title) return;
+            try {
+              // Fetch the full audio and extract the clip range using MediaSource
+              const response = await fetch(session.audioUrl);
+              const fullBlob = await response.blob();
+              // For WebM we store the full blob with time range metadata
+              // (true audio slicing requires server-side processing)
+              await saveAudioClip(familyId, dossierId, fullBlob, {
+                sessionId,
+                title,
+                startSeconds,
+                endSeconds,
+                eventIds: [],
+                createdBy: user.uid,
+              });
+              const updated = await getAudioClips(familyId, dossierId);
+              setClips(updated.filter((c) => c.sessionId === sessionId));
+            } catch (err) {
+              console.error('[Clip] Save error:', err);
+              alert('Failed to save clip.');
+            }
+          }}
+        />
+      )}
       {session && !session.audioUrl && (
         <div className="bg-slate-50 rounded-xl p-4 text-sm text-slate-400 italic text-center">
           Audio not available for this session.
+        </div>
+      )}
+
+      {/* Audio clips */}
+      {clips.length > 0 && (
+        <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-3">
+          <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+            Audio Clips ({clips.length})
+          </p>
+          {clips.map((clip) => (
+            <div key={clip.id} className="flex items-center gap-3 bg-slate-50 rounded-xl p-3">
+              <audio src={clip.clipUrl} controls className="h-8 flex-1" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-slate-800 truncate">{clip.title}</p>
+                <p className="text-xs text-slate-400">
+                  {formatClipTime(clip.startSeconds)} &ndash; {formatClipTime(clip.endSeconds)}
+                </p>
+              </div>
+              <button
+                onClick={async () => {
+                  if (!familyId || !dossierId || !clip.id) return;
+                  if (!confirm('Delete this clip?')) return;
+                  await deleteAudioClip(familyId, dossierId, clip.id);
+                  setClips((prev) => prev.filter((c) => c.id !== clip.id));
+                }}
+                className="text-xs text-rose-500 hover:underline shrink-0"
+              >
+                Delete
+              </button>
+            </div>
+          ))}
         </div>
       )}
 

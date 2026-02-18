@@ -81,6 +81,20 @@ service cloud.firestore {
           allow read, write: if isFamilyStoryteller(familyId) && isOwnDossier(familyId, dossierId);
         }
 
+        // --- Audio clips ---
+        match /clips/{clipId} {
+          allow read, write: if isFamilyAdmin(familyId);
+          allow read: if isFamilyStoryteller(familyId) && isOwnDossier(familyId, dossierId);
+          allow create: if isFamilyStoryteller(familyId) && isOwnDossier(familyId, dossierId);
+        }
+
+        // --- Media attachments ---
+        match /media/{mediaId} {
+          allow read, write: if isFamilyAdmin(familyId);
+          allow read: if isFamilyStoryteller(familyId) && isOwnDossier(familyId, dossierId);
+          allow create: if isFamilyStoryteller(familyId) && isOwnDossier(familyId, dossierId);
+        }
+
         // --- Memoirs ---
         match /memoirs/{memoirId} {
           allow read, write: if isFamilyAdmin(familyId);

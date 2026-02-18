@@ -39,6 +39,8 @@ import {
   SessionEngagement,
   SuggestedQuestion,
   Memoir,
+  MediaItem,
+  AudioClip,
 } from '../types';
 
 // ---------------------------------------------------------------------------
@@ -469,4 +471,136 @@ export async function getAllSessionTranscripts(
     }
   }
   return results;
+}
+
+// ---------------------------------------------------------------------------
+// Media attachments (#39)
+// ---------------------------------------------------------------------------
+
+/**
+ * Upload a media file to Firebase Storage and create a Firestore metadata doc.
+ */
+export async function uploadMedia(
+  familyId: string,
+  dossierId: string,
+  file: File,
+  meta: Pick<MediaItem, 'caption' | 'date' | 'people' | 'eventIds'>,
+  uploaderUid: string,
+): Promise<string> {
+  const mediaId = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+  const storagePath = `${familyId}/${dossierId}/media/${mediaId}`;
+  const storageRef = ref(storage, storagePath);
+
+  await uploadBytes(storageRef, file, { contentType: file.type });
+  const storageUrl = await getDownloadURL(storageRef);
+
+  const colRef = collection(db, 'families', familyId, 'dossiers', dossierId, 'media');
+  const item: Omit<MediaItem, 'id'> = {
+    filename: file.name,
+    storageUrl,
+    mimeType: file.type,
+    sizeBytes: file.size,
+    caption: meta.caption,
+    date: meta.date,
+    people: meta.people,
+    eventIds: meta.eventIds,
+    uploadedBy: uploaderUid,
+    createdAt: Timestamp.now(),
+  };
+  const docRef = await addDoc(colRef, item);
+  return docRef.id;
+}
+
+/**
+ * Fetch all media items for a dossier.
+ */
+export async function getMedia(
+  familyId: string,
+  dossierId: string,
+): Promise<MediaItem[]> {
+  const colRef = collection(db, 'families', familyId, 'dossiers', dossierId, 'media');
+  const q = query(colRef, orderBy('createdAt', 'desc'));
+  const snapshot = await getDocs(q);
+  return snapshot.docs.map((d) => ({ ...d.data(), id: d.id }) as MediaItem);
+}
+
+/**
+ * Update a media item's metadata.
+ */
+export async function updateMedia(
+  familyId: string,
+  dossierId: string,
+  mediaId: string,
+  updates: Partial<Pick<MediaItem, 'caption' | 'date' | 'people' | 'eventIds'>>,
+): Promise<void> {
+  const docRef = doc(db, 'families', familyId, 'dossiers', dossierId, 'media', mediaId);
+  await updateDoc(docRef, updates);
+}
+
+/**
+ * Delete a media item (removes Firestore doc; Storage file remains per "never delete" policy).
+ */
+export async function deleteMedia(
+  familyId: string,
+  dossierId: string,
+  mediaId: string,
+): Promise<void> {
+  const { deleteDoc: firestoreDeleteDoc } = await import('firebase/firestore');
+  const docRef = doc(db, 'families', familyId, 'dossiers', dossierId, 'media', mediaId);
+  await firestoreDeleteDoc(docRef);
+}
+
+// ---------------------------------------------------------------------------
+// Audio clips (#42)
+// ---------------------------------------------------------------------------
+
+/**
+ * Save an audio clip (blob + metadata) to Storage and Firestore.
+ */
+export async function saveAudioClip(
+  familyId: string,
+  dossierId: string,
+  clipBlob: Blob,
+  meta: Omit<AudioClip, 'id' | 'clipUrl' | 'createdAt'>,
+): Promise<string> {
+  const clipId = `clip_${Date.now()}`;
+  const storagePath = `${familyId}/${dossierId}/clips/${clipId}.webm`;
+  const storageRef = ref(storage, storagePath);
+
+  await uploadBytes(storageRef, clipBlob, { contentType: 'audio/webm;codecs=opus' });
+  const clipUrl = await getDownloadURL(storageRef);
+
+  const colRef = collection(db, 'families', familyId, 'dossiers', dossierId, 'clips');
+  const docRef = await addDoc(colRef, {
+    ...meta,
+    clipUrl,
+    createdAt: Timestamp.now(),
+  });
+  return docRef.id;
+}
+
+/**
+ * Fetch all audio clips for a dossier.
+ */
+export async function getAudioClips(
+  familyId: string,
+  dossierId: string,
+): Promise<AudioClip[]> {
+  const colRef = collection(db, 'families', familyId, 'dossiers', dossierId, 'clips');
+  const q = query(colRef, orderBy('createdAt', 'desc'));
+  const snapshot = await getDocs(q);
+  return snapshot.docs.map((d) => ({ ...d.data(), id: d.id }) as AudioClip);
+}
+
+/**
+ * Delete an audio clip (Firestore doc only; Storage remains).
+ */
+export async function deleteAudioClip(
+  familyId: string,
+  dossierId: string,
+  clipId: string,
+): Promise<void> {
+  const { deleteDoc: firestoreDeleteDoc } = await import('firebase/firestore');
+  const docRef = doc(db, 'families', familyId, 'dossiers', dossierId, 'clips', clipId);
+  await firestoreDeleteDoc(docRef);
 }

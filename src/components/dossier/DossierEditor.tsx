@@ -112,6 +112,12 @@ export const DossierEditor: React.FC = () => {
             Events
           </button>
           <button
+            onClick={() => navigate(`/family/${familyId}/dossier/${dossierId}/media`)}
+            className="px-4 py-2 bg-white border border-slate-200 text-slate-600 rounded-xl text-sm font-semibold hover:bg-slate-50 transition-colors"
+          >
+            Photos
+          </button>
+          <button
             onClick={() => navigate(`/family/${familyId}/dossier/${dossierId}/history`)}
             className="px-4 py-2 bg-white border border-slate-200 text-slate-600 rounded-xl text-sm font-semibold hover:bg-slate-50 transition-colors"
           >

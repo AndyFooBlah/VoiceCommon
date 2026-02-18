@@ -16,6 +16,7 @@ import {
   getAllSessionTranscripts,
 } from '../../services/storage';
 import { generateFullMemoir } from '../../services/memoirGeneration';
+import { exportMemoirAsPdf } from '../../services/memoirExport';
 
 export const MemoirViewer: React.FC = () => {
   const { familyId, dossierId } = useParams<{ familyId: string; dossierId: string }>();
@@ -137,13 +138,23 @@ export const MemoirViewer: React.FC = () => {
             </div>
           )}
         </div>
-        <button
-          onClick={handleGenerate}
-          disabled={generating}
-          className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl font-semibold hover:bg-indigo-700 transition-colors shadow-lg disabled:opacity-50"
-        >
-          {generating ? 'Generating...' : memoirs.length === 0 ? 'Generate Memoir' : 'Regenerate Memoir'}
-        </button>
+        <div className="flex gap-3">
+          {activeMemoir && activeMemoir.chapters.length > 0 && (
+            <button
+              onClick={() => exportMemoirAsPdf(activeMemoir, dossier?.storytellerName ?? 'Storyteller')}
+              className="px-5 py-2.5 bg-white border border-slate-200 text-slate-700 rounded-xl font-semibold hover:bg-slate-50 transition-colors"
+            >
+              Export PDF
+            </button>
+          )}
+          <button
+            onClick={handleGenerate}
+            disabled={generating}
+            className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl font-semibold hover:bg-indigo-700 transition-colors shadow-lg disabled:opacity-50"
+          >
+            {generating ? 'Generating...' : memoirs.length === 0 ? 'Generate Memoir' : 'Regenerate Memoir'}
+          </button>
+        </div>
       </div>
 
       {generating && (

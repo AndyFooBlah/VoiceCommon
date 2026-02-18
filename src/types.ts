@@ -236,6 +236,43 @@ export interface ChapterCitation {
 }
 
 // ---------------------------------------------------------------------------
+// Media Attachments (#39)
+// ---------------------------------------------------------------------------
+
+/** Firestore document at families/{familyId}/dossiers/{dossierId}/media/{mediaId}. */
+export interface MediaItem {
+  id?: string;
+  filename: string;
+  storageUrl: string; // Firebase Storage download URL
+  thumbnailUrl?: string;
+  mimeType: string;
+  sizeBytes: number;
+  caption: string;
+  date: string | null; // ISO date or fuzzy
+  people: string[];
+  eventIds: string[]; // linked StoryEvent IDs
+  uploadedBy: string; // uid
+  createdAt: Timestamp;
+}
+
+// ---------------------------------------------------------------------------
+// Audio Clips (#42)
+// ---------------------------------------------------------------------------
+
+/** Firestore document at families/{familyId}/dossiers/{dossierId}/clips/{clipId}. */
+export interface AudioClip {
+  id?: string;
+  sessionId: string;
+  title: string;
+  startSeconds: number;
+  endSeconds: number;
+  clipUrl: string; // Firebase Storage download URL for the extracted clip
+  eventIds: string[]; // linked StoryEvent IDs
+  createdBy: string; // uid
+  createdAt: Timestamp;
+}
+
+// ---------------------------------------------------------------------------
 // Message (used by the live UI — not directly persisted as-is)
 // ---------------------------------------------------------------------------
 

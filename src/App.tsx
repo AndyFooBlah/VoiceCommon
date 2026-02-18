@@ -28,6 +28,7 @@ import { SessionList } from './components/history/SessionList';
 import { TranscriptViewer } from './components/history/TranscriptViewer';
 import { EventsTimeline } from './components/history/EventsTimeline';
 import { MemoirViewer } from './components/memoir/MemoirViewer';
+import { MediaGallery } from './components/media/MediaGallery';
 import { StorytellerDashboard } from './components/storyteller/StorytellerDashboard';
 import { FamilyHome } from './components/family/FamilyHome';
 
@@ -46,6 +47,7 @@ const App: React.FC = () => {
             <Route path="/family/:familyId/dossier/:dossierId/session" element={<SessionView />} />
             <Route path="/family/:familyId/dossier/:dossierId/memoir" element={<MemoirViewer />} />
             <Route path="/family/:familyId/dossier/:dossierId/events" element={<EventsTimeline />} />
+            <Route path="/family/:familyId/dossier/:dossierId/media" element={<MediaGallery />} />
             <Route path="/family/:familyId/dossier/:dossierId/history" element={<SessionList />} />
             <Route path="/family/:familyId/dossier/:dossierId/history/:sessionId" element={<TranscriptViewer />} />
           </Route>

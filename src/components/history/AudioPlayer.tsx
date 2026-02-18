@@ -14,6 +14,7 @@ import React, { useRef, useState, useEffect, useCallback } from 'react';
 interface AudioPlayerProps {
   audioUrl: string;
   durationSeconds?: number;
+  onCreateClip?: (startSeconds: number, endSeconds: number) => void;
 }
 
 function formatTime(seconds: number): string {
@@ -22,11 +23,14 @@ function formatTime(seconds: number): string {
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
-export const AudioPlayer: React.FC<AudioPlayerProps> = ({ audioUrl, durationSeconds }) => {
+export const AudioPlayer: React.FC<AudioPlayerProps> = ({ audioUrl, durationSeconds, onCreateClip }) => {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [playing, setPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(durationSeconds ?? 0);
+  const [clipping, setClipping] = useState(false);
+  const [clipStart, setClipStart] = useState<number | null>(null);
+  const [clipEnd, setClipEnd] = useState<number | null>(null);
 
   // Update duration from metadata if we don't have it from props,
   // but only if it's a finite value (WebM files often report Infinity)
@@ -125,6 +129,54 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ audioUrl, durationSeco
           {formatTime(currentTime)} / {formatTime(duration)}
         </span>
       </div>
+
+      {/* Clip controls */}
+      {onCreateClip && (
+        <div className="flex items-center gap-3">
+          {!clipping ? (
+            <button
+              onClick={() => { setClipping(true); setClipStart(null); setClipEnd(null); }}
+              className="text-xs text-indigo-600 font-medium hover:underline"
+            >
+              Create clip
+            </button>
+          ) : (
+            <>
+              <button
+                onClick={() => setClipStart(currentTime)}
+                className="text-xs px-3 py-1 rounded-full font-medium bg-emerald-50 text-emerald-600 hover:bg-emerald-100"
+              >
+                {clipStart !== null ? `Start: ${formatTime(clipStart)}` : 'Set start'}
+              </button>
+              <button
+                onClick={() => setClipEnd(currentTime)}
+                className="text-xs px-3 py-1 rounded-full font-medium bg-amber-50 text-amber-600 hover:bg-amber-100"
+              >
+                {clipEnd !== null ? `End: ${formatTime(clipEnd)}` : 'Set end'}
+              </button>
+              {clipStart !== null && clipEnd !== null && clipEnd > clipStart && (
+                <button
+                  onClick={() => {
+                    onCreateClip(clipStart, clipEnd);
+                    setClipping(false);
+                    setClipStart(null);
+                    setClipEnd(null);
+                  }}
+                  className="text-xs px-3 py-1.5 rounded-full font-semibold bg-indigo-600 text-white hover:bg-indigo-700"
+                >
+                  Save clip ({formatTime(clipEnd - clipStart)})
+                </button>
+              )}
+              <button
+                onClick={() => { setClipping(false); setClipStart(null); setClipEnd(null); }}
+                className="text-xs text-slate-400 hover:underline"
+              >
+                Cancel
+              </button>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 };
