@@ -8,7 +8,9 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "deploy": "vite build && firebase deploy",
+    "deploy:preview": "vite build && firebase hosting:channel:deploy preview"
   },
   "dependencies": {
     "@google/genai": "^1.38.0",
