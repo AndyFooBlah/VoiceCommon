@@ -381,6 +381,32 @@ export async function getTranscriptEntries(
 }
 
 // ---------------------------------------------------------------------------
+// Transcript editing (#37)
+// ---------------------------------------------------------------------------
+
+/**
+ * Save edited transcript entries alongside the original.
+ * The original entries are never modified.
+ */
+export async function saveEditedTranscript(
+  familyId: string,
+  dossierId: string,
+  sessionId: string,
+  editedEntries: TranscriptEntry[],
+  editedBy: string,
+): Promise<void> {
+  const docRef = doc(
+    db, 'families', familyId, 'dossiers', dossierId,
+    'sessions', sessionId, 'transcript', 'entries',
+  );
+  await updateDoc(docRef, {
+    editedEntries,
+    editedBy,
+    editedAt: Timestamp.now(),
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Memoir storage (#36)
 // ---------------------------------------------------------------------------
 

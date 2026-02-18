@@ -110,16 +110,31 @@ export const MemoirViewer: React.FC = () => {
             {activeMemoir?.title ?? 'Memoir'}
           </h2>
           {activeMemoir && (
-            <p className="text-sm text-slate-400 mt-1">
-              Status:{' '}
-              <span className={`font-semibold ${
-                activeMemoir.status === 'published' ? 'text-green-600'
-                  : activeMemoir.status === 'generating' ? 'text-amber-600'
-                  : 'text-indigo-600'
-              }`}>
-                {activeMemoir.status}
-              </span>
-            </p>
+            <div className="flex items-center gap-3 mt-1">
+              <span className="text-sm text-slate-400">Status:</span>
+              <select
+                value={activeMemoir.status}
+                onChange={async (e) => {
+                  if (!familyId || !dossierId || !activeMemoir.id) return;
+                  const newStatus = e.target.value as Memoir['status'];
+                  await updateMemoir(familyId, dossierId, activeMemoir.id, { status: newStatus });
+                  setMemoirs((prev) => prev.map((m) =>
+                    m.id === activeMemoir.id ? { ...m, status: newStatus } : m
+                  ));
+                }}
+                className={`text-sm font-semibold rounded-full px-3 py-1 border-0 cursor-pointer ${
+                  activeMemoir.status === 'published' ? 'bg-green-100 text-green-700'
+                    : activeMemoir.status === 'review' ? 'bg-amber-100 text-amber-700'
+                    : activeMemoir.status === 'generating' ? 'bg-slate-100 text-slate-500'
+                    : 'bg-indigo-100 text-indigo-700'
+                }`}
+                disabled={activeMemoir.status === 'generating'}
+              >
+                <option value="draft">Draft</option>
+                <option value="review">Review</option>
+                <option value="published">Published</option>
+              </select>
+            </div>
           )}
         </div>
         <button

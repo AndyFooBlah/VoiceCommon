@@ -4,13 +4,14 @@
  * with speaker labels (Storyteller vs Bot) and timestamps.
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../../services/firebase';
+import { useAuth } from '../../hooks/useAuth';
 import { TranscriptEntry, SessionMetadata, SessionEngagement, SuggestedQuestion } from '../../types';
 import { AudioPlayer } from './AudioPlayer';
-import { getEngagementAssessment, getSuggestedQuestions } from '../../services/storage';
+import { getEngagementAssessment, getSuggestedQuestions, saveEditedTranscript } from '../../services/storage';
 
 export const TranscriptViewer: React.FC = () => {
   const { familyId, dossierId, sessionId } = useParams<{
@@ -19,12 +20,16 @@ export const TranscriptViewer: React.FC = () => {
     sessionId: string;
   }>();
   const navigate = useNavigate();
+  const { user } = useAuth();
 
   const [entries, setEntries] = useState<TranscriptEntry[]>([]);
+  const [editedEntries, setEditedEntries] = useState<TranscriptEntry[] | null>(null);
   const [session, setSession] = useState<SessionMetadata | null>(null);
   const [engagement, setEngagement] = useState<SessionEngagement | null>(null);
   const [suggestions, setSuggestions] = useState<SuggestedQuestion[]>([]);
   const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState(false);
+  const [savingEdits, setSavingEdits] = useState(false);
 
   useEffect(() => {
     if (!familyId || !dossierId || !sessionId) return;
@@ -57,7 +62,11 @@ export const TranscriptViewer: React.FC = () => {
       );
       const transcriptSnap = await getDoc(transcriptRef);
       if (transcriptSnap.exists()) {
-        setEntries(transcriptSnap.data().entries ?? []);
+        const data = transcriptSnap.data();
+        setEntries(data.entries ?? []);
+        if (data.editedEntries) {
+          setEditedEntries(data.editedEntries);
+        }
       }
 
       // Load analysis data (non-blocking)
@@ -110,6 +119,59 @@ export const TranscriptViewer: React.FC = () => {
         )}
       </div>
 
+      {/* Edit controls */}
+      <div className="flex items-center gap-3">
+        {!editing ? (
+          <button
+            onClick={() => {
+              setEditing(true);
+              if (!editedEntries) {
+                setEditedEntries([...entries]);
+              }
+            }}
+            className="text-sm text-indigo-600 font-medium hover:underline"
+          >
+            Edit Transcript
+          </button>
+        ) : (
+          <>
+            <button
+              onClick={async () => {
+                if (!familyId || !dossierId || !sessionId || !editedEntries || !user) return;
+                setSavingEdits(true);
+                try {
+                  await saveEditedTranscript(familyId, dossierId, sessionId, editedEntries, user.uid);
+                  setEditing(false);
+                } catch (err) {
+                  console.error('[Transcript] Save error:', err);
+                  alert('Failed to save edits');
+                } finally {
+                  setSavingEdits(false);
+                }
+              }}
+              disabled={savingEdits}
+              className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-sm font-semibold hover:bg-indigo-700 transition-colors disabled:opacity-50"
+            >
+              {savingEdits ? 'Saving...' : 'Save Edits'}
+            </button>
+            <button
+              onClick={() => { setEditing(false); setEditedEntries(entries.length > 0 ? [...entries] : null); }}
+              className="text-sm text-slate-500 font-medium hover:underline"
+            >
+              Cancel
+            </button>
+            <span className="text-xs text-slate-400">
+              Editing corrects names, dates, and context. Original transcript is always preserved.
+            </span>
+          </>
+        )}
+        {editedEntries && !editing && (
+          <span className="text-xs text-emerald-600 font-medium">
+            (showing edited version)
+          </span>
+        )}
+      </div>
+
       {session?.audioUrl && <AudioPlayer audioUrl={session.audioUrl} durationSeconds={session.durationSeconds} />}
       {session && !session.audioUrl && (
         <div className="bg-slate-50 rounded-xl p-4 text-sm text-slate-400 italic text-center">
@@ -118,12 +180,16 @@ export const TranscriptViewer: React.FC = () => {
       )}
 
       <div className="bg-white rounded-3xl border border-slate-200 p-8 space-y-6 shadow-sm">
-        {entries.length === 0 ? (
-          <p className="text-slate-400 italic text-center py-8">
-            No transcript entries for this session.
-          </p>
-        ) : (
-          entries.map((entry, idx) => (
+        {(() => {
+          const displayEntries = editing ? (editedEntries ?? entries) : (editedEntries ?? entries);
+          if (displayEntries.length === 0) {
+            return (
+              <p className="text-slate-400 italic text-center py-8">
+                No transcript entries for this session.
+              </p>
+            );
+          }
+          return displayEntries.map((entry, idx) => (
             <div
               key={idx}
               className={`flex ${entry.role === 'user' ? 'justify-end' : 'justify-start'}`}
@@ -156,11 +222,26 @@ export const TranscriptViewer: React.FC = () => {
                     </span>
                   )}
                 </div>
-                {entry.text}
+                {editing ? (
+                  <textarea
+                    value={entry.text}
+                    onChange={(e) => {
+                      const updated = [...(editedEntries ?? entries)];
+                      updated[idx] = { ...updated[idx], text: e.target.value };
+                      setEditedEntries(updated);
+                    }}
+                    className={`w-full bg-transparent resize-none outline-none ${
+                      entry.role === 'user' ? 'text-white placeholder-indigo-300' : 'text-slate-700'
+                    }`}
+                    rows={Math.max(2, Math.ceil(entry.text.length / 60))}
+                  />
+                ) : (
+                  entry.text
+                )}
               </div>
             </div>
-          ))
-        )}
+          ));
+        })()}
       </div>
 
       {/* Engagement Assessment */}
