@@ -16,17 +16,19 @@
  * References: design.md §4 | GitHub Issues #4, #5, #6, #7
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { useDossier } from '../../hooks/useDossier';
+import { useFamilyInvitations } from '../../hooks/useInvitations';
 import { StorytellerProfile } from './StorytellerProfile';
 import { PersonalityMode, VoicePreset, FamilyMember } from '../../types';
 
 export const DossierEditor: React.FC = () => {
-  const { dossierId } = useParams<{ dossierId: string }>();
-  const { user } = useAuth();
+  const { familyId, dossierId } = useParams<{ familyId: string; dossierId: string }>();
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const { createInvite } = useFamilyInvitations(familyId);
   const {
     dossier,
     questions,
@@ -35,7 +37,27 @@ export const DossierEditor: React.FC = () => {
     addQuestion,
     removeQuestion,
     updateQuestion,
-  } = useDossier(user?.uid, dossierId);
+  } = useDossier(familyId, dossierId);
+
+  // Invite storyteller state
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteLink, setInviteLink] = useState<string | null>(null);
+  const [inviting, setInviting] = useState(false);
+
+  async function handleInviteStoryteller() {
+    if (!familyId || !dossierId || !inviteEmail.trim() || !user) return;
+    setInviting(true);
+    try {
+      const inviteId = await createInvite(inviteEmail.trim(), ['storyteller'], [dossierId], user.uid);
+      const link = `${window.location.origin}/invite?token=${inviteId}&email=${encodeURIComponent(inviteEmail.trim())}`;
+      setInviteLink(link);
+    } catch (err: any) {
+      console.error('[DossierEditor] Invite error:', err);
+      alert(err.message || 'Failed to create invitation');
+    } finally {
+      setInviting(false);
+    }
+  }
 
   if (loading || !dossier) {
     return (
@@ -67,7 +89,7 @@ export const DossierEditor: React.FC = () => {
       <div className="flex items-center justify-between">
         <div>
           <button
-            onClick={() => navigate('/')}
+            onClick={() => navigate(`/family/${familyId}`)}
             className="text-sm text-indigo-600 font-medium hover:underline mb-1"
           >
             &larr; All Storytellers
@@ -78,13 +100,13 @@ export const DossierEditor: React.FC = () => {
         </div>
         <div className="flex gap-3">
           <button
-            onClick={() => navigate(`/dossier/${dossierId}/history`)}
+            onClick={() => navigate(`/family/${familyId}/dossier/${dossierId}/history`)}
             className="px-4 py-2 bg-white border border-slate-200 text-slate-600 rounded-xl text-sm font-semibold hover:bg-slate-50 transition-colors"
           >
             Session History
           </button>
           <button
-            onClick={() => navigate(`/dossier/${dossierId}/session`)}
+            onClick={() => navigate(`/family/${familyId}/dossier/${dossierId}/session`)}
             disabled={!dossier.storytellerName.trim()}
             className="px-5 py-2 bg-indigo-600 text-white rounded-xl text-sm font-semibold hover:bg-indigo-700 transition-colors shadow-lg disabled:opacity-50"
           >
@@ -92,6 +114,69 @@ export const DossierEditor: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* Invite storyteller — shown when dossier has no linked user */}
+      {!dossier.storytellerUid && (
+        inviteLink ? (
+          <div className="bg-green-50 rounded-2xl border border-green-200 p-6 space-y-3">
+            <p className="font-semibold text-green-700">
+              Invite link for {dossier.storytellerName}:
+            </p>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                readOnly
+                value={inviteLink}
+                className="flex-1 p-3 bg-white border border-green-200 rounded-xl text-sm text-slate-700 select-all"
+                onClick={(e) => (e.target as HTMLInputElement).select()}
+              />
+              <button
+                onClick={() => navigator.clipboard.writeText(inviteLink)}
+                className="px-4 py-2 bg-green-600 text-white rounded-xl text-sm font-semibold hover:bg-green-700 transition-colors"
+              >
+                Copy
+              </button>
+            </div>
+            <p className="text-xs text-green-600">
+              Send this link to {inviteEmail} so they can create an account and start recording.
+            </p>
+            <button
+              onClick={() => { setInviteLink(null); setInviteEmail(''); }}
+              className="text-sm text-green-600 font-medium hover:underline"
+            >
+              Dismiss
+            </button>
+          </div>
+        ) : (
+          <div className="bg-amber-50 rounded-2xl border border-amber-200 p-5 space-y-3">
+            <div className="flex items-center gap-2">
+              <svg className="w-5 h-5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+              </svg>
+              <p className="font-semibold text-amber-700 text-sm">
+                No storyteller linked — invite someone to record as {dossier.storytellerName}
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <input
+                type="email"
+                value={inviteEmail}
+                onChange={(e) => setInviteEmail(e.target.value)}
+                placeholder="storyteller@email.com"
+                className="flex-1 p-2.5 bg-white border border-amber-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-amber-400"
+                onKeyDown={(e) => e.key === 'Enter' && handleInviteStoryteller()}
+              />
+              <button
+                onClick={handleInviteStoryteller}
+                disabled={!inviteEmail.trim() || inviting}
+                className="px-4 py-2 bg-amber-500 text-white rounded-xl text-sm font-semibold hover:bg-amber-600 transition-colors disabled:opacity-50"
+              >
+                {inviting ? 'Sending...' : 'Send Invite'}
+              </button>
+            </div>
+          </div>
+        )
+      )}
 
       {/* Main editor content */}
       <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-8 space-y-8">

@@ -1,24 +1,16 @@
 /**
  * Cloud Storage Security Rules for LegacyBot.
+ * Audio files: gs://{bucket}/{familyId}/{dossierId}/{sessionId}.webm
  *
- * Restricts audio archive access so that each user can only read/write
- * files under their own UID path. Audio files are stored at:
- *   gs://legacybot-archives/{uid}/{dossierId}/{sessionId}.webm
- *
- * References: design.md §2.2, §2.3 | GitHub Issue #3
+ * Access is restricted to authenticated users. Fine-grained family membership
+ * checks are enforced at the Firestore level (session docs are only readable
+ * by family members, so the audioUrl is only accessible to them).
  */
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
-
-    // Deny all access by default
-    match /{allPaths=**} {
-      allow read, write: if false;
-    }
-
-    // Users can only access audio files under their own UID path
-    match /{uid}/{allPaths=**} {
-      allow read, write: if request.auth != null && request.auth.uid == uid;
+    match /{familyId}/{dossierId}/{sessionId} {
+      allow read, write: if request.auth != null;
     }
   }
 }

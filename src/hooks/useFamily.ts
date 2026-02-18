@@ -1,0 +1,193 @@
+/**
+ * Family management hook for LegacyBot.
+ * Provides family CRUD, member listing, and role checking.
+ *
+ * Firestore paths:
+ *   families/{familyId}
+ *   families/{familyId}/members/{uid}
+ */
+
+import { useState, useEffect, useCallback } from 'react';
+import {
+  collection,
+  doc,
+  addDoc,
+  getDoc,
+  onSnapshot,
+  query,
+  Timestamp,
+  writeBatch,
+  arrayUnion,
+} from 'firebase/firestore';
+import { db } from '../services/firebase';
+import { Family, FamilyMemberRecord, UserRole } from '../types';
+
+/**
+ * Subscribe to a single family document.
+ */
+export function useFamily(familyId: string | undefined) {
+  const [family, setFamily] = useState<Family | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!familyId) {
+      setFamily(null);
+      setLoading(false);
+      return;
+    }
+
+    const docRef = doc(db, 'families', familyId);
+    const unsubscribe = onSnapshot(
+      docRef,
+      (snapshot) => {
+        if (snapshot.exists()) {
+          setFamily({ ...snapshot.data(), id: snapshot.id } as Family);
+        } else {
+          setFamily(null);
+        }
+        setLoading(false);
+      },
+      (err) => {
+        console.error('useFamily snapshot error:', err);
+        setLoading(false);
+      },
+    );
+
+    return unsubscribe;
+  }, [familyId]);
+
+  return { family, loading };
+}
+
+/**
+ * Subscribe to all members of a family.
+ */
+export function useFamilyMembers(familyId: string | undefined) {
+  const [members, setMembers] = useState<(FamilyMemberRecord & { uid: string })[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!familyId) {
+      setMembers([]);
+      setLoading(false);
+      return;
+    }
+
+    const colRef = collection(db, 'families', familyId, 'members');
+    const q = query(colRef);
+
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const items = snapshot.docs.map((d) => ({
+          ...d.data(),
+          uid: d.id,
+        })) as (FamilyMemberRecord & { uid: string })[];
+        setMembers(items);
+        setLoading(false);
+      },
+      (err) => {
+        console.error('useFamilyMembers snapshot error:', err);
+        setLoading(false);
+      },
+    );
+
+    return unsubscribe;
+  }, [familyId]);
+
+  return { members, loading };
+}
+
+/**
+ * Get the current user's roles within a specific family.
+ */
+export function useCurrentRoles(familyId: string | undefined, uid: string | undefined) {
+  const [roles, setRoles] = useState<UserRole[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!familyId || !uid) {
+      setRoles([]);
+      setLoading(false);
+      return;
+    }
+
+    const docRef = doc(db, 'families', familyId, 'members', uid);
+    const unsubscribe = onSnapshot(
+      docRef,
+      (snapshot) => {
+        if (snapshot.exists()) {
+          const data = snapshot.data() as FamilyMemberRecord;
+          setRoles(data.roles);
+        } else {
+          setRoles([]);
+        }
+        setLoading(false);
+      },
+      (err) => {
+        console.error('useCurrentRoles snapshot error:', err);
+        setRoles([]);
+        setLoading(false);
+      },
+    );
+
+    return unsubscribe;
+  }, [familyId, uid]);
+
+  const isAdmin = roles.includes('admin');
+  const isStoryteller = roles.includes('storyteller');
+
+  return { roles, isAdmin, isStoryteller, loading };
+}
+
+/**
+ * Create a new family and add the creator as the first admin member.
+ * Returns the new family ID.
+ */
+export async function createFamily(
+  name: string,
+  uid: string,
+  email: string,
+  displayName: string,
+): Promise<string> {
+  const now = Timestamp.now();
+
+  // Create family document
+  const familyRef = await addDoc(collection(db, 'families'), {
+    name,
+    createdAt: now,
+    createdBy: uid,
+  } as Omit<Family, 'id'>);
+
+  const familyId = familyRef.id;
+
+  // Batch: create member doc + update user's familyIds
+  const batch = writeBatch(db);
+
+  const memberRef = doc(db, 'families', familyId, 'members', uid);
+  const memberData: FamilyMemberRecord = {
+    roles: ['admin'],
+    email: email.toLowerCase(),
+    displayName,
+    joinedAt: now,
+    invitedBy: uid, // self-created
+  };
+  batch.set(memberRef, memberData);
+
+  const userRef = doc(db, 'users', uid);
+  batch.update(userRef, { familyIds: arrayUnion(familyId) });
+
+  await batch.commit();
+
+  return familyId;
+}
+
+/**
+ * Fetch the user's familyIds from their profile.
+ */
+export async function getUserFamilyIds(uid: string): Promise<string[]> {
+  const userRef = doc(db, 'users', uid);
+  const snapshot = await getDoc(userRef);
+  if (!snapshot.exists()) return [];
+  return snapshot.data().familyIds ?? [];
+}

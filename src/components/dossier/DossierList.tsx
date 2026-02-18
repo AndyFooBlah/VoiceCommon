@@ -1,38 +1,48 @@
 /**
- * DossierList — the Archivist's landing page after login.
- *
- * Displays all Dossiers owned by the current user as cards. Each card
- * shows the Storyteller's name and provides navigation to the Dossier
- * editor / session view. The Archivist can also create new Dossiers
- * and delete existing ones (with confirmation).
- *
- * This is the primary entry point for multi-Storyteller support —
- * an Archivist working with multiple family members selects which
- * Storyteller to interview from this screen.
- *
- * References: product_requirements.md §3.5 | GitHub Issue #4
+ * DossierList — the admin's landing page within a family.
+ * Displays all Dossiers for the family as cards with storyteller assignment badges.
  */
 
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { useDossierList } from '../../hooks/useDossier';
+import { useFamilyInvitations } from '../../hooks/useInvitations';
 
 export const DossierList: React.FC = () => {
+  const { familyId } = useParams<{ familyId: string }>();
   const { user } = useAuth();
-  const { dossiers, loading, createDossier, deleteDossier } = useDossierList(user?.uid);
+  const { dossiers, loading, createDossier, deleteDossier } = useDossierList(familyId);
+  const { createInvite } = useFamilyInvitations(familyId);
   const navigate = useNavigate();
 
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [newName, setNewName] = useState('');
+  const [newEmail, setNewEmail] = useState('');
+  const [inviteLink, setInviteLink] = useState<string | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   async function handleCreate() {
     if (!newName.trim()) return;
-    const id = await createDossier(newName.trim());
+    const dossierId = await createDossier(newName.trim());
+
+    // If email provided, create an invitation linked to this dossier
+    if (newEmail.trim() && user) {
+      try {
+        const inviteId = await createInvite(newEmail.trim(), ['storyteller'], [dossierId], user.uid);
+        const link = `${window.location.origin}/invite?token=${inviteId}&email=${encodeURIComponent(newEmail.trim())}`;
+        setInviteLink(link);
+        setShowCreateForm(false);
+        return; // Stay on list to show invite link
+      } catch (err) {
+        console.error('[DossierList] Failed to create invitation:', err);
+      }
+    }
+
     setNewName('');
+    setNewEmail('');
     setShowCreateForm(false);
-    navigate(`/dossier/${id}`);
+    navigate(`/family/${familyId}/dossier/${dossierId}`);
   }
 
   async function handleDelete(dossierId: string) {
@@ -50,7 +60,6 @@ export const DossierList: React.FC = () => {
 
   return (
     <div className="max-w-4xl mx-auto p-8 space-y-8">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-3xl font-bold text-slate-800 tracking-tight">
@@ -68,33 +77,90 @@ export const DossierList: React.FC = () => {
         </button>
       </div>
 
-      {/* Create form (inline) */}
+      {inviteLink && (
+        <div className="bg-green-50 rounded-2xl border border-green-200 p-6 space-y-4">
+          <p className="font-semibold text-green-700 text-center">
+            {newName} created! Share this invite link with {newEmail}:
+          </p>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              readOnly
+              value={inviteLink}
+              className="flex-1 p-3 bg-white border border-green-200 rounded-xl text-sm text-slate-700 select-all"
+              onClick={(e) => (e.target as HTMLInputElement).select()}
+            />
+            <button
+              onClick={() => navigator.clipboard.writeText(inviteLink)}
+              className="px-4 py-2 bg-green-600 text-white rounded-xl text-sm font-semibold hover:bg-green-700 transition-colors"
+            >
+              Copy
+            </button>
+          </div>
+          <div className="flex gap-3 justify-center">
+            <button
+              onClick={() => {
+                setInviteLink(null);
+                setNewName('');
+                setNewEmail('');
+                navigate(`/family/${familyId}/dossier/${dossiers[dossiers.length - 1]?.id}`);
+              }}
+              className="text-sm text-indigo-600 font-semibold hover:underline"
+            >
+              Edit Dossier
+            </button>
+            <button
+              onClick={() => { setInviteLink(null); setNewName(''); setNewEmail(''); }}
+              className="text-sm text-slate-500 font-medium hover:underline"
+            >
+              Done
+            </button>
+          </div>
+        </div>
+      )}
+
       {showCreateForm && (
         <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-4">
-          <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider">
-            Storyteller&apos;s Name (required)
-          </label>
-          <input
-            type="text"
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-            placeholder="e.g. Grandma Margaret"
-            autoFocus
-            className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500"
-            onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
-          />
+          <div className="space-y-1">
+            <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider">
+              Storyteller&apos;s Name (required)
+            </label>
+            <input
+              type="text"
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              placeholder="e.g. Grandma Margaret"
+              autoFocus
+              className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+              onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider">
+              Storyteller&apos;s Email (optional — to send invite)
+            </label>
+            <input
+              type="email"
+              value={newEmail}
+              onChange={(e) => setNewEmail(e.target.value)}
+              placeholder="e.g. grandma@email.com"
+              className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+              onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
+            />
+          </div>
           <div className="flex gap-3">
             <button
               onClick={handleCreate}
               disabled={!newName.trim()}
               className="px-4 py-2 bg-indigo-600 text-white rounded-lg font-semibold text-sm disabled:opacity-50 hover:bg-indigo-700 transition-colors"
             >
-              Create
+              {newEmail.trim() ? 'Create & Invite' : 'Create'}
             </button>
             <button
               onClick={() => {
                 setShowCreateForm(false);
                 setNewName('');
+                setNewEmail('');
               }}
               className="px-4 py-2 text-slate-500 hover:text-slate-700 text-sm font-medium"
             >
@@ -104,7 +170,6 @@ export const DossierList: React.FC = () => {
         </div>
       )}
 
-      {/* Dossier cards */}
       {dossiers.length === 0 && !showCreateForm ? (
         <div className="text-center py-20 space-y-4">
           <div className="text-6xl opacity-30">📖</div>
@@ -123,7 +188,6 @@ export const DossierList: React.FC = () => {
               key={d.id}
               className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm hover:shadow-md transition-shadow group relative"
             >
-              {/* Delete confirmation overlay */}
               {deleteConfirmId === d.id && (
                 <div className="absolute inset-0 bg-white/95 rounded-2xl flex flex-col items-center justify-center gap-3 z-10">
                   <p className="text-sm font-semibold text-slate-700">
@@ -148,7 +212,7 @@ export const DossierList: React.FC = () => {
 
               <div
                 className="cursor-pointer"
-                onClick={() => navigate(`/dossier/${d.id}`)}
+                onClick={() => navigate(`/family/${familyId}/dossier/${d.id}`)}
               >
                 <h3 className="text-lg font-bold text-slate-800">
                   {d.storytellerName}
@@ -165,10 +229,18 @@ export const DossierList: React.FC = () => {
                   <span className="text-xs text-slate-400 bg-slate-50 px-2 py-1 rounded-md">
                     {d.selectedVoice}
                   </span>
+                  {d.storytellerUid ? (
+                    <span className="text-xs text-emerald-500 bg-emerald-50 px-2 py-1 rounded-md font-semibold">
+                      Assigned
+                    </span>
+                  ) : (
+                    <span className="text-xs text-amber-500 bg-amber-50 px-2 py-1 rounded-md font-semibold">
+                      Needs Invite
+                    </span>
+                  )}
                 </div>
               </div>
 
-              {/* Delete button — visible on hover */}
               <button
                 onClick={(e) => {
                   e.stopPropagation();

@@ -18,6 +18,7 @@ export const mockFirestore = {
   doc: vi.fn((..._args: any[]) => ({ path: _args.join('/') })),
   collection: vi.fn((..._args: any[]) => ({ path: _args.join('/') })),
   getDoc: vi.fn().mockResolvedValue({ exists: () => false, data: () => null }),
+  getDocs: vi.fn().mockResolvedValue({ docs: [] }),
   setDoc: vi.fn().mockResolvedValue(undefined),
   addDoc: vi.fn().mockResolvedValue({ id: 'mock-doc-id' }),
   updateDoc: vi.fn().mockResolvedValue(undefined),
@@ -28,11 +29,14 @@ export const mockFirestore = {
     return vi.fn(); // unsubscribe
   }),
   query: vi.fn((..._args: any[]) => ({})),
+  where: vi.fn(),
   orderBy: vi.fn(),
   writeBatch: vi.fn(() => ({
+    set: vi.fn(),
     update: vi.fn(),
     commit: vi.fn().mockResolvedValue(undefined),
   })),
+  arrayUnion: vi.fn((..._args: any[]) => _args),
   Timestamp: {
     now: () => ({ toDate: () => new Date(), seconds: Date.now() / 1000, nanoseconds: 0 }),
     fromDate: (d: Date) => ({ toDate: () => d, seconds: d.getTime() / 1000, nanoseconds: 0 }),
@@ -44,14 +48,17 @@ vi.mock('firebase/firestore', () => ({
   doc: mockFirestore.doc,
   collection: mockFirestore.collection,
   getDoc: mockFirestore.getDoc,
+  getDocs: mockFirestore.getDocs,
   setDoc: mockFirestore.setDoc,
   addDoc: mockFirestore.addDoc,
   updateDoc: mockFirestore.updateDoc,
   deleteDoc: mockFirestore.deleteDoc,
   onSnapshot: mockFirestore.onSnapshot,
   query: mockFirestore.query,
+  where: mockFirestore.where,
   orderBy: mockFirestore.orderBy,
   writeBatch: mockFirestore.writeBatch,
+  arrayUnion: mockFirestore.arrayUnion,
   Timestamp: mockFirestore.Timestamp,
 }));
 

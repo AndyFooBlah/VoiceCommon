@@ -83,7 +83,7 @@ describe('useAuth — signInWithGoogle', () => {
     expect(mockAuth.signInWithPopup).toHaveBeenCalledTimes(1);
   });
 
-  it('creates a user profile if one does not exist', async () => {
+  it('creates a user profile with familyIds if one does not exist', async () => {
     mockFirestore.getDoc.mockResolvedValueOnce({ exists: () => false });
 
     const { result } = renderHook(() => useAuth());
@@ -92,6 +92,8 @@ describe('useAuth — signInWithGoogle', () => {
     });
 
     expect(mockFirestore.setDoc).toHaveBeenCalledTimes(1);
+    const profileData = mockFirestore.setDoc.mock.calls[0][1];
+    expect(profileData.familyIds).toEqual([]);
   });
 
   it('does not overwrite existing user profile', async () => {

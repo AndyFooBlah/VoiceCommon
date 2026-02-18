@@ -3,8 +3,7 @@
  *
  * Verifies Firestore CRUD, debounce behavior, cleanup on unmount,
  * question management, and reordering.
- *
- * References: design.md §5.3 (Priority 1) | src/hooks/useDossier.ts
+ * Now uses familyId instead of uid for family-based paths.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -36,10 +35,9 @@ afterEach(() => {
 
 describe('useDossierList', () => {
   it('starts in loading state', () => {
-    // Never call the snapshot callback
     mockFirestore.onSnapshot.mockImplementation(() => vi.fn());
 
-    const { result } = renderHook(() => useDossierList('uid-1'));
+    const { result } = renderHook(() => useDossierList('family-1'));
     expect(result.current.loading).toBe(true);
     expect(result.current.dossiers).toEqual([]);
   });
@@ -55,16 +53,15 @@ describe('useDossierList', () => {
       return vi.fn();
     });
 
-    const { result } = renderHook(() => useDossierList('uid-1'));
+    const { result } = renderHook(() => useDossierList('family-1'));
 
-    // onSnapshot fires synchronously in our mock, so state is updated immediately
     expect(result.current.loading).toBe(false);
     expect(result.current.dossiers).toHaveLength(2);
     expect(result.current.dossiers[0].storytellerName).toBe('Margaret');
     expect(result.current.dossiers[0].id).toBe('d1');
   });
 
-  it('does not subscribe when uid is undefined', () => {
+  it('does not subscribe when familyId is undefined', () => {
     renderHook(() => useDossierList(undefined));
     expect(mockFirestore.onSnapshot).not.toHaveBeenCalled();
   });
@@ -76,7 +73,7 @@ describe('useDossierList', () => {
       return unsub;
     });
 
-    const { unmount } = renderHook(() => useDossierList('uid-1'));
+    const { unmount } = renderHook(() => useDossierList('family-1'));
     unmount();
 
     expect(unsub).toHaveBeenCalled();
@@ -85,7 +82,7 @@ describe('useDossierList', () => {
   it('createDossier adds a document and returns the ID', async () => {
     mockFirestore.addDoc.mockResolvedValueOnce({ id: 'new-dossier-id' });
 
-    const { result } = renderHook(() => useDossierList('uid-1'));
+    const { result } = renderHook(() => useDossierList('family-1'));
 
     let id: string = '';
     await act(async () => {
@@ -98,20 +95,21 @@ describe('useDossierList', () => {
     expect(docData.storytellerName).toBe('Eleanor');
     expect(docData.personality).toBe('empathetic');
     expect(docData.selectedVoice).toBe('Zephyr');
+    expect(docData.storytellerUid).toBeNull();
   });
 
-  it('createDossier throws when not authenticated', async () => {
+  it('createDossier throws when no family selected', async () => {
     const { result } = renderHook(() => useDossierList(undefined));
 
     await expect(
       act(async () => {
         await result.current.createDossier('Test');
       }),
-    ).rejects.toThrow('Not authenticated');
+    ).rejects.toThrow('No family selected');
   });
 
   it('deleteDossier calls deleteDoc', async () => {
-    const { result } = renderHook(() => useDossierList('uid-1'));
+    const { result } = renderHook(() => useDossierList('family-1'));
 
     await act(async () => {
       await result.current.deleteDossier('d1');
@@ -130,7 +128,6 @@ describe('useDossier', () => {
 
   beforeEach(() => {
     snapshotCallbacks = [];
-    // Capture snapshot callbacks so we can invoke them manually
     mockFirestore.onSnapshot.mockImplementation((_q: any, cb: any) => {
       snapshotCallbacks.push(cb);
       return vi.fn();
@@ -138,25 +135,23 @@ describe('useDossier', () => {
   });
 
   it('subscribes to both dossier doc and questions collection', () => {
-    renderHook(() => useDossier('uid-1', 'dossier-1'));
+    renderHook(() => useDossier('family-1', 'dossier-1'));
 
-    // Two onSnapshot subscriptions: one for dossier doc, one for questions
     expect(mockFirestore.onSnapshot).toHaveBeenCalledTimes(2);
   });
 
-  it('does not subscribe when uid or dossierId is undefined', () => {
+  it('does not subscribe when familyId or dossierId is undefined', () => {
     renderHook(() => useDossier(undefined, 'dossier-1'));
     expect(mockFirestore.onSnapshot).not.toHaveBeenCalled();
 
     mockFirestore.onSnapshot.mockClear();
-    renderHook(() => useDossier('uid-1', undefined));
+    renderHook(() => useDossier('family-1', undefined));
     expect(mockFirestore.onSnapshot).not.toHaveBeenCalled();
   });
 
   it('sets dossier data from snapshot', async () => {
-    const { result } = renderHook(() => useDossier('uid-1', 'dossier-1'));
+    const { result } = renderHook(() => useDossier('family-1', 'dossier-1'));
 
-    // Invoke the dossier doc snapshot (first subscription)
     act(() => {
       snapshotCallbacks[0]({
         exists: () => true,
@@ -171,7 +166,7 @@ describe('useDossier', () => {
   });
 
   it('sets dossier to null when document does not exist', async () => {
-    const { result } = renderHook(() => useDossier('uid-1', 'dossier-1'));
+    const { result } = renderHook(() => useDossier('family-1', 'dossier-1'));
 
     act(() => {
       snapshotCallbacks[0]({ exists: () => false, id: 'dossier-1', data: () => null });
@@ -181,7 +176,7 @@ describe('useDossier', () => {
   });
 
   it('sets questions from snapshot', () => {
-    const { result } = renderHook(() => useDossier('uid-1', 'dossier-1'));
+    const { result } = renderHook(() => useDossier('family-1', 'dossier-1'));
 
     act(() => {
       snapshotCallbacks[1]({
@@ -200,9 +195,7 @@ describe('useDossier', () => {
 
 describe('useDossier — updateDossier debounce', () => {
   beforeEach(() => {
-    // Fire snapshot callbacks immediately so the hook is ready
     mockFirestore.onSnapshot.mockImplementation((_q: any, cb: any) => {
-      // Simulate an existing dossier for the first sub, empty questions for the second
       if (!mockFirestore.onSnapshot.mock.calls.length || mockFirestore.onSnapshot.mock.calls.length % 2 !== 0) {
         cb({ exists: () => true, id: 'dossier-1', data: () => ({ storytellerName: 'Margaret' }) });
       } else {
@@ -213,13 +206,12 @@ describe('useDossier — updateDossier debounce', () => {
   });
 
   it('debounces Firestore writes by 500ms', () => {
-    const { result } = renderHook(() => useDossier('uid-1', 'dossier-1'));
+    const { result } = renderHook(() => useDossier('family-1', 'dossier-1'));
 
     act(() => {
       result.current.updateDossier({ storytellerContext: 'Draft 1' });
     });
 
-    // No Firestore write yet
     expect(mockFirestore.updateDoc).not.toHaveBeenCalled();
 
     act(() => {
@@ -230,7 +222,7 @@ describe('useDossier — updateDossier debounce', () => {
   });
 
   it('resets debounce timer on rapid updates', () => {
-    const { result } = renderHook(() => useDossier('uid-1', 'dossier-1'));
+    const { result } = renderHook(() => useDossier('family-1', 'dossier-1'));
 
     act(() => {
       result.current.updateDossier({ storytellerContext: 'Draft 1' });
@@ -248,30 +240,27 @@ describe('useDossier — updateDossier debounce', () => {
       vi.advanceTimersByTime(300);
     });
 
-    // Still no write — timer was reset
     expect(mockFirestore.updateDoc).not.toHaveBeenCalled();
 
     act(() => {
       vi.advanceTimersByTime(200);
     });
 
-    // Now it fires (500ms after the second update)
     expect(mockFirestore.updateDoc).toHaveBeenCalledTimes(1);
   });
 
   it('updates local state immediately', () => {
-    const { result } = renderHook(() => useDossier('uid-1', 'dossier-1'));
+    const { result } = renderHook(() => useDossier('family-1', 'dossier-1'));
 
     act(() => {
       result.current.updateDossier({ storytellerContext: 'Immediate update' });
     });
 
-    // Local state is updated immediately, even though Firestore write is debounced
     expect(result.current.dossier?.storytellerContext).toBe('Immediate update');
   });
 
   it('cleans up debounce timer on unmount', () => {
-    const { result, unmount } = renderHook(() => useDossier('uid-1', 'dossier-1'));
+    const { result, unmount } = renderHook(() => useDossier('family-1', 'dossier-1'));
 
     act(() => {
       result.current.updateDossier({ storytellerContext: 'Will unmount' });
@@ -283,7 +272,6 @@ describe('useDossier — updateDossier debounce', () => {
       vi.advanceTimersByTime(500);
     });
 
-    // Timer was cleared on unmount, so the write should not happen
     expect(mockFirestore.updateDoc).not.toHaveBeenCalled();
   });
 });
@@ -303,7 +291,7 @@ describe('useDossier — question CRUD', () => {
   });
 
   it('addQuestion creates a document with Unasked status', async () => {
-    const { result } = renderHook(() => useDossier('uid-1', 'dossier-1'));
+    const { result } = renderHook(() => useDossier('family-1', 'dossier-1'));
 
     await act(async () => {
       await result.current.addQuestion('Tell me about your childhood.');
@@ -317,7 +305,7 @@ describe('useDossier — question CRUD', () => {
   });
 
   it('removeQuestion deletes the document', async () => {
-    const { result } = renderHook(() => useDossier('uid-1', 'dossier-1'));
+    const { result } = renderHook(() => useDossier('family-1', 'dossier-1'));
 
     await act(async () => {
       await result.current.removeQuestion('q1');
@@ -327,7 +315,7 @@ describe('useDossier — question CRUD', () => {
   });
 
   it('updateQuestion writes immediately (no debounce)', async () => {
-    const { result } = renderHook(() => useDossier('uid-1', 'dossier-1'));
+    const { result } = renderHook(() => useDossier('family-1', 'dossier-1'));
 
     await act(async () => {
       await result.current.updateQuestion('q1', { status: 'InProgress', findings: 'Mentioned a farm.' });
@@ -341,10 +329,10 @@ describe('useDossier — question CRUD', () => {
   });
 
   it('reorderQuestions uses a batch write', async () => {
-    const mockBatch = { update: vi.fn(), commit: vi.fn().mockResolvedValue(undefined) };
+    const mockBatch = { set: vi.fn(), update: vi.fn(), commit: vi.fn().mockResolvedValue(undefined) };
     mockFirestore.writeBatch.mockReturnValueOnce(mockBatch);
 
-    const { result } = renderHook(() => useDossier('uid-1', 'dossier-1'));
+    const { result } = renderHook(() => useDossier('family-1', 'dossier-1'));
 
     await act(async () => {
       await result.current.reorderQuestions(['q3', 'q1', 'q2']);
@@ -354,7 +342,6 @@ describe('useDossier — question CRUD', () => {
     expect(mockBatch.update).toHaveBeenCalledTimes(3);
     expect(mockBatch.commit).toHaveBeenCalledTimes(1);
 
-    // Verify order values
     const firstCall = mockBatch.update.mock.calls[0][1];
     expect(firstCall.order).toBe(0);
     const secondCall = mockBatch.update.mock.calls[1][1];
@@ -363,7 +350,7 @@ describe('useDossier — question CRUD', () => {
     expect(thirdCall.order).toBe(2);
   });
 
-  it('addQuestion/removeQuestion/updateQuestion are no-ops without uid', async () => {
+  it('addQuestion/removeQuestion/updateQuestion are no-ops without familyId', async () => {
     const { result } = renderHook(() => useDossier(undefined, 'dossier-1'));
 
     await act(async () => {

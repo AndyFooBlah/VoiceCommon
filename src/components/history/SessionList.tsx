@@ -1,57 +1,52 @@
 /**
  * SessionList — browse past recording sessions for a Storyteller.
- *
  * Displays all sessions for a given Dossier, sorted newest-first.
- * Each session card shows:
- *   - Date and time
- *   - Duration
- *   - Status badge (completed / interrupted)
- *
- * Clicking a session navigates to the TranscriptViewer for that session.
- *
- * References: product_requirements.md §3.6 | GitHub Issue #13
  */
 
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { collection, query, orderBy, onSnapshot } from 'firebase/firestore';
 import { db } from '../../services/firebase';
-import { useAuth } from '../../hooks/useAuth';
 import { SessionMetadata } from '../../types';
 
 export const SessionList: React.FC = () => {
-  const { dossierId } = useParams<{ dossierId: string }>();
-  const { user } = useAuth();
+  const { familyId, dossierId } = useParams<{ familyId: string; dossierId: string }>();
   const navigate = useNavigate();
   const [sessions, setSessions] = useState<SessionMetadata[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!user?.uid || !dossierId) return;
+    if (!familyId || !dossierId) return;
 
     const colRef = collection(
       db,
-      'users',
-      user.uid,
+      'families',
+      familyId,
       'dossiers',
       dossierId,
       'sessions',
     );
     const q = query(colRef, orderBy('startTime', 'desc'));
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const items = snapshot.docs.map((doc) => ({
-        ...doc.data(),
-        id: doc.id,
-      })) as SessionMetadata[];
-      setSessions(items);
-      setLoading(false);
-    });
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const items = snapshot.docs.map((doc) => ({
+          ...doc.data(),
+          id: doc.id,
+        })) as SessionMetadata[];
+        setSessions(items);
+        setLoading(false);
+      },
+      (err) => {
+        console.error('SessionList snapshot error:', err);
+        setLoading(false);
+      },
+    );
 
     return unsubscribe;
-  }, [user?.uid, dossierId]);
+  }, [familyId, dossierId]);
 
-  /** Format a duration in seconds to a human-readable string. */
   function formatDuration(seconds: number): string {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
@@ -71,7 +66,7 @@ export const SessionList: React.FC = () => {
     <div className="max-w-3xl mx-auto p-8 space-y-6">
       <div>
         <button
-          onClick={() => navigate(`/dossier/${dossierId}`)}
+          onClick={() => navigate(`/family/${familyId}/dossier/${dossierId}`)}
           className="text-sm text-indigo-600 font-medium hover:underline mb-1"
         >
           &larr; Back to Dossier
@@ -83,7 +78,7 @@ export const SessionList: React.FC = () => {
         <div className="text-center py-16 space-y-3">
           <p className="text-slate-400 text-lg">No sessions recorded yet.</p>
           <button
-            onClick={() => navigate(`/dossier/${dossierId}/session`)}
+            onClick={() => navigate(`/family/${familyId}/dossier/${dossierId}/session`)}
             className="text-indigo-600 font-semibold hover:underline"
           >
             Start the first session &rarr;
@@ -95,7 +90,7 @@ export const SessionList: React.FC = () => {
             <div
               key={session.id}
               onClick={() =>
-                navigate(`/dossier/${dossierId}/history/${session.id}`)
+                navigate(`/family/${familyId}/dossier/${dossierId}/history/${session.id}`)
               }
               className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm hover:shadow-md transition-shadow cursor-pointer flex items-center justify-between"
             >
@@ -121,7 +116,6 @@ export const SessionList: React.FC = () => {
                 </p>
               </div>
 
-              {/* Status badge */}
               <span
                 className={`text-xs font-bold px-3 py-1 rounded-full uppercase ${
                   session.status === 'completed'

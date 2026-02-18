@@ -23,18 +23,21 @@ interface LoginScreenProps {
   onGoogleSignIn: () => Promise<void>;
   onEmailSignIn: (email: string, password: string) => Promise<void>;
   onEmailSignUp: (email: string, password: string) => Promise<void>;
+  /** Pre-fill email and start in signup mode (used for invite links). */
+  inviteEmail?: string;
 }
 
 export const LoginScreen: React.FC<LoginScreenProps> = ({
   onGoogleSignIn,
   onEmailSignIn,
   onEmailSignUp,
+  inviteEmail,
 }) => {
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(inviteEmail ?? '');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [mode, setMode] = useState<'signin' | 'signup'>('signin');
+  const [mode, setMode] = useState<'signin' | 'signup'>(inviteEmail ? 'signup' : 'signin');
 
   async function handleGoogleSignIn() {
     setError(null);
@@ -94,10 +97,27 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
           <h1 className="text-4xl font-bold text-slate-800 tracking-tight font-display">
             LegacyBot
           </h1>
-          <p className="text-slate-400 italic text-sm">
-            &ldquo;Always archival, never forgotten.&rdquo;
-          </p>
+          {inviteEmail ? (
+            <p className="text-slate-500 text-sm">
+              Create an account to accept your invitation.
+            </p>
+          ) : (
+            <p className="text-slate-400 italic text-sm">
+              &ldquo;Always archival, never forgotten.&rdquo;
+            </p>
+          )}
         </div>
+
+        {inviteEmail && (
+          <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 text-center">
+            <p className="text-sm text-emerald-700 font-medium">
+              You've been invited to join a family as a storyteller.
+            </p>
+            <p className="text-xs text-emerald-600 mt-1">
+              Set a password below to create your account.
+            </p>
+          </div>
+        )}
 
         {/* Google Sign-In */}
         <button

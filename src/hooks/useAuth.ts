@@ -42,6 +42,7 @@ async function ensureUserProfile(user: User): Promise<void> {
       email: user.email ?? '',
       displayName: user.displayName ?? user.email ?? 'Anonymous',
       createdAt: Timestamp.now(),
+      familyIds: [],
     };
     await setDoc(userRef, profile);
   }

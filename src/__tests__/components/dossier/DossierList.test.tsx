@@ -1,10 +1,6 @@
 /**
  * Tests for the DossierList component.
- *
- * Verifies empty state, dossier card display, create form,
- * delete confirmation, and navigation.
- *
- * References: design.md §5.3 (Priority 2) | src/components/dossier/DossierList.tsx
+ * Now uses familyId from route params instead of user uid.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -13,13 +9,8 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 // Mock react-router-dom
 const mockNavigate = vi.fn();
 vi.mock('react-router-dom', () => ({
+  useParams: () => ({ familyId: 'family-1' }),
   useNavigate: () => mockNavigate,
-}));
-
-// Mock useAuth
-const mockUser = { uid: 'uid-1', email: 'test@test.com', displayName: 'Test' };
-vi.mock('../../../hooks/useAuth', () => ({
-  useAuth: () => ({ user: mockUser, loading: false }),
 }));
 
 // Mock useDossierList with controllable returns
@@ -75,8 +66,8 @@ describe('DossierList — loading state', () => {
 describe('DossierList — dossier cards', () => {
   beforeEach(() => {
     mockDossiers = [
-      { id: 'd1', storytellerName: 'Margaret', storytellerContext: 'Grew up in Iowa', personality: 'empathetic', selectedVoice: 'Zephyr' },
-      { id: 'd2', storytellerName: 'Arthur', storytellerContext: '', personality: 'investigative', selectedVoice: 'Kore' },
+      { id: 'd1', storytellerName: 'Margaret', storytellerContext: 'Grew up in Iowa', personality: 'empathetic', selectedVoice: 'Zephyr', storytellerUid: null },
+      { id: 'd2', storytellerName: 'Arthur', storytellerContext: '', personality: 'investigative', selectedVoice: 'Kore', storytellerUid: 'user-123' },
     ];
   });
 
@@ -97,10 +88,15 @@ describe('DossierList — dossier cards', () => {
     expect(screen.getByText('Zephyr')).toBeInTheDocument();
   });
 
-  it('navigates to dossier on card click', () => {
+  it('displays assigned badge when storytellerUid is set', () => {
+    render(<DossierList />);
+    expect(screen.getByText('Assigned')).toBeInTheDocument();
+  });
+
+  it('navigates to dossier with familyId prefix on card click', () => {
     render(<DossierList />);
     fireEvent.click(screen.getByText('Margaret'));
-    expect(mockNavigate).toHaveBeenCalledWith('/dossier/d1');
+    expect(mockNavigate).toHaveBeenCalledWith('/family/family-1/dossier/d1');
   });
 });
 
@@ -122,7 +118,7 @@ describe('DossierList — create flow', () => {
 
     await waitFor(() => {
       expect(mockCreateDossier).toHaveBeenCalledWith('Eleanor');
-      expect(mockNavigate).toHaveBeenCalledWith('/dossier/new-id');
+      expect(mockNavigate).toHaveBeenCalledWith('/family/family-1/dossier/new-id');
     });
   });
 
@@ -156,13 +152,12 @@ describe('DossierList — create flow', () => {
 describe('DossierList — delete flow', () => {
   beforeEach(() => {
     mockDossiers = [
-      { id: 'd1', storytellerName: 'Margaret', storytellerContext: '', personality: 'empathetic', selectedVoice: 'Zephyr' },
+      { id: 'd1', storytellerName: 'Margaret', storytellerContext: '', personality: 'empathetic', selectedVoice: 'Zephyr', storytellerUid: null },
     ];
   });
 
   it('shows delete confirmation when delete button is clicked', () => {
     render(<DossierList />);
-    // The delete button is the trash icon button
     const deleteBtn = screen.getByTitle('Delete Dossier');
     fireEvent.click(deleteBtn);
 
