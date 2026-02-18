@@ -9,7 +9,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { buildSystemInstruction } from '../../services/gemini';
+import { buildSystemInstruction, BuildInstructionOptions } from '../../services/gemini';
 import { Dossier, InterviewQuestion } from '../../types';
 
 /** Minimal valid Dossier for testing. */
@@ -22,6 +22,7 @@ function makeDossier(overrides: Partial<Dossier> = {}): Dossier {
     familyTree: [{ name: 'Arthur', relation: 'Father' }],
     selectedVoice: 'Zephyr',
     personality: 'empathetic',
+    interviewerNotes: '',
     createdAt: { toDate: () => new Date() } as any,
     updatedAt: { toDate: () => new Date() } as any,
     ...overrides,
@@ -42,29 +43,34 @@ function makeQuestion(overrides: Partial<InterviewQuestion> = {}): InterviewQues
   };
 }
 
+/** Helper to build options with defaults for first session. */
+function makeOptions(overrides: Partial<BuildInstructionOptions> = {}): BuildInstructionOptions {
+  return {
+    dossier: makeDossier(),
+    questions: [],
+    completedSessionCount: 0,
+    ...overrides,
+  };
+}
+
 describe('buildSystemInstruction', () => {
   it('includes the storyteller name in the instruction', () => {
-    const instruction = buildSystemInstruction(makeDossier(), []);
+    const instruction = buildSystemInstruction(makeOptions());
     expect(instruction).toContain('Margaret');
   });
 
-  it('includes the storyteller name in the greeting section', () => {
-    const instruction = buildSystemInstruction(makeDossier({ storytellerName: 'Eleanor' }), []);
-    expect(instruction).toContain('Greet Eleanor warmly by name');
-  });
-
   it('includes the personality traits for empathetic mode', () => {
-    const instruction = buildSystemInstruction(makeDossier({ personality: 'empathetic' }), []);
+    const instruction = buildSystemInstruction(makeOptions({ dossier: makeDossier({ personality: 'empathetic' }) }));
     expect(instruction).toContain('warm, gentle biographer');
   });
 
   it('includes the personality traits for investigative mode', () => {
-    const instruction = buildSystemInstruction(makeDossier({ personality: 'investigative' }), []);
+    const instruction = buildSystemInstruction(makeOptions({ dossier: makeDossier({ personality: 'investigative' }) }));
     expect(instruction).toContain('oral historian');
   });
 
   it('includes the personality traits for casual mode', () => {
-    const instruction = buildSystemInstruction(makeDossier({ personality: 'casual' }), []);
+    const instruction = buildSystemInstruction(makeOptions({ dossier: makeDossier({ personality: 'casual' }) }));
     expect(instruction).toContain('curious, respectful grandchild');
   });
 
@@ -75,24 +81,24 @@ describe('buildSystemInstruction', () => {
         { name: 'Eleanor', relation: 'Mother' },
       ],
     });
-    const instruction = buildSystemInstruction(dossier, []);
+    const instruction = buildSystemInstruction(makeOptions({ dossier }));
     expect(instruction).toContain('Arthur');
     expect(instruction).toContain('Eleanor');
     expect(instruction).toContain('Father');
   });
 
   it('includes historical context', () => {
-    const instruction = buildSystemInstruction(makeDossier(), []);
+    const instruction = buildSystemInstruction(makeOptions());
     expect(instruction).toContain('Post-war rural America');
   });
 
   it('includes storyteller context when present', () => {
-    const instruction = buildSystemInstruction(makeDossier(), []);
+    const instruction = buildSystemInstruction(makeOptions());
     expect(instruction).toContain('Grew up on a farm in Iowa');
   });
 
   it('omits storyteller context line when empty', () => {
-    const instruction = buildSystemInstruction(makeDossier({ storytellerContext: '' }), []);
+    const instruction = buildSystemInstruction(makeOptions({ dossier: makeDossier({ storytellerContext: '' }) }));
     expect(instruction).not.toContain('Storyteller Background:');
   });
 
@@ -101,7 +107,7 @@ describe('buildSystemInstruction', () => {
       makeQuestion({ id: 'q1', text: 'Tell me about your childhood.', status: 'Unasked' }),
       makeQuestion({ id: 'q2', text: 'What was your first job?', status: 'InProgress', findings: 'Worked at a bakery' }),
     ];
-    const instruction = buildSystemInstruction(makeDossier(), questions);
+    const instruction = buildSystemInstruction(makeOptions({ questions }));
 
     expect(instruction).toContain('Tell me about your childhood');
     expect(instruction).toContain('What was your first job');
@@ -111,24 +117,24 @@ describe('buildSystemInstruction', () => {
   });
 
   it('handles an empty question list', () => {
-    const instruction = buildSystemInstruction(makeDossier(), []);
+    const instruction = buildSystemInstruction(makeOptions());
     expect(instruction).toContain('Story Queue: []');
   });
 
   it('handles special characters in storyteller name', () => {
     const dossier = makeDossier({ storytellerName: 'John "Johnny" O\'Brien' });
-    const instruction = buildSystemInstruction(dossier, []);
+    const instruction = buildSystemInstruction(makeOptions({ dossier }));
     expect(instruction).toContain('John "Johnny" O\'Brien');
   });
 
   it('handles empty family tree', () => {
     const dossier = makeDossier({ familyTree: [] });
-    const instruction = buildSystemInstruction(dossier, []);
+    const instruction = buildSystemInstruction(makeOptions({ dossier }));
     expect(instruction).toContain('Family Tree: []');
   });
 
   it('includes interviewing rules', () => {
-    const instruction = buildSystemInstruction(makeDossier(), []);
+    const instruction = buildSystemInstruction(makeOptions());
     expect(instruction).toContain('NEVER INTERRUPT');
     expect(instruction).toContain('HANDLE PAUSES');
     expect(instruction).toContain('MAP STORIES TO QUESTIONS');
@@ -139,15 +145,78 @@ describe('buildSystemInstruction', () => {
     const questions = Array.from({ length: 50 }, (_, i) =>
       makeQuestion({ id: `q${i}`, text: `Question ${i}: Tell me about topic ${i}.` }),
     );
-    const instruction = buildSystemInstruction(makeDossier(), questions);
+    const instruction = buildSystemInstruction(makeOptions({ questions }));
 
-    // Instruction should be generated successfully and contain all questions
     expect(instruction.length).toBeGreaterThan(0);
     expect(instruction).toContain('Question 49');
   });
 
   it('does not throw with empty storyteller name', () => {
     const dossier = makeDossier({ storytellerName: '' });
-    expect(() => buildSystemInstruction(dossier, [])).not.toThrow();
+    expect(() => buildSystemInstruction(makeOptions({ dossier }))).not.toThrow();
+  });
+
+  // --- New tests for #33 (first session intro), #38 (returning session recap) ---
+
+  it('generates first session introduction for completedSessionCount=0', () => {
+    const instruction = buildSystemInstruction(makeOptions({ completedSessionCount: 0 }));
+    expect(instruction).toContain('MANDATORY START (FIRST SESSION)');
+    expect(instruction).toContain('Hello Margaret');
+    expect(instruction).toContain('LegacyBot');
+    expect(instruction).toContain('preserve your life stories');
+  });
+
+  it('generates returning session recap for completedSessionCount>0', () => {
+    const instruction = buildSystemInstruction(makeOptions({ completedSessionCount: 3 }));
+    expect(instruction).toContain('MANDATORY START (RETURNING SESSION');
+    expect(instruction).toContain('session #4');
+    expect(instruction).toContain('spoken with you 3 times before');
+    expect(instruction).not.toContain('FIRST SESSION');
+  });
+
+  it('includes previous session summary in returning session', () => {
+    const instruction = buildSystemInstruction(makeOptions({
+      completedSessionCount: 1,
+      previousSessionSummary: 'Discussed childhood memories of the farm.',
+    }));
+    expect(instruction).toContain('Discussed childhood memories of the farm.');
+  });
+
+  it('includes recent findings in returning session recap', () => {
+    const questions = [
+      makeQuestion({ id: 'q1', text: 'Childhood?', status: 'Completed', findings: 'Grew up on a farm with 3 siblings' }),
+      makeQuestion({ id: 'q2', text: 'First job?', status: 'InProgress', findings: 'Worked at the bakery downtown' }),
+    ];
+    const instruction = buildSystemInstruction(makeOptions({ questions, completedSessionCount: 2 }));
+    expect(instruction).toContain('Grew up on a farm with 3 siblings');
+    expect(instruction).toContain('Worked at the bakery downtown');
+  });
+
+  // --- New tests for #34 (admin interviewer notes) ---
+
+  it('includes admin interviewer notes when present', () => {
+    const dossier = makeDossier({ interviewerNotes: 'Margaret is hard of hearing. Speak clearly and slowly.' });
+    const instruction = buildSystemInstruction(makeOptions({ dossier }));
+    expect(instruction).toContain('ADDITIONAL GUIDANCE FROM THE FAMILY');
+    expect(instruction).toContain('Margaret is hard of hearing');
+    expect(instruction).toContain('people who know the storyteller personally');
+  });
+
+  it('omits admin notes section when interviewerNotes is empty', () => {
+    const instruction = buildSystemInstruction(makeOptions({ dossier: makeDossier({ interviewerNotes: '' }) }));
+    expect(instruction).not.toContain('ADDITIONAL GUIDANCE FROM THE FAMILY');
+  });
+
+  it('omits admin notes section when interviewerNotes is whitespace', () => {
+    const instruction = buildSystemInstruction(makeOptions({ dossier: makeDossier({ interviewerNotes: '   ' }) }));
+    expect(instruction).not.toContain('ADDITIONAL GUIDANCE FROM THE FAMILY');
+  });
+
+  // --- Emotional awareness ---
+
+  it('includes emotional awareness section', () => {
+    const instruction = buildSystemInstruction(makeOptions());
+    expect(instruction).toContain('EMOTIONAL AWARENESS');
+    expect(instruction).toContain('reportEmotionalObservation');
   });
 });

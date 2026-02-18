@@ -102,6 +102,7 @@ export interface Dossier {
   familyTree: FamilyMember[];
   selectedVoice: VoicePreset;
   personality: PersonalityMode;
+  interviewerNotes: string; // admin instructions for the AI interviewer
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }

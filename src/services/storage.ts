@@ -22,6 +22,12 @@ import {
   updateDoc,
   addDoc,
   collection,
+  query,
+  where,
+  getDocs,
+  orderBy,
+  limit as firestoreLimit,
+  getDoc,
   Timestamp,
 } from 'firebase/firestore';
 import { db, storage } from './firebase';
@@ -156,4 +162,87 @@ export async function updateQuestionStateInFirestore(
     findings,
     updatedAt: Timestamp.now(),
   });
+}
+
+// ---------------------------------------------------------------------------
+// Session history queries (for system instruction context)
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns the count of completed sessions for a dossier.
+ * Used to determine first session vs returning session greeting.
+ */
+export async function getCompletedSessionCount(
+  familyId: string,
+  dossierId: string,
+): Promise<number> {
+  const colRef = collection(db, 'families', familyId, 'dossiers', dossierId, 'sessions');
+  const q = query(colRef, where('status', '==', 'completed'));
+  const snapshot = await getDocs(q);
+  return snapshot.size;
+}
+
+/**
+ * Fetches a brief summary from the most recent completed session's transcript.
+ * Returns a short text describing what was discussed, for session continuity.
+ */
+export async function getPreviousSessionSummary(
+  familyId: string,
+  dossierId: string,
+): Promise<string | undefined> {
+  const colRef = collection(db, 'families', familyId, 'dossiers', dossierId, 'sessions');
+  const q = query(colRef, where('status', '==', 'completed'), orderBy('startTime', 'desc'), firestoreLimit(1));
+  const snapshot = await getDocs(q);
+  if (snapshot.empty) return undefined;
+
+  const lastSession = snapshot.docs[0];
+  const transcriptRef = doc(
+    db, 'families', familyId, 'dossiers', dossierId,
+    'sessions', lastSession.id, 'transcript', 'entries',
+  );
+  const transcriptSnap = await getDoc(transcriptRef);
+  if (!transcriptSnap.exists()) return undefined;
+
+  const entries = transcriptSnap.data().entries ?? [];
+  if (entries.length === 0) return undefined;
+
+  // Build a brief summary from the last few exchanges
+  const lastEntries = entries.slice(-6);
+  const summary = lastEntries
+    .map((e: any) => `${e.role === 'user' ? 'Storyteller' : 'Bot'}: ${e.text.slice(0, 150)}`)
+    .join(' | ');
+  return summary;
+}
+
+// ---------------------------------------------------------------------------
+// Emotional observation logging
+// ---------------------------------------------------------------------------
+
+export interface EmotionalObservation {
+  mood: string;
+  confidence: number;
+  trigger: string;
+  recommendation: string;
+  timestamp: Timestamp;
+}
+
+/**
+ * Appends an emotional observation to the session's transcript document.
+ * Observations are stored alongside transcript entries but kept separate.
+ */
+export async function logEmotionalObservation(
+  familyId: string,
+  dossierId: string,
+  sessionId: string,
+  observation: Omit<EmotionalObservation, 'timestamp'>,
+): Promise<void> {
+  const docRef = doc(
+    db, 'families', familyId, 'dossiers', dossierId,
+    'sessions', sessionId, 'transcript', 'entries',
+  );
+  const snap = await getDoc(docRef);
+  const existing = snap.exists() ? snap.data() : {};
+  const observations: EmotionalObservation[] = existing.emotionalObservations ?? [];
+  observations.push({ ...observation, timestamp: Timestamp.now() });
+  await setDoc(docRef, { ...existing, emotionalObservations: observations }, { merge: true });
 }

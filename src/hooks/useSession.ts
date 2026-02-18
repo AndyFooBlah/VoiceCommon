@@ -30,6 +30,9 @@ import {
   archiveAudioToGCS,
   syncTranscriptToFirestore,
   updateQuestionStateInFirestore,
+  getCompletedSessionCount,
+  getPreviousSessionSummary,
+  logEmotionalObservation,
 } from '../services/storage';
 
 interface UseSessionOptions {
@@ -143,7 +146,13 @@ export function useSession({
       sessionIdRef.current = sId;
       sessionStartTimeRef.current = Date.now();
 
-      // 3. Set up the Gemini function-calling tool for question tracking
+      // 3. Fetch session history for context-aware greeting
+      const [completedSessionCount, previousSessionSummary] = await Promise.all([
+        getCompletedSessionCount(familyId, dossierId).catch(() => 0),
+        getPreviousSessionSummary(familyId, dossierId).catch(() => undefined),
+      ]);
+
+      // 4. Set up Gemini function-calling tools
       const updateQuestionStatusTool: FunctionDeclaration = {
         name: 'updateQuestionStatus',
         parameters: {
@@ -168,9 +177,42 @@ export function useSession({
         },
       };
 
-      // 4. Connect to Gemini Live API
+      const reportEmotionalObservationTool: FunctionDeclaration = {
+        name: 'reportEmotionalObservation',
+        parameters: {
+          type: Type.OBJECT,
+          description: 'Log a significant emotional observation about the storyteller during the interview. Call this when you notice meaningful shifts in mood, comfort, or engagement.',
+          properties: {
+            mood: {
+              type: Type.STRING,
+              enum: ['engaged', 'neutral', 'hesitant', 'emotional', 'distressed', 'joyful'],
+              description: 'The observed emotional state of the storyteller.',
+            },
+            confidence: {
+              type: Type.NUMBER,
+              description: 'How confident you are in this observation (0.0 to 1.0).',
+            },
+            trigger: {
+              type: Type.STRING,
+              description: 'What caused or is associated with this emotional shift (e.g. "mention of father", "war stories", "childhood home").',
+            },
+            recommendation: {
+              type: Type.STRING,
+              description: 'What you plan to do in response (e.g. "switching to lighter topic", "giving space", "exploring further").',
+            },
+          },
+          required: ['mood', 'confidence', 'trigger', 'recommendation'],
+        },
+      };
+
+      // 5. Connect to Gemini Live API
       const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
-      const systemInstruction = buildSystemInstruction(dossier, questions);
+      const systemInstruction = buildSystemInstruction({
+        dossier,
+        questions,
+        completedSessionCount,
+        previousSessionSummary,
+      });
 
       const sessionPromise = ai.live.connect({
         model: 'gemini-2.5-flash-native-audio-preview-12-2025',
@@ -207,27 +249,35 @@ export function useSession({
           },
 
           onmessage: async (message: LiveServerMessage) => {
-            // --- Handle Function Calls (question status updates) ---
+            // --- Handle Function Calls ---
             if (message.toolCall?.functionCalls) {
               for (const fc of message.toolCall.functionCalls) {
                 if (fc.name === 'updateQuestionStatus') {
                   const { id, status, findings } = fc.args as any;
-                  // Update local state + Firestore
                   onQuestionUpdate(id, status, findings);
                   updateQuestionStateInFirestore(familyId, dossierId, id, status, findings).catch(
                     (err) => console.error('[Firestore] Question update error:', err),
                   );
-                  // Respond to the tool call so the model can continue
-                  sessionPromise.then((s) =>
-                    s.sendToolResponse({
-                      functionResponses: {
-                        id: fc.id,
-                        name: fc.name,
-                        response: { result: 'ok' },
-                      },
-                    }),
-                  );
+                } else if (fc.name === 'reportEmotionalObservation') {
+                  const { mood, confidence, trigger, recommendation } = fc.args as any;
+                  const currentSid = sessionIdRef.current;
+                  if (currentSid) {
+                    logEmotionalObservation(familyId, dossierId, currentSid, {
+                      mood, confidence, trigger, recommendation,
+                    }).catch((err) => console.error('[Firestore] Emotion log error:', err));
+                  }
                 }
+
+                // Respond to the tool call so the model can continue
+                sessionPromise.then((s) =>
+                  s.sendToolResponse({
+                    functionResponses: {
+                      id: fc.id,
+                      name: fc.name,
+                      response: { result: 'ok' },
+                    },
+                  }),
+                );
               }
             }
 
@@ -294,7 +344,7 @@ export function useSession({
               prebuiltVoiceConfig: { voiceName: dossier.selectedVoice },
             },
           },
-          tools: [{ functionDeclarations: [updateQuestionStatusTool] }],
+          tools: [{ functionDeclarations: [updateQuestionStatusTool, reportEmotionalObservationTool] }],
           inputAudioTranscription: {},
           outputAudioTranscription: {},
         },

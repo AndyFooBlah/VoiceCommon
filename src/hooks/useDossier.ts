@@ -84,6 +84,7 @@ export function useDossierList(
       familyTree: [],
       selectedVoice: 'Zephyr',
       personality: 'empathetic',
+      interviewerNotes: '',
       createdAt: now,
       updatedAt: now,
     };
