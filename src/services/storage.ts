@@ -38,6 +38,7 @@ import {
   StoryEvent,
   SessionEngagement,
   SuggestedQuestion,
+  Memoir,
 } from '../types';
 
 // ---------------------------------------------------------------------------
@@ -377,4 +378,69 @@ export async function getTranscriptEntries(
   const snap = await getDoc(docRef);
   if (!snap.exists()) return [];
   return snap.data().entries ?? [];
+}
+
+// ---------------------------------------------------------------------------
+// Memoir storage (#36)
+// ---------------------------------------------------------------------------
+
+/**
+ * Create a new memoir document.
+ */
+export async function createMemoir(
+  familyId: string,
+  dossierId: string,
+  memoir: Omit<Memoir, 'id' | 'createdAt' | 'updatedAt'>,
+): Promise<string> {
+  const colRef = collection(db, 'families', familyId, 'dossiers', dossierId, 'memoirs');
+  const now = Timestamp.now();
+  const docRef = await addDoc(colRef, { ...memoir, createdAt: now, updatedAt: now });
+  return docRef.id;
+}
+
+/**
+ * Update a memoir document.
+ */
+export async function updateMemoir(
+  familyId: string,
+  dossierId: string,
+  memoirId: string,
+  updates: Partial<Memoir>,
+): Promise<void> {
+  const docRef = doc(db, 'families', familyId, 'dossiers', dossierId, 'memoirs', memoirId);
+  await updateDoc(docRef, { ...updates, updatedAt: Timestamp.now() });
+}
+
+/**
+ * Fetch all memoirs for a dossier.
+ */
+export async function getMemoirs(
+  familyId: string,
+  dossierId: string,
+): Promise<Memoir[]> {
+  const colRef = collection(db, 'families', familyId, 'dossiers', dossierId, 'memoirs');
+  const q = query(colRef, orderBy('createdAt', 'desc'));
+  const snapshot = await getDocs(q);
+  return snapshot.docs.map((d) => ({ ...d.data(), id: d.id }) as Memoir);
+}
+
+/**
+ * Fetch all completed sessions with their transcripts for a dossier.
+ */
+export async function getAllSessionTranscripts(
+  familyId: string,
+  dossierId: string,
+): Promise<{ sessionId: string; entries: import('../types').TranscriptEntry[] }[]> {
+  const colRef = collection(db, 'families', familyId, 'dossiers', dossierId, 'sessions');
+  const q = query(colRef, where('status', '==', 'completed'), orderBy('startTime', 'asc'));
+  const sessionsSnap = await getDocs(q);
+
+  const results: { sessionId: string; entries: import('../types').TranscriptEntry[] }[] = [];
+  for (const sessionDoc of sessionsSnap.docs) {
+    const entries = await getTranscriptEntries(familyId, dossierId, sessionDoc.id);
+    if (entries.length > 0) {
+      results.push({ sessionId: sessionDoc.id, entries });
+    }
+  }
+  return results;
 }

@@ -100,6 +100,12 @@ export const DossierEditor: React.FC = () => {
         </div>
         <div className="flex gap-3">
           <button
+            onClick={() => navigate(`/family/${familyId}/dossier/${dossierId}/memoir`)}
+            className="px-4 py-2 bg-white border border-slate-200 text-slate-600 rounded-xl text-sm font-semibold hover:bg-slate-50 transition-colors"
+          >
+            Memoir
+          </button>
+          <button
             onClick={() => navigate(`/family/${familyId}/dossier/${dossierId}/events`)}
             className="px-4 py-2 bg-white border border-slate-200 text-slate-600 rounded-xl text-sm font-semibold hover:bg-slate-50 transition-colors"
           >

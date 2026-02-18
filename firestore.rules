@@ -81,6 +81,12 @@ service cloud.firestore {
           allow read, write: if isFamilyStoryteller(familyId) && isOwnDossier(familyId, dossierId);
         }
 
+        // --- Memoirs ---
+        match /memoirs/{memoirId} {
+          allow read, write: if isFamilyAdmin(familyId);
+          allow read: if isFamilyStoryteller(familyId) && isOwnDossier(familyId, dossierId);
+        }
+
         // --- Sessions ---
         match /sessions/{sessionId} {
           allow read, write: if isFamilyAdmin(familyId);

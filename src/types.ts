@@ -207,6 +207,35 @@ export interface SuggestedQuestion {
 }
 
 // ---------------------------------------------------------------------------
+// Memoir (#36)
+// ---------------------------------------------------------------------------
+
+/** Firestore document at families/{familyId}/dossiers/{dossierId}/memoirs/{memoirId}. */
+export interface Memoir {
+  id?: string;
+  title: string;
+  status: 'generating' | 'draft' | 'review' | 'published';
+  generatedBy: string; // uid of admin who triggered generation
+  chapters: MemoirChapter[];
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
+export interface MemoirChapter {
+  title: string;
+  content: string; // markdown
+  eventIds: string[];
+  citations: ChapterCitation[];
+  order: number;
+}
+
+export interface ChapterCitation {
+  sessionId: string;
+  entryIndex: number;
+  quote: string;
+}
+
+// ---------------------------------------------------------------------------
 // Message (used by the live UI — not directly persisted as-is)
 // ---------------------------------------------------------------------------
 
