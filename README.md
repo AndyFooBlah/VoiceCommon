@@ -103,6 +103,42 @@ npm test            # single run
 npm run test:watch  # watch mode
 ```
 
+## Continuous Integration
+
+GitHub Actions runs automatically on every push to `main` and on every pull request targeting `main`. The workflow is defined in [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+
+### What CI checks
+
+| Step | Command | Purpose |
+|------|---------|---------|
+| Install | `npm ci` | Clean install from lockfile |
+| Type check | `npx tsc --noEmit` | Catch type errors without emitting files |
+| Tests | `npm test` | Run all 154 unit and integration tests |
+
+CI uses Node 20 on Ubuntu with npm caching enabled for fast installs. A concurrency group ensures that only one run per branch is active at a time — pushing again cancels the previous in-progress run.
+
+### Contributing workflow
+
+1. **Create a feature branch** from `main`:
+   ```bash
+   git checkout -b feature/my-change
+   ```
+
+2. **Make changes and run checks locally** before pushing:
+   ```bash
+   npx tsc --noEmit && npm test
+   ```
+
+3. **Push and open a pull request** against `main`. CI runs automatically and reports pass/fail status on the PR.
+
+4. **Merge when CI is green.** If you have GitHub Pro (or the repo is public), enable the "Require status checks to pass" branch protection rule for the `Lint, Type Check & Test` check to enforce this.
+
+### Adding new tests
+
+- Place test files in `src/__tests__/` mirroring the source structure (e.g. `src/__tests__/hooks/useAuth.test.ts` tests `src/hooks/useAuth.ts`)
+- Firebase and Web Audio API mocks are set up globally in `src/__tests__/setup.ts` — no per-test boilerplate needed
+- See [design.md §5](design.md) for the full testing strategy, priority tiers, and mocking approach
+
 ## License
 
 Private repository. All rights reserved.
