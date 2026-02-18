@@ -26,6 +26,7 @@ import { DossierEditor } from './components/dossier/DossierEditor';
 import { SessionView } from './components/session/SessionView';
 import { SessionList } from './components/history/SessionList';
 import { TranscriptViewer } from './components/history/TranscriptViewer';
+import { EventsTimeline } from './components/history/EventsTimeline';
 import { StorytellerDashboard } from './components/storyteller/StorytellerDashboard';
 import { FamilyHome } from './components/family/FamilyHome';
 
@@ -42,6 +43,7 @@ const App: React.FC = () => {
             <Route path="/family/:familyId/members" element={<MemberManagement />} />
             <Route path="/family/:familyId/dossier/:dossierId" element={<DossierEditor />} />
             <Route path="/family/:familyId/dossier/:dossierId/session" element={<SessionView />} />
+            <Route path="/family/:familyId/dossier/:dossierId/events" element={<EventsTimeline />} />
             <Route path="/family/:familyId/dossier/:dossierId/history" element={<SessionList />} />
             <Route path="/family/:familyId/dossier/:dossierId/history/:sessionId" element={<TranscriptViewer />} />
           </Route>

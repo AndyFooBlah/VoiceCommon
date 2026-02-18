@@ -8,8 +8,9 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../../services/firebase';
-import { TranscriptEntry, SessionMetadata } from '../../types';
+import { TranscriptEntry, SessionMetadata, SessionEngagement, SuggestedQuestion } from '../../types';
 import { AudioPlayer } from './AudioPlayer';
+import { getEngagementAssessment, getSuggestedQuestions } from '../../services/storage';
 
 export const TranscriptViewer: React.FC = () => {
   const { familyId, dossierId, sessionId } = useParams<{
@@ -21,6 +22,8 @@ export const TranscriptViewer: React.FC = () => {
 
   const [entries, setEntries] = useState<TranscriptEntry[]>([]);
   const [session, setSession] = useState<SessionMetadata | null>(null);
+  const [engagement, setEngagement] = useState<SessionEngagement | null>(null);
+  const [suggestions, setSuggestions] = useState<SuggestedQuestion[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -56,6 +59,10 @@ export const TranscriptViewer: React.FC = () => {
       if (transcriptSnap.exists()) {
         setEntries(transcriptSnap.data().entries ?? []);
       }
+
+      // Load analysis data (non-blocking)
+      getEngagementAssessment(familyId!, dossierId!, sessionId!).then(setEngagement).catch(() => {});
+      getSuggestedQuestions(familyId!, dossierId!, sessionId!).then(setSuggestions).catch(() => {});
 
       setLoading(false);
     }
@@ -155,6 +162,66 @@ export const TranscriptViewer: React.FC = () => {
           ))
         )}
       </div>
+
+      {/* Engagement Assessment */}
+      {engagement && (
+        <div className="bg-white rounded-3xl border border-slate-200 p-8 shadow-sm space-y-4">
+          <h3 className="text-lg font-bold text-slate-800">Session Analysis</h3>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="bg-slate-50 rounded-xl p-4 text-center">
+              <p className="text-3xl font-bold text-indigo-600">{engagement.comfortScore}</p>
+              <p className="text-xs text-slate-400 font-medium mt-1">Comfort Score</p>
+            </div>
+            <div className="bg-slate-50 rounded-xl p-4 text-center">
+              <p className="text-3xl font-bold text-indigo-600">{Math.round(engagement.speakingRatio * 100)}%</p>
+              <p className="text-xs text-slate-400 font-medium mt-1">Storyteller Speaking</p>
+            </div>
+            <div className="bg-slate-50 rounded-xl p-4 text-center">
+              <p className="text-3xl font-bold text-indigo-600">{Math.round(engagement.avgResponseLength)}</p>
+              <p className="text-xs text-slate-400 font-medium mt-1">Avg Words/Response</p>
+            </div>
+            <div className="bg-slate-50 rounded-xl p-4 text-center">
+              <span className={`text-sm font-bold px-3 py-1 rounded-full ${
+                engagement.sentiment === 'positive' ? 'bg-green-100 text-green-700'
+                  : engagement.sentiment === 'guarded' ? 'bg-amber-100 text-amber-700'
+                  : engagement.sentiment === 'distressed' ? 'bg-rose-100 text-rose-700'
+                  : 'bg-slate-100 text-slate-700'
+              }`}>
+                {engagement.sentiment}
+              </span>
+              <p className="text-xs text-slate-400 font-medium mt-2">Sentiment</p>
+            </div>
+          </div>
+          {engagement.flags.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-sm font-semibold text-slate-600">Flags</p>
+              <div className="flex flex-wrap gap-2">
+                {engagement.flags.map((flag, i) => (
+                  <span key={i} className="text-xs bg-amber-50 text-amber-700 border border-amber-200 rounded-full px-3 py-1">
+                    {flag}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Suggested Questions */}
+      {suggestions.length > 0 && (
+        <div className="bg-white rounded-3xl border border-slate-200 p-8 shadow-sm space-y-4">
+          <h3 className="text-lg font-bold text-slate-800">Suggested Follow-up Questions</h3>
+          <p className="text-sm text-slate-400">Based on this session, consider adding these to the Story Queue:</p>
+          <div className="space-y-3">
+            {suggestions.map((s, i) => (
+              <div key={i} className="bg-slate-50 rounded-xl p-4 space-y-1">
+                <p className="font-medium text-slate-800">&ldquo;{s.text}&rdquo;</p>
+                <p className="text-sm text-slate-400">{s.rationale}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

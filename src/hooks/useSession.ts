@@ -33,7 +33,12 @@ import {
   getCompletedSessionCount,
   getPreviousSessionSummary,
   logEmotionalObservation,
+  saveExtractedEvents,
+  saveEngagementAssessment,
+  saveSuggestedQuestions,
+  getEvents,
 } from '../services/storage';
+import { extractEvents, assessEngagement, suggestQuestions } from '../services/postSessionAnalysis';
 
 interface UseSessionOptions {
   familyId: string;
@@ -429,9 +434,49 @@ export function useSession({
       }
     }
 
+    // Run post-session analysis in the background (non-blocking)
+    if (currentSessionId && transcriptEntriesRef.current.length > 0) {
+      const entriesCopy = [...transcriptEntriesRef.current];
+      const questionsCopy = [...questions];
+      const sid = currentSessionId;
+      (async () => {
+        try {
+          const existingEvents = await getEvents(familyId, dossierId).catch(() => []);
+          const [events, engagement, suggestions] = await Promise.all([
+            extractEvents(entriesCopy, sid, existingEvents).catch((err) => {
+              console.error('[PostSession] Event extraction error:', err);
+              return [];
+            }),
+            assessEngagement(entriesCopy, questionsCopy).catch((err) => {
+              console.error('[PostSession] Engagement assessment error:', err);
+              return null;
+            }),
+            suggestQuestions(entriesCopy, questionsCopy, dossier).catch((err) => {
+              console.error('[PostSession] Question suggestion error:', err);
+              return [];
+            }),
+          ]);
+          await Promise.all([
+            events.length > 0
+              ? saveExtractedEvents(familyId, dossierId, events)
+              : Promise.resolve(),
+            engagement
+              ? saveEngagementAssessment(familyId, dossierId, sid, engagement)
+              : Promise.resolve(),
+            suggestions.length > 0
+              ? saveSuggestedQuestions(familyId, dossierId, sid, suggestions)
+              : Promise.resolve(),
+          ]);
+          console.log(`[PostSession] Analysis complete: ${events.length} events, ${suggestions.length} suggestions`);
+        } catch (err) {
+          console.error('[PostSession] Analysis failed:', err);
+        }
+      })();
+    }
+
     sessionIdRef.current = null;
     setStatus(ConnectionStatus.DISCONNECTED);
-  }, [familyId, dossierId, mixer, handleInterruption]);
+  }, [familyId, dossierId, dossier, questions, mixer, handleInterruption]);
 
   /**
    * Flush partial session data on error (for partial recovery).

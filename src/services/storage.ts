@@ -31,7 +31,14 @@ import {
   Timestamp,
 } from 'firebase/firestore';
 import { db, storage } from './firebase';
-import { TranscriptEntry, SessionMetadata, InterviewQuestion } from '../types';
+import {
+  TranscriptEntry,
+  SessionMetadata,
+  InterviewQuestion,
+  StoryEvent,
+  SessionEngagement,
+  SuggestedQuestion,
+} from '../types';
 
 // ---------------------------------------------------------------------------
 // Session lifecycle
@@ -245,4 +252,129 @@ export async function logEmotionalObservation(
   const observations: EmotionalObservation[] = existing.emotionalObservations ?? [];
   observations.push({ ...observation, timestamp: Timestamp.now() });
   await setDoc(docRef, { ...existing, emotionalObservations: observations }, { merge: true });
+}
+
+// ---------------------------------------------------------------------------
+// Event storage (#35)
+// ---------------------------------------------------------------------------
+
+/**
+ * Save extracted events to Firestore.
+ * Creates new event documents in the events subcollection.
+ */
+export async function saveExtractedEvents(
+  familyId: string,
+  dossierId: string,
+  events: Omit<StoryEvent, 'id' | 'createdAt' | 'updatedAt'>[],
+): Promise<string[]> {
+  const colRef = collection(db, 'families', familyId, 'dossiers', dossierId, 'events');
+  const now = Timestamp.now();
+  const ids: string[] = [];
+  for (const event of events) {
+    const docRef = await addDoc(colRef, { ...event, createdAt: now, updatedAt: now });
+    ids.push(docRef.id);
+  }
+  return ids;
+}
+
+/**
+ * Fetch all events for a dossier.
+ */
+export async function getEvents(
+  familyId: string,
+  dossierId: string,
+): Promise<StoryEvent[]> {
+  const colRef = collection(db, 'families', familyId, 'dossiers', dossierId, 'events');
+  const snapshot = await getDocs(colRef);
+  return snapshot.docs.map((d) => ({ ...d.data(), id: d.id }) as StoryEvent);
+}
+
+// ---------------------------------------------------------------------------
+// Engagement storage (#45)
+// ---------------------------------------------------------------------------
+
+/**
+ * Save engagement assessment for a session.
+ */
+export async function saveEngagementAssessment(
+  familyId: string,
+  dossierId: string,
+  sessionId: string,
+  engagement: Omit<SessionEngagement, 'analyzedAt'>,
+): Promise<void> {
+  const docRef = doc(
+    db, 'families', familyId, 'dossiers', dossierId,
+    'sessions', sessionId, 'analysis', 'engagement',
+  );
+  await setDoc(docRef, { ...engagement, analyzedAt: Timestamp.now() });
+}
+
+/**
+ * Fetch engagement assessment for a session.
+ */
+export async function getEngagementAssessment(
+  familyId: string,
+  dossierId: string,
+  sessionId: string,
+): Promise<SessionEngagement | null> {
+  const docRef = doc(
+    db, 'families', familyId, 'dossiers', dossierId,
+    'sessions', sessionId, 'analysis', 'engagement',
+  );
+  const snap = await getDoc(docRef);
+  return snap.exists() ? (snap.data() as SessionEngagement) : null;
+}
+
+// ---------------------------------------------------------------------------
+// Suggested questions storage (#41)
+// ---------------------------------------------------------------------------
+
+/**
+ * Save AI-suggested questions for a session.
+ */
+export async function saveSuggestedQuestions(
+  familyId: string,
+  dossierId: string,
+  sessionId: string,
+  suggestions: SuggestedQuestion[],
+): Promise<void> {
+  const docRef = doc(
+    db, 'families', familyId, 'dossiers', dossierId,
+    'sessions', sessionId, 'analysis', 'suggestions',
+  );
+  await setDoc(docRef, { suggestions, analyzedAt: Timestamp.now() });
+}
+
+/**
+ * Fetch AI-suggested questions for a session.
+ */
+export async function getSuggestedQuestions(
+  familyId: string,
+  dossierId: string,
+  sessionId: string,
+): Promise<SuggestedQuestion[]> {
+  const docRef = doc(
+    db, 'families', familyId, 'dossiers', dossierId,
+    'sessions', sessionId, 'analysis', 'suggestions',
+  );
+  const snap = await getDoc(docRef);
+  if (!snap.exists()) return [];
+  return snap.data().suggestions ?? [];
+}
+
+/**
+ * Fetch the transcript entries for a given session.
+ */
+export async function getTranscriptEntries(
+  familyId: string,
+  dossierId: string,
+  sessionId: string,
+): Promise<TranscriptEntry[]> {
+  const docRef = doc(
+    db, 'families', familyId, 'dossiers', dossierId,
+    'sessions', sessionId, 'transcript', 'entries',
+  );
+  const snap = await getDoc(docRef);
+  if (!snap.exists()) return [];
+  return snap.data().entries ?? [];
 }

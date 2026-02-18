@@ -157,6 +157,55 @@ export interface TranscriptEntry {
 }
 
 // ---------------------------------------------------------------------------
+// Events (extracted from transcripts — #35)
+// ---------------------------------------------------------------------------
+
+/** Firestore document at families/{familyId}/dossiers/{dossierId}/events/{eventId}. */
+export interface StoryEvent {
+  id?: string;
+  title: string;
+  description: string;
+  date: string | null; // ISO date or fuzzy ("summer 1962", "early 1970s")
+  datePrecision: 'exact' | 'month' | 'year' | 'decade' | 'approximate';
+  location: string | null;
+  themes: string[];
+  people: string[];
+  sources: EventSource[];
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
+export interface EventSource {
+  sessionId: string;
+  entryIndices: number[];
+  audioTimestamp?: number;
+}
+
+// ---------------------------------------------------------------------------
+// Engagement Assessment (#45)
+// ---------------------------------------------------------------------------
+
+/** Firestore document at .../sessions/{sessionId}/analysis/engagement. */
+export interface SessionEngagement {
+  speakingRatio: number; // 0-1, storyteller's share of words
+  avgResponseLength: number; // average words per storyteller turn
+  topicEngagement: Record<string, number>; // per-question engagement score 0-100
+  sentiment: 'positive' | 'neutral' | 'guarded' | 'distressed';
+  comfortScore: number; // 0-100 composite score
+  flags: string[]; // e.g. "topic_avoidance:military", "short_responses"
+  analyzedAt: Timestamp;
+}
+
+// ---------------------------------------------------------------------------
+// AI-Suggested Questions (#41)
+// ---------------------------------------------------------------------------
+
+export interface SuggestedQuestion {
+  text: string;
+  rationale: string;
+}
+
+// ---------------------------------------------------------------------------
 // Message (used by the live UI — not directly persisted as-is)
 // ---------------------------------------------------------------------------
 

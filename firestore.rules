@@ -75,6 +75,12 @@ service cloud.firestore {
           allow read, write: if isFamilyStoryteller(familyId) && isOwnDossier(familyId, dossierId);
         }
 
+        // --- Events (extracted from transcripts) ---
+        match /events/{eventId} {
+          allow read, write: if isFamilyAdmin(familyId);
+          allow read, write: if isFamilyStoryteller(familyId) && isOwnDossier(familyId, dossierId);
+        }
+
         // --- Sessions ---
         match /sessions/{sessionId} {
           allow read, write: if isFamilyAdmin(familyId);
@@ -85,6 +91,12 @@ service cloud.firestore {
 
           // --- Transcript ---
           match /transcript/{docId} {
+            allow read, write: if isFamilyAdmin(familyId);
+            allow read, write: if isFamilyStoryteller(familyId) && isOwnDossier(familyId, dossierId);
+          }
+
+          // --- Post-session analysis (engagement, suggestions) ---
+          match /analysis/{docId} {
             allow read, write: if isFamilyAdmin(familyId);
             allow read, write: if isFamilyStoryteller(familyId) && isOwnDossier(familyId, dossierId);
           }
