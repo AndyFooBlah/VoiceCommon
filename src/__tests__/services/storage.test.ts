@@ -129,7 +129,7 @@ describe('syncTranscriptToFirestore', () => {
     const entries = [
       { role: 'bot' as const, text: 'Hello!', timestamp: mockFirestore.Timestamp.now() },
       { role: 'user' as const, text: 'Hi there.', timestamp: mockFirestore.Timestamp.now() },
-    ];
+    ] as any;
 
     await syncTranscriptToFirestore('uid-1', 'dossier-1', 'session-1', entries);
 
@@ -141,7 +141,7 @@ describe('syncTranscriptToFirestore', () => {
   });
 
   it('overwrites previous entries (merge: false)', async () => {
-    const entries = [{ role: 'bot' as const, text: 'Hello!', timestamp: mockFirestore.Timestamp.now() }];
+    const entries = [{ role: 'bot' as const, text: 'Hello!', timestamp: mockFirestore.Timestamp.now() }] as any;
 
     await syncTranscriptToFirestore('uid-1', 'dossier-1', 'session-1', entries);
 

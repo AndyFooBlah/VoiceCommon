@@ -7,12 +7,12 @@
  * References: design.md §5.3 (Priority 2) | src/components/auth/LoginScreen.tsx
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { LoginScreen } from '../../../components/auth/LoginScreen';
 
-let mockGoogleSignIn: ReturnType<typeof vi.fn>;
-let mockEmailSignIn: ReturnType<typeof vi.fn>;
+let mockGoogleSignIn: Mock<() => Promise<void>>;
+let mockEmailSignIn: Mock<(email: string, password: string) => Promise<void>>;
 
 beforeEach(() => {
   mockGoogleSignIn = vi.fn().mockResolvedValue(undefined);

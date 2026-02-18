@@ -20,7 +20,7 @@ beforeEach(() => {
 });
 
 /** A component that throws during render — used to trigger the boundary. */
-function ThrowingComponent({ message }: { message: string }) {
+function ThrowingComponent({ message }: { message: string }): never {
   throw new Error(message);
 }
 

@@ -7,7 +7,7 @@
  * References: design.md §5.3 (Priority 1) | src/hooks/useDossier.ts
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
 import { mockFirestore } from '../../__mocks__/firebase';
 import { useDossierList, useDossier } from '../../hooks/useDossier';
