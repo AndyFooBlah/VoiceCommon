@@ -52,6 +52,7 @@ export interface FamilyMemberRecord {
   displayName: string;
   joinedAt: Timestamp;
   invitedBy: string; // uid of who invited them
+  notifyOnSessionComplete?: boolean; // opt-in email when storyteller completes a session
 }
 
 // ---------------------------------------------------------------------------

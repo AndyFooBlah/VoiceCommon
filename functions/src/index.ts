@@ -203,3 +203,114 @@ export const resetMemberPassword = functions.https.onCall(async (data, context) 
 
   return { resetLink };
 });
+
+// ---------------------------------------------------------------------------
+// Session Completion Notification (#44)
+// ---------------------------------------------------------------------------
+
+/**
+ * Helper: create an SMTP transporter (shared between invitation and notification emails).
+ * Returns null if SMTP is not configured.
+ */
+function createTransporter(): nodemailer.Transporter | null {
+  if (!smtpHost.value() || !smtpUser.value() || !smtpPass.value()) return null;
+  const port = parseInt(smtpPort.value(), 10);
+  return nodemailer.createTransport({
+    host: smtpHost.value(),
+    port,
+    secure: port === 465,
+    auth: { user: smtpUser.value(), pass: smtpPass.value() },
+  });
+}
+
+/**
+ * Triggered when a session document is updated.
+ * If the status changed to 'completed', notifies opted-in admin members.
+ */
+export const onSessionCompleted = functions
+  .runWith({ secrets: [smtpPass] })
+  .firestore.document('families/{familyId}/dossiers/{dossierId}/sessions/{sessionId}')
+  .onUpdate(async (change, context) => {
+    const before = change.before.data();
+    const after = change.after.data();
+
+    // Only trigger on status transition to 'completed'
+    if (before.status === 'completed' || after.status !== 'completed') return;
+
+    const { familyId, dossierId, sessionId } = context.params;
+
+    // Look up the dossier for storyteller name
+    let storytellerName = 'a storyteller';
+    try {
+      const dossierDoc = await db
+        .collection('families').doc(familyId)
+        .collection('dossiers').doc(dossierId)
+        .get();
+      if (dossierDoc.exists) {
+        storytellerName = dossierDoc.data()?.storytellerName ?? storytellerName;
+      }
+    } catch (err) {
+      functions.logger.warn('Could not look up dossier:', err);
+    }
+
+    // Get duration
+    const durationMins = Math.round((after.durationSeconds ?? 0) / 60);
+
+    // Find admins who have opted into notifications
+    const membersSnap = await db
+      .collection('families').doc(familyId)
+      .collection('members')
+      .where('roles', 'array-contains', 'admin')
+      .get();
+
+    const recipients: string[] = [];
+    for (const memberDoc of membersSnap.docs) {
+      const data = memberDoc.data();
+      if (data.notifyOnSessionComplete && data.email) {
+        recipients.push(data.email);
+      }
+    }
+
+    if (recipients.length === 0) {
+      functions.logger.info('No admins opted in for session notifications');
+      return;
+    }
+
+    const transporter = createTransporter();
+    if (!transporter) {
+      functions.logger.error('SMTP not configured — cannot send session notification');
+      return;
+    }
+
+    const sessionUrl = `${appUrl.value()}/family/${familyId}/dossier/${dossierId}/history/${sessionId}`;
+
+    for (const email of recipients) {
+      try {
+        await transporter.sendMail({
+          from: `"LegacyBot" <${smtpUser.value()}>`,
+          to: email,
+          subject: `${storytellerName} completed a recording session`,
+          html: `
+            <div style="font-family: system-ui, sans-serif; max-width: 480px; margin: 0 auto; padding: 32px;">
+              <h1 style="font-size: 24px; color: #1e293b;">Session Complete</h1>
+              <p style="color: #64748b; line-height: 1.6;">
+                <strong>${storytellerName}</strong> just completed a ${durationMins}-minute recording session on LegacyBot.
+              </p>
+              <a href="${sessionUrl}"
+                 style="display: inline-block; margin-top: 16px; padding: 14px 28px;
+                        background: #4f46e5; color: white; text-decoration: none;
+                        border-radius: 12px; font-weight: bold; font-size: 16px;">
+                View Transcript
+              </a>
+              <p style="margin-top: 24px; font-size: 12px; color: #94a3b8;">
+                You're receiving this because you opted in to session notifications.
+              </p>
+            </div>
+          `,
+        });
+        functions.logger.info(`Session notification sent to ${email}`);
+      } catch (err) {
+        functions.logger.error(`Failed to send notification to ${email}:`, err);
+      }
+    }
+  });

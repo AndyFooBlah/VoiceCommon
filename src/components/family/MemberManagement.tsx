@@ -5,6 +5,8 @@
 
 import React, { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { doc, updateDoc } from 'firebase/firestore';
+import { db } from '../../services/firebase';
 import { useAuth } from '../../hooks/useAuth';
 import { useFamilyMembers } from '../../hooks/useFamily';
 import { useFamilyInvitations } from '../../hooks/useInvitations';
@@ -236,6 +238,25 @@ export const MemberManagement: React.FC = () => {
                 ))}
               </div>
             </div>
+
+            {/* Notification preference toggle (show for yourself if admin) */}
+            {member.uid === user?.uid && member.roles.includes('admin') && (
+              <div className="mt-3 pt-3 border-t border-slate-100">
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={member.notifyOnSessionComplete ?? false}
+                    onChange={async (e) => {
+                      if (!familyId) return;
+                      const memberRef = doc(db, 'families', familyId, 'members', member.uid);
+                      await updateDoc(memberRef, { notifyOnSessionComplete: e.target.checked });
+                    }}
+                    className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                  />
+                  <span className="text-sm text-slate-600">Email me when a storyteller completes a session</span>
+                </label>
+              </div>
+            )}
 
             {/* Admin actions (don't show for yourself) */}
             {member.uid !== user?.uid && editingUid !== member.uid && (
