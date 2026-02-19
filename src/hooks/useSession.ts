@@ -20,7 +20,7 @@
 import { useState, useRef, useCallback } from 'react';
 import { GoogleGenAI, LiveServerMessage, Modality, Type, FunctionDeclaration } from '@google/genai';
 import { Timestamp } from 'firebase/firestore';
-import { Message, Dossier, InterviewQuestion, ConnectionStatus, TranscriptEntry } from '../types';
+import { Message, Dossier, InterviewQuestion, FamilyMember, ConnectionStatus, TranscriptEntry } from '../types';
 import { useAudioMixer } from './useAudioMixer';
 import { encode, decode, decodeAudioData } from '../services/audioUtils';
 import { buildSystemInstruction } from '../services/gemini';
@@ -46,6 +46,8 @@ interface UseSessionOptions {
   storytellerUid: string;
   dossier: Dossier;
   questions: InterviewQuestion[];
+  /** Family tree (shared across all dossiers in the family). */
+  familyTree?: FamilyMember[];
   /** Called when the bot updates a question's status via function calling. */
   onQuestionUpdate: (questionId: string, status: string, findings: string) => void;
 }
@@ -56,6 +58,7 @@ export function useSession({
   storytellerUid,
   dossier,
   questions,
+  familyTree,
   onQuestionUpdate,
 }: UseSessionOptions) {
   const [status, setStatus] = useState<ConnectionStatus>(ConnectionStatus.DISCONNECTED);
@@ -235,6 +238,7 @@ export function useSession({
       const systemInstruction = buildSystemInstruction({
         dossier,
         questions,
+        familyTree,
         completedSessionCount,
         previousSessionSummary,
       });

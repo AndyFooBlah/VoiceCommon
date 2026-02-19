@@ -21,6 +21,7 @@
 import React, { useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
+import { useFamily } from '../../hooks/useFamily';
 import { useDossier } from '../../hooks/useDossier';
 import { useSession } from '../../hooks/useSession';
 import { Visualizer } from './Visualizer';
@@ -31,6 +32,7 @@ export const SessionView: React.FC = () => {
   const { familyId, dossierId } = useParams<{ familyId: string; dossierId: string }>();
   const { user } = useAuth();
   const navigate = useNavigate();
+  const { family } = useFamily(familyId);
   const {
     dossier,
     questions,
@@ -64,6 +66,7 @@ export const SessionView: React.FC = () => {
     storytellerUid: user?.uid ?? '',
     dossier: dossier!,
     questions,
+    familyTree: family?.familyTree,
     onQuestionUpdate: handleQuestionUpdate,
   });
 

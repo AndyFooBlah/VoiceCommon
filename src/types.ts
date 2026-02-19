@@ -38,6 +38,7 @@ export type UserRole = 'admin' | 'storyteller';
 export interface Family {
   id?: string;
   name: string;
+  familyTree: FamilyMember[];
   createdAt: Timestamp;
   createdBy: string; // uid of the creator
 }

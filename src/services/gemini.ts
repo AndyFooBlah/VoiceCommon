@@ -17,7 +17,7 @@
  * References: design.md §3.2 | GitHub Issues #12, #33, #34, #38
  */
 
-import { Dossier, InterviewQuestion, PersonalityMode } from '../types';
+import { Dossier, InterviewQuestion, FamilyMember, PersonalityMode } from '../types';
 
 /** Maps each personality mode to its system instruction fragment. */
 const PERSONALITY_TRAITS: Record<PersonalityMode, string> = {
@@ -32,6 +32,8 @@ const PERSONALITY_TRAITS: Record<PersonalityMode, string> = {
 export interface BuildInstructionOptions {
   dossier: Dossier;
   questions: InterviewQuestion[];
+  /** Family tree (shared across all dossiers in the family). */
+  familyTree?: FamilyMember[];
   /** Number of previously completed sessions for this dossier. */
   completedSessionCount: number;
   /** Summary of topics covered in recent sessions (from Story Queue findings). */
@@ -46,7 +48,7 @@ export interface BuildInstructionOptions {
  * notes for custom guidance.
  */
 export function buildSystemInstruction(options: BuildInstructionOptions): string {
-  const { dossier, questions, completedSessionCount, previousSessionSummary } = options;
+  const { dossier, questions, familyTree, completedSessionCount, previousSessionSummary } = options;
   const isFirstSession = completedSessionCount === 0;
   const name = dossier.storytellerName;
 
@@ -111,7 +113,7 @@ EMOTIONAL AWARENESS:
 
 KNOWLEDGE BASE:
 - Story Queue: ${JSON.stringify(questions.map((q) => ({ id: q.id, text: q.text, status: q.status, findings: q.findings })))}
-- Family Tree: ${JSON.stringify(dossier.familyTree)}
+- Family Tree: ${JSON.stringify(familyTree ?? dossier.familyTree ?? [])}
 - Historical Context: ${dossier.historicalContext}
 ${dossier.storytellerContext ? `- Storyteller Background: ${dossier.storytellerContext}` : ''}
 ${adminNotesSection}

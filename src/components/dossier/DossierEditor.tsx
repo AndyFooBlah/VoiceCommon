@@ -19,7 +19,7 @@
 import React, { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
-import { useCurrentRoles } from '../../hooks/useFamily';
+import { useCurrentRoles, useFamily, updateFamilyTree } from '../../hooks/useFamily';
 import { useDossier } from '../../hooks/useDossier';
 import { useFamilyInvitations } from '../../hooks/useInvitations';
 import { StorytellerProfile } from './StorytellerProfile';
@@ -30,6 +30,7 @@ export const DossierEditor: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { isAdmin, loading: rolesLoading } = useCurrentRoles(familyId, user?.uid);
+  const { family, loading: familyLoading } = useFamily(familyId);
   const { createInvite } = useFamilyInvitations(familyId);
   const {
     dossier,
@@ -61,7 +62,7 @@ export const DossierEditor: React.FC = () => {
     }
   }
 
-  if (loading || rolesLoading || !dossier) {
+  if (loading || rolesLoading || familyLoading || !dossier) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600" />
@@ -84,20 +85,25 @@ export const DossierEditor: React.FC = () => {
     );
   }
 
-  /** Update a family member at a given index. */
+  const familyTree = family?.familyTree ?? [];
+
+  /** Update a family member at a given index (family-level, shared across dossiers). */
   function handleFamilyMemberChange(index: number, updates: Partial<FamilyMember>) {
-    const updated = [...dossier!.familyTree];
+    if (!familyId) return;
+    const updated = [...familyTree];
     updated[index] = { ...updated[index], ...updates };
-    updateDossier({ familyTree: updated });
+    updateFamilyTree(familyId, updated);
   }
 
   function handleAddFamilyMember() {
-    updateDossier({ familyTree: [...dossier!.familyTree, { name: '', relation: '' }] });
+    if (!familyId) return;
+    updateFamilyTree(familyId, [...familyTree, { name: '', relation: '' }]);
   }
 
   function handleRemoveFamilyMember(index: number) {
-    const updated = dossier!.familyTree.filter((_, i) => i !== index);
-    updateDossier({ familyTree: updated });
+    if (!familyId) return;
+    const updated = familyTree.filter((_, i) => i !== index);
+    updateFamilyTree(familyId, updated);
   }
 
   return (
@@ -373,7 +379,7 @@ export const DossierEditor: React.FC = () => {
             </button>
           </div>
           <div className="grid grid-cols-1 gap-2">
-            {dossier.familyTree.map((member, idx) => (
+            {familyTree.map((member, idx) => (
               <div key={idx} className="flex gap-2 items-center group">
                 <input
                   className="flex-1 p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs"

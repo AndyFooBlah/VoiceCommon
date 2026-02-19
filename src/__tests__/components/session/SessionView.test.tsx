@@ -19,6 +19,10 @@ vi.mock('../../../hooks/useAuth', () => ({
   useAuth: () => ({ user: { uid: 'uid-1' }, loading: false }),
 }));
 
+vi.mock('../../../hooks/useFamily', () => ({
+  useFamily: () => ({ family: { familyTree: [] }, loading: false }),
+}));
+
 let mockDossier: any = {
   storytellerName: 'Margaret',
   personality: 'empathetic',

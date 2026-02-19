@@ -13,6 +13,7 @@ import {
   doc,
   addDoc,
   getDoc,
+  updateDoc,
   onSnapshot,
   query,
   Timestamp,
@@ -20,7 +21,7 @@ import {
   arrayUnion,
 } from 'firebase/firestore';
 import { db } from '../services/firebase';
-import { Family, FamilyMemberRecord, UserRole } from '../types';
+import { Family, FamilyMember, FamilyMemberRecord, UserRole } from '../types';
 
 /**
  * Subscribe to a single family document.
@@ -155,6 +156,7 @@ export async function createFamily(
   // Create family document
   const familyRef = await addDoc(collection(db, 'families'), {
     name,
+    familyTree: [],
     createdAt: now,
     createdBy: uid,
   } as Omit<Family, 'id'>);
@@ -180,6 +182,17 @@ export async function createFamily(
   await batch.commit();
 
   return familyId;
+}
+
+/**
+ * Update the family tree for a family (shared across all dossiers).
+ */
+export async function updateFamilyTree(
+  familyId: string,
+  familyTree: FamilyMember[],
+): Promise<void> {
+  const docRef = doc(db, 'families', familyId);
+  await updateDoc(docRef, { familyTree });
 }
 
 /**
