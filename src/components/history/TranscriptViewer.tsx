@@ -137,58 +137,60 @@ export const TranscriptViewer: React.FC = () => {
         )}
       </div>
 
-      {/* Edit controls */}
-      <div className="flex items-center gap-3">
-        {!editing ? (
-          <button
-            onClick={() => {
-              setEditing(true);
-              if (!editedEntries) {
-                setEditedEntries([...entries]);
-              }
-            }}
-            className="text-sm text-indigo-600 font-medium hover:underline"
-          >
-            Edit Transcript
-          </button>
-        ) : (
-          <>
+      {/* Edit controls (admin-only) */}
+      {isAdmin && (
+        <div className="flex items-center gap-3">
+          {!editing ? (
             <button
-              onClick={async () => {
-                if (!familyId || !dossierId || !sessionId || !editedEntries || !user) return;
-                setSavingEdits(true);
-                try {
-                  await saveEditedTranscript(familyId, dossierId, sessionId, editedEntries, user.uid);
-                  setEditing(false);
-                } catch (err) {
-                  console.error('[Transcript] Save error:', err);
-                  alert('Failed to save edits');
-                } finally {
-                  setSavingEdits(false);
+              onClick={() => {
+                setEditing(true);
+                if (!editedEntries) {
+                  setEditedEntries([...entries]);
                 }
               }}
-              disabled={savingEdits}
-              className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-sm font-semibold hover:bg-indigo-700 transition-colors disabled:opacity-50"
+              className="text-sm text-indigo-600 font-medium hover:underline"
             >
-              {savingEdits ? 'Saving...' : 'Save Edits'}
+              Edit Transcript
             </button>
-            <button
-              onClick={() => { setEditing(false); setEditedEntries(entries.length > 0 ? [...entries] : null); }}
-              className="text-sm text-slate-500 font-medium hover:underline"
-            >
-              Cancel
-            </button>
-            <span className="text-xs text-slate-400">
-              Editing corrects names, dates, and context. Original transcript is always preserved.
+          ) : (
+            <>
+              <button
+                onClick={async () => {
+                  if (!familyId || !dossierId || !sessionId || !editedEntries || !user) return;
+                  setSavingEdits(true);
+                  try {
+                    await saveEditedTranscript(familyId, dossierId, sessionId, editedEntries, user.uid);
+                    setEditing(false);
+                  } catch (err) {
+                    console.error('[Transcript] Save error:', err);
+                    alert('Failed to save edits');
+                  } finally {
+                    setSavingEdits(false);
+                  }
+                }}
+                disabled={savingEdits}
+                className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-sm font-semibold hover:bg-indigo-700 transition-colors disabled:opacity-50"
+              >
+                {savingEdits ? 'Saving...' : 'Save Edits'}
+              </button>
+              <button
+                onClick={() => { setEditing(false); setEditedEntries(entries.length > 0 ? [...entries] : null); }}
+                className="text-sm text-slate-500 font-medium hover:underline"
+              >
+                Cancel
+              </button>
+              <span className="text-xs text-slate-400">
+                Editing corrects names, dates, and context. Original transcript is always preserved.
+              </span>
+            </>
+          )}
+          {editedEntries && !editing && (
+            <span className="text-xs text-emerald-600 font-medium">
+              (showing edited version)
             </span>
-          </>
-        )}
-        {editedEntries && !editing && (
-          <span className="text-xs text-emerald-600 font-medium">
-            (showing edited version)
-          </span>
-        )}
-      </div>
+          )}
+        </div>
+      )}
 
       {session?.audioUrl && (
         <AudioPlayer
@@ -323,8 +325,8 @@ export const TranscriptViewer: React.FC = () => {
         })()}
       </div>
 
-      {/* Engagement Assessment */}
-      {engagement && (
+      {/* Engagement Assessment (admin-only) */}
+      {isAdmin && engagement && (
         <div className="bg-white rounded-3xl border border-slate-200 p-8 shadow-sm space-y-4">
           <h3 className="text-lg font-bold text-slate-800">Session Analysis</h3>
           <div className="grid grid-cols-2 gap-4">
@@ -367,8 +369,8 @@ export const TranscriptViewer: React.FC = () => {
         </div>
       )}
 
-      {/* Suggested Questions */}
-      {suggestions.length > 0 && (
+      {/* Suggested Questions (admin-only) */}
+      {isAdmin && suggestions.length > 0 && (
         <div className="bg-white rounded-3xl border border-slate-200 p-8 shadow-sm space-y-4">
           <h3 className="text-lg font-bold text-slate-800">Suggested Follow-up Questions</h3>
           <p className="text-sm text-slate-400">Based on this session, consider adding these to the Story Queue:</p>
