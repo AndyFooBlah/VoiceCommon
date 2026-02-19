@@ -16,13 +16,14 @@
  * References: design.md §4 | GitHub Issues #4, #5, #6, #7
  */
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { useCurrentRoles, useFamily, updateFamilyTree } from '../../hooks/useFamily';
 import { useDossier } from '../../hooks/useDossier';
 import { useFamilyInvitations } from '../../hooks/useInvitations';
 import { StorytellerProfile } from './StorytellerProfile';
+import { previewGedcom, importGedcom, GedcomImportResult } from '../../services/gedcomParser';
 import { PersonalityMode, VoicePreset, FamilyMember } from '../../types';
 
 export const DossierEditor: React.FC = () => {
@@ -46,6 +47,13 @@ export const DossierEditor: React.FC = () => {
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteLink, setInviteLink] = useState<string | null>(null);
   const [inviting, setInviting] = useState(false);
+
+  // GEDCOM import state
+  const gedcomFileRef = useRef<HTMLInputElement>(null);
+  const [gedcomPreview, setGedcomPreview] = useState<GedcomImportResult | null>(null);
+  const [gedcomContent, setGedcomContent] = useState<string>('');
+  const [gedcomSearch, setGedcomSearch] = useState('');
+  const [showGedcomImport, setShowGedcomImport] = useState(false);
 
   async function handleInviteStoryteller() {
     if (!familyId || !dossierId || !inviteEmail.trim() || !user) return;
@@ -371,13 +379,122 @@ export const DossierEditor: React.FC = () => {
         <section className="space-y-4">
           <div className="flex justify-between items-center">
             <h3 className="font-bold text-slate-700">Family Tree</h3>
-            <button
-              onClick={handleAddFamilyMember}
-              className="text-xs text-indigo-600 font-bold hover:underline"
-            >
-              + Add Relative
-            </button>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowGedcomImport(true)}
+                className="text-xs text-emerald-600 font-bold hover:underline"
+              >
+                Import from Ancestry
+              </button>
+              <button
+                onClick={handleAddFamilyMember}
+                className="text-xs text-indigo-600 font-bold hover:underline"
+              >
+                + Add Relative
+              </button>
+            </div>
           </div>
+
+          {/* GEDCOM Import Flow */}
+          {showGedcomImport && (
+            <div className="bg-emerald-50 rounded-2xl border border-emerald-200 p-5 space-y-4">
+              <h4 className="font-semibold text-emerald-800">Import from Ancestry.com</h4>
+
+              {!gedcomPreview ? (
+                <>
+                  <div className="space-y-2 text-sm text-emerald-700">
+                    <p className="font-medium">How to export your family tree from Ancestry:</p>
+                    <ol className="list-decimal list-inside space-y-1 text-xs text-emerald-600">
+                      <li>Go to <strong>ancestry.com</strong> and sign in</li>
+                      <li>Click <strong>Trees</strong> and select your tree</li>
+                      <li>Click <strong>Tree Settings</strong> (top right)</li>
+                      <li>Scroll to <strong>Manage Your Tree</strong></li>
+                      <li>Click <strong>Export Tree</strong> and wait for the download</li>
+                      <li>Upload the <code>.ged</code> file below</li>
+                    </ol>
+                    <p className="text-xs text-emerald-500 italic">
+                      This also works with files from FamilySearch, MyHeritage, and other genealogy tools.
+                    </p>
+                  </div>
+                  <input
+                    ref={gedcomFileRef}
+                    type="file"
+                    accept=".ged,.gedcom"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      const reader = new FileReader();
+                      reader.onload = (ev) => {
+                        const content = ev.target?.result as string;
+                        setGedcomContent(content);
+                        try {
+                          const result = previewGedcom(content);
+                          setGedcomPreview(result);
+                        } catch (err) {
+                          console.error('[GEDCOM] Parse error:', err);
+                          alert('Could not parse this file. Please make sure it is a valid GEDCOM (.ged) file.');
+                        }
+                      };
+                      reader.readAsText(file);
+                    }}
+                    className="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-emerald-100 file:text-emerald-700 hover:file:bg-emerald-200"
+                  />
+                </>
+              ) : (
+                <>
+                  <p className="text-sm text-emerald-700">
+                    Found <strong>{gedcomPreview.totalCount}</strong> people. Select the storyteller (the person being interviewed):
+                  </p>
+                  <input
+                    type="text"
+                    placeholder="Search by name..."
+                    value={gedcomSearch}
+                    onChange={(e) => setGedcomSearch(e.target.value)}
+                    className="w-full px-3 py-2 border border-emerald-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                  <div className="max-h-48 overflow-y-auto space-y-1">
+                    {gedcomPreview.individuals
+                      .filter((i) => !gedcomSearch || i.name.toLowerCase().includes(gedcomSearch.toLowerCase()))
+                      .slice(0, 50)
+                      .map((indi) => (
+                        <button
+                          key={indi.id}
+                          onClick={() => {
+                            if (!familyId) return;
+                            const members = importGedcom(gedcomContent, indi.id);
+                            updateFamilyTree(familyId, [...familyTree, ...members]);
+                            setShowGedcomImport(false);
+                            setGedcomPreview(null);
+                            setGedcomContent('');
+                            setGedcomSearch('');
+                          }}
+                          className="w-full text-left px-3 py-2 rounded-lg text-sm hover:bg-emerald-100 transition-colors"
+                        >
+                          <span className="font-medium text-slate-800">{indi.name}</span>
+                          {indi.birthDate && (
+                            <span className="text-xs text-slate-400 ml-2">b. {indi.birthDate}</span>
+                          )}
+                          {indi.birthPlace && (
+                            <span className="text-xs text-slate-400 ml-1">({indi.birthPlace})</span>
+                          )}
+                        </button>
+                      ))}
+                    {gedcomPreview.individuals.filter((i) => !gedcomSearch || i.name.toLowerCase().includes(gedcomSearch.toLowerCase())).length === 0 && (
+                      <p className="text-xs text-slate-400 italic py-2">No matches found.</p>
+                    )}
+                  </div>
+                </>
+              )}
+
+              <button
+                onClick={() => { setShowGedcomImport(false); setGedcomPreview(null); setGedcomContent(''); setGedcomSearch(''); }}
+                className="text-xs text-emerald-600 font-medium hover:underline"
+              >
+                Cancel
+              </button>
+            </div>
+          )}
+
           <div className="grid grid-cols-1 gap-2">
             {familyTree.map((member, idx) => (
               <div key={idx} className="flex gap-2 items-center group">
