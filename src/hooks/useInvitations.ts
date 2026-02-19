@@ -12,6 +12,7 @@ import { Invitation, UserRole } from '../types';
 import {
   createInvitation as createInvitationService,
   acceptInvitation as acceptInvitationService,
+  cancelInvitation as cancelInvitationService,
   getInvitation,
   getPendingInvitationsForEmail,
 } from '../services/invitations';
@@ -65,7 +66,14 @@ export function useFamilyInvitations(familyId: string | undefined) {
     [familyId],
   );
 
-  return { invitations, loading, createInvite };
+  const cancelInvite = useCallback(
+    async (inviteId: string) => {
+      await cancelInvitationService(inviteId);
+    },
+    [],
+  );
+
+  return { invitations, loading, createInvite, cancelInvite };
 }
 
 /**

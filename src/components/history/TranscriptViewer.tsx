@@ -9,6 +9,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../hooks/useAuth';
+import { useCurrentRoles } from '../../hooks/useFamily';
 import { TranscriptEntry, SessionMetadata, SessionEngagement, SuggestedQuestion, AudioClip } from '../../types';
 import { AudioPlayer } from './AudioPlayer';
 import { getEngagementAssessment, getSuggestedQuestions, saveEditedTranscript, saveAudioClip, getAudioClips, deleteAudioClip } from '../../services/storage';
@@ -27,6 +28,7 @@ export const TranscriptViewer: React.FC = () => {
   }>();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { isAdmin } = useCurrentRoles(familyId, user?.uid);
 
   const [entries, setEntries] = useState<TranscriptEntry[]>([]);
   const [editedEntries, setEditedEntries] = useState<TranscriptEntry[] | null>(null);
@@ -104,6 +106,14 @@ export const TranscriptViewer: React.FC = () => {
         >
           &larr; Back to Session History
         </button>
+        {isAdmin && (
+          <button
+            onClick={() => navigate(`/family/${familyId}/dossier/${dossierId}`)}
+            className="text-sm text-slate-400 font-medium hover:underline mb-1 ml-4"
+          >
+            Dossier
+          </button>
+        )}
         <h2 className="text-2xl font-bold text-slate-800">Session Transcript</h2>
         {session && (
           <p className="text-sm text-slate-400 mt-1">

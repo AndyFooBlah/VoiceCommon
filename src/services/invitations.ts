@@ -76,6 +76,15 @@ export async function getPendingInvitationsForFamily(familyId: string): Promise<
 }
 
 /**
+ * Cancels a pending invitation by deleting the document.
+ */
+export async function cancelInvitation(inviteId: string): Promise<void> {
+  const { deleteDoc: firestoreDeleteDoc } = await import('firebase/firestore');
+  const docRef = doc(db, 'invitations', inviteId);
+  await firestoreDeleteDoc(docRef);
+}
+
+/**
  * Accepts an invitation: creates a family member record, updates user.familyIds,
  * links storyteller to dossiers if applicable, and marks invitation as accepted.
  * All writes are batched for atomicity.

@@ -1,6 +1,6 @@
 /**
  * StorytellerDashboard — simplified view for storytellers.
- * Shows their dossier(s), large "Start Session" button, and link to session history.
+ * Shows a welcome message with direct actions to start a session or view history.
  */
 
 import React from 'react';
@@ -27,54 +27,73 @@ export const StorytellerDashboard: React.FC = () => {
       <div className="max-w-md mx-auto p-8 mt-20 text-center space-y-4">
         <h2 className="text-2xl font-bold text-slate-800">Welcome!</h2>
         <p className="text-slate-400">
-          Your family admin hasn't assigned you to a dossier yet.
+          Your family admin hasn't set things up for you yet.
           Check back soon!
         </p>
       </div>
     );
   }
 
+  // Storytellers typically have one dossier — show it prominently
+  const dossier = dossiers[0];
+
   return (
-    <div className="max-w-2xl mx-auto p-8 space-y-8">
-      <div className="text-center space-y-2">
+    <div className="max-w-lg mx-auto p-8 mt-8 space-y-8">
+      <div className="text-center space-y-3">
         <h2 className="text-3xl font-bold text-slate-800 tracking-tight">
-          Your Stories
+          Welcome, {dossier.storytellerName}
         </h2>
         <p className="text-slate-400">
-          Select a profile to start sharing your memories.
+          Ready to share more of your story?
         </p>
       </div>
 
-      <div className="space-y-4">
-        {dossiers.map((d) => (
-          <div
-            key={d.id}
-            className="bg-white rounded-3xl border border-slate-200 p-8 shadow-sm space-y-6"
-          >
-            <div>
-              <h3 className="text-xl font-bold text-slate-800">{d.storytellerName}</h3>
-              {d.storytellerContext && (
-                <p className="text-sm text-slate-400 mt-1">{d.storytellerContext}</p>
-              )}
-            </div>
+      <div className="bg-white rounded-3xl border border-slate-200 p-8 shadow-sm space-y-6">
+        <button
+          onClick={() => navigate(`/family/${familyId}/dossier/${dossier.id}/session`)}
+          className="w-full py-5 bg-indigo-600 text-white rounded-2xl font-bold text-lg hover:bg-indigo-700 transition-colors shadow-lg"
+        >
+          Start Interview Session
+        </button>
 
-            <div className="flex gap-3">
-              <button
-                onClick={() => navigate(`/family/${familyId}/dossier/${d.id}/session`)}
-                className="flex-1 py-4 bg-indigo-600 text-white rounded-2xl font-bold text-lg hover:bg-indigo-700 transition-colors shadow-lg"
-              >
-                Start Session
-              </button>
-              <button
-                onClick={() => navigate(`/family/${familyId}/dossier/${d.id}/history`)}
-                className="px-6 py-4 bg-white border border-slate-200 text-slate-600 rounded-2xl font-semibold hover:bg-slate-50 transition-colors"
-              >
-                History
-              </button>
-            </div>
-          </div>
-        ))}
+        <button
+          onClick={() => navigate(`/family/${familyId}/dossier/${dossier.id}/history`)}
+          className="w-full py-4 bg-white border border-slate-200 text-slate-600 rounded-2xl font-semibold hover:bg-slate-50 transition-colors"
+        >
+          View Past Sessions
+        </button>
       </div>
+
+      {/* Show additional dossiers if there are more than one */}
+      {dossiers.length > 1 && (
+        <div className="space-y-3">
+          <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+            Other Profiles
+          </p>
+          {dossiers.slice(1).map((d) => (
+            <div
+              key={d.id}
+              className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm"
+            >
+              <h3 className="font-semibold text-slate-800 mb-3">{d.storytellerName}</h3>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => navigate(`/family/${familyId}/dossier/${d.id}/session`)}
+                  className="flex-1 py-3 bg-indigo-600 text-white rounded-xl font-semibold hover:bg-indigo-700 transition-colors"
+                >
+                  Start Session
+                </button>
+                <button
+                  onClick={() => navigate(`/family/${familyId}/dossier/${d.id}/history`)}
+                  className="px-5 py-3 bg-white border border-slate-200 text-slate-600 rounded-xl font-semibold hover:bg-slate-50 transition-colors"
+                >
+                  History
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 };

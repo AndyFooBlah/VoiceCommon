@@ -45,7 +45,7 @@ describe('StorytellerDashboard — no dossiers', () => {
   it('shows welcome message when no dossiers assigned', () => {
     render(<StorytellerDashboard />);
     expect(screen.getByText('Welcome!')).toBeInTheDocument();
-    expect(screen.getByText(/hasn't assigned you/)).toBeInTheDocument();
+    expect(screen.getByText(/hasn't set things up/)).toBeInTheDocument();
   });
 });
 
@@ -56,35 +56,35 @@ describe('StorytellerDashboard — with dossiers', () => {
     ];
   });
 
-  it('displays storyteller name', () => {
+  it('displays welcome with storyteller name', () => {
     render(<StorytellerDashboard />);
-    expect(screen.getByText('Margaret')).toBeInTheDocument();
+    expect(screen.getByText('Welcome, Margaret')).toBeInTheDocument();
   });
 
-  it('displays storyteller context', () => {
+  it('does not display storyteller context', () => {
     render(<StorytellerDashboard />);
-    expect(screen.getByText('Born in 1935')).toBeInTheDocument();
+    expect(screen.queryByText('Born in 1935')).not.toBeInTheDocument();
   });
 
-  it('shows Start Session button', () => {
+  it('shows Start Interview Session button', () => {
     render(<StorytellerDashboard />);
-    expect(screen.getByText('Start Session')).toBeInTheDocument();
+    expect(screen.getByText('Start Interview Session')).toBeInTheDocument();
   });
 
-  it('shows History button', () => {
+  it('shows View Past Sessions button', () => {
     render(<StorytellerDashboard />);
-    expect(screen.getByText('History')).toBeInTheDocument();
+    expect(screen.getByText('View Past Sessions')).toBeInTheDocument();
   });
 
-  it('navigates to session on Start Session click', () => {
+  it('navigates to session on Start Interview Session click', () => {
     render(<StorytellerDashboard />);
-    fireEvent.click(screen.getByText('Start Session'));
+    fireEvent.click(screen.getByText('Start Interview Session'));
     expect(mockNavigate).toHaveBeenCalledWith('/family/family-1/dossier/d1/session');
   });
 
-  it('navigates to history on History click', () => {
+  it('navigates to history on View Past Sessions click', () => {
     render(<StorytellerDashboard />);
-    fireEvent.click(screen.getByText('History'));
+    fireEvent.click(screen.getByText('View Past Sessions'));
     expect(mockNavigate).toHaveBeenCalledWith('/family/family-1/dossier/d1/history');
   });
 });

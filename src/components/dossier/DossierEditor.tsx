@@ -19,6 +19,7 @@
 import React, { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
+import { useCurrentRoles } from '../../hooks/useFamily';
 import { useDossier } from '../../hooks/useDossier';
 import { useFamilyInvitations } from '../../hooks/useInvitations';
 import { StorytellerProfile } from './StorytellerProfile';
@@ -28,6 +29,7 @@ export const DossierEditor: React.FC = () => {
   const { familyId, dossierId } = useParams<{ familyId: string; dossierId: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { isAdmin, loading: rolesLoading } = useCurrentRoles(familyId, user?.uid);
   const { createInvite } = useFamilyInvitations(familyId);
   const {
     dossier,
@@ -59,10 +61,25 @@ export const DossierEditor: React.FC = () => {
     }
   }
 
-  if (loading || !dossier) {
+  if (loading || rolesLoading || !dossier) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600" />
+      </div>
+    );
+  }
+
+  if (!isAdmin) {
+    return (
+      <div className="max-w-md mx-auto p-8 mt-20 text-center space-y-4">
+        <h2 className="text-xl font-bold text-slate-800">Access Denied</h2>
+        <p className="text-slate-400">Only admins can view the dossier editor.</p>
+        <button
+          onClick={() => navigate(`/family/${familyId}`)}
+          className="text-indigo-600 font-semibold hover:underline"
+        >
+          Go to Dashboard
+        </button>
       </div>
     );
   }

@@ -19,7 +19,7 @@ export const MemberManagement: React.FC = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
   const { members, loading: membersLoading } = useFamilyMembers(familyId);
-  const { invitations, loading: invitesLoading, createInvite } = useFamilyInvitations(familyId);
+  const { invitations, loading: invitesLoading, createInvite, cancelInvite } = useFamilyInvitations(familyId);
   const { dossiers } = useDossierList(familyId);
   const [showInviteForm, setShowInviteForm] = useState(false);
 
@@ -144,12 +144,20 @@ export const MemberManagement: React.FC = () => {
               Copy
             </button>
           </div>
-          <button
-            onClick={() => { setResetLink(null); setResetForName(''); }}
-            className="text-sm text-blue-600 font-medium hover:underline"
-          >
-            Dismiss
-          </button>
+          <div className="flex gap-4">
+            <button
+              onClick={() => { setResetLink(null); setResetForName(''); }}
+              className="text-sm text-blue-600 font-medium hover:underline"
+            >
+              Dismiss
+            </button>
+            <button
+              onClick={() => navigate('/')}
+              className="text-sm text-slate-500 font-medium hover:underline"
+            >
+              Go to Login Page
+            </button>
+          </div>
         </div>
       )}
 
@@ -328,6 +336,20 @@ export const MemberManagement: React.FC = () => {
                     className="px-3 py-1.5 bg-amber-500 text-white rounded-lg text-xs font-semibold hover:bg-amber-600 transition-colors"
                   >
                     Copy Link
+                  </button>
+                  <button
+                    onClick={async () => {
+                      if (!confirm(`Cancel invitation for ${invite.email}?`)) return;
+                      try {
+                        await cancelInvite(invite.id!);
+                      } catch (err) {
+                        console.error('[MemberManagement] Cancel invite error:', err);
+                        alert('Failed to cancel invitation');
+                      }
+                    }}
+                    className="px-3 py-1.5 bg-rose-100 text-rose-600 rounded-lg text-xs font-semibold hover:bg-rose-200 transition-colors"
+                  >
+                    Cancel
                   </button>
                 </div>
               </div>

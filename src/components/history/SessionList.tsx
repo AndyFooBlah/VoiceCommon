@@ -7,11 +7,15 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { collection, query, orderBy, onSnapshot } from 'firebase/firestore';
 import { db } from '../../services/firebase';
+import { useAuth } from '../../hooks/useAuth';
+import { useCurrentRoles } from '../../hooks/useFamily';
 import { SessionMetadata } from '../../types';
 
 export const SessionList: React.FC = () => {
   const { familyId, dossierId } = useParams<{ familyId: string; dossierId: string }>();
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const { isAdmin } = useCurrentRoles(familyId, user?.uid);
   const [sessions, setSessions] = useState<SessionMetadata[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -66,10 +70,10 @@ export const SessionList: React.FC = () => {
     <div className="max-w-3xl mx-auto p-8 space-y-6">
       <div>
         <button
-          onClick={() => navigate(`/family/${familyId}/dossier/${dossierId}`)}
+          onClick={() => navigate(isAdmin ? `/family/${familyId}/dossier/${dossierId}` : `/family/${familyId}`)}
           className="text-sm text-indigo-600 font-medium hover:underline mb-1"
         >
-          &larr; Back to Dossier
+          &larr; {isAdmin ? 'Back to Dossier' : 'Back to Dashboard'}
         </button>
         <h2 className="text-2xl font-bold text-slate-800">Session History</h2>
       </div>
