@@ -5,8 +5,7 @@
  *   /                                        → FamilySelector (create family or enter invite)
  *   /create-family                           → CreateFamily
  *   /invite?token=...                        → AcceptInvite
- *   /family/:familyId                        → Admin: DossierList | Storyteller: StorytellerDashboard
- *   /family/:familyId/members                → Admin: MemberManagement
+ *   /family/:familyId                        → Admin: FamilyPage | Storyteller: auto-redirect to session
  *   /family/:familyId/dossier/:dossierId     → Admin: DossierEditor
  *   /family/:familyId/dossier/:dossierId/session    → SessionView (both roles)
  *   /family/:familyId/dossier/:dossierId/history    → SessionList
@@ -20,8 +19,6 @@ import { ErrorBoundary } from './components/shared/ErrorBoundary';
 import { FamilySelector } from './components/family/FamilySelector';
 import { CreateFamily } from './components/family/CreateFamily';
 import { AcceptInvite } from './components/auth/AcceptInvite';
-import { MemberManagement } from './components/family/MemberManagement';
-import { DossierList } from './components/dossier/DossierList';
 import { DossierEditor } from './components/dossier/DossierEditor';
 import { SessionView } from './components/session/SessionView';
 import { SessionList } from './components/history/SessionList';
@@ -42,7 +39,6 @@ const App: React.FC = () => {
             <Route path="/create-family" element={<CreateFamily />} />
             <Route path="/invite" element={<AcceptInvite />} />
             <Route path="/family/:familyId" element={<FamilyHome />} />
-            <Route path="/family/:familyId/members" element={<MemberManagement />} />
             <Route path="/family/:familyId/dossier/:dossierId" element={<DossierEditor />} />
             <Route path="/family/:familyId/dossier/:dossierId/session" element={<SessionView />} />
             <Route path="/family/:familyId/dossier/:dossierId/memoir" element={<MemoirViewer />} />

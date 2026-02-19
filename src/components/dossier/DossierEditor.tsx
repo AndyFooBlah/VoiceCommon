@@ -5,7 +5,6 @@
  *   - StorytellerProfile (name + context)
  *   - Voice & Personality selection
  *   - Story Queue (question management with status badges)
- *   - Family Tree (relatives list)
  *   - Historical Context (free text)
  *   - Navigation to start a session or view session history
  *
@@ -13,19 +12,20 @@
  * The Story Queue supports adding, removing, editing text, and manual
  * status override (Archivist can reset Completed → Unasked to revisit topics).
  *
- * References: design.md §4 | GitHub Issues #4, #5, #6, #7
+ * Note: Family Tree management has been moved to FamilyPage (Phase 1).
+ *
+ * References: design.md §4 | GitHub Issues #4, #5, #6, #7, #60
  */
 
 import React, { useState, useRef, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
-import { useCurrentRoles, useFamily, updateFamilyTree } from '../../hooks/useFamily';
+import { useCurrentRoles, useFamily } from '../../hooks/useFamily';
 import { useDossier } from '../../hooks/useDossier';
 import { useFamilyInvitations } from '../../hooks/useInvitations';
 import { StorytellerProfile } from './StorytellerProfile';
-import { previewGedcom, importGedcom, GedcomImportResult } from '../../services/gedcomParser';
 import { uploadPromptPhoto, getPromptPhotos, deletePromptPhoto } from '../../services/storage';
-import { PersonalityMode, VoicePreset, FamilyMember, PromptPhoto } from '../../types';
+import { PersonalityMode, VoicePreset, PromptPhoto } from '../../types';
 
 export const DossierEditor: React.FC = () => {
   const { familyId, dossierId } = useParams<{ familyId: string; dossierId: string }>();
@@ -48,13 +48,6 @@ export const DossierEditor: React.FC = () => {
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteLink, setInviteLink] = useState<string | null>(null);
   const [inviting, setInviting] = useState(false);
-
-  // GEDCOM import state
-  const gedcomFileRef = useRef<HTMLInputElement>(null);
-  const [gedcomPreview, setGedcomPreview] = useState<GedcomImportResult | null>(null);
-  const [gedcomContent, setGedcomContent] = useState<string>('');
-  const [gedcomSearch, setGedcomSearch] = useState('');
-  const [showGedcomImport, setShowGedcomImport] = useState(false);
 
   // Prompt photos state
   const [promptPhotos, setPromptPhotos] = useState<PromptPhoto[]>([]);
@@ -103,27 +96,6 @@ export const DossierEditor: React.FC = () => {
         </button>
       </div>
     );
-  }
-
-  const familyTree = family?.familyTree ?? [];
-
-  /** Update a family member at a given index (family-level, shared across dossiers). */
-  function handleFamilyMemberChange(index: number, updates: Partial<FamilyMember>) {
-    if (!familyId) return;
-    const updated = [...familyTree];
-    updated[index] = { ...updated[index], ...updates };
-    updateFamilyTree(familyId, updated);
-  }
-
-  function handleAddFamilyMember() {
-    if (!familyId) return;
-    updateFamilyTree(familyId, [...familyTree, { name: '', relation: '' }]);
-  }
-
-  function handleRemoveFamilyMember(index: number) {
-    if (!familyId) return;
-    const updated = familyTree.filter((_, i) => i !== index);
-    updateFamilyTree(familyId, updated);
   }
 
   return (
@@ -469,155 +441,6 @@ export const DossierEditor: React.FC = () => {
               ))}
             </div>
           )}
-        </section>
-
-        <hr className="border-slate-100" />
-
-        {/* Family Tree */}
-        <section className="space-y-4">
-          <div className="flex justify-between items-center">
-            <h3 className="font-bold text-slate-700">Family Tree</h3>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setShowGedcomImport(true)}
-                className="text-xs text-emerald-600 font-bold hover:underline"
-              >
-                Import from Ancestry
-              </button>
-              <button
-                onClick={handleAddFamilyMember}
-                className="text-xs text-indigo-600 font-bold hover:underline"
-              >
-                + Add Relative
-              </button>
-            </div>
-          </div>
-
-          {/* GEDCOM Import Flow */}
-          {showGedcomImport && (
-            <div className="bg-emerald-50 rounded-2xl border border-emerald-200 p-5 space-y-4">
-              <h4 className="font-semibold text-emerald-800">Import from Ancestry.com</h4>
-
-              {!gedcomPreview ? (
-                <>
-                  <div className="space-y-2 text-sm text-emerald-700">
-                    <p className="font-medium">How to export your family tree from Ancestry:</p>
-                    <ol className="list-decimal list-inside space-y-1 text-xs text-emerald-600">
-                      <li>Go to <strong>ancestry.com</strong> and sign in</li>
-                      <li>Click <strong>Trees</strong> and select your tree</li>
-                      <li>Click <strong>Tree Settings</strong> (top right)</li>
-                      <li>Scroll to <strong>Manage Your Tree</strong></li>
-                      <li>Click <strong>Export Tree</strong> and wait for the download</li>
-                      <li>Upload the <code>.ged</code> file below</li>
-                    </ol>
-                    <p className="text-xs text-emerald-500 italic">
-                      This also works with files from FamilySearch, MyHeritage, and other genealogy tools.
-                    </p>
-                  </div>
-                  <input
-                    ref={gedcomFileRef}
-                    type="file"
-                    accept=".ged,.gedcom"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (!file) return;
-                      const reader = new FileReader();
-                      reader.onload = (ev) => {
-                        const content = ev.target?.result as string;
-                        setGedcomContent(content);
-                        try {
-                          const result = previewGedcom(content);
-                          setGedcomPreview(result);
-                        } catch (err) {
-                          console.error('[GEDCOM] Parse error:', err);
-                          alert('Could not parse this file. Please make sure it is a valid GEDCOM (.ged) file.');
-                        }
-                      };
-                      reader.readAsText(file);
-                    }}
-                    className="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-emerald-100 file:text-emerald-700 hover:file:bg-emerald-200"
-                  />
-                </>
-              ) : (
-                <>
-                  <p className="text-sm text-emerald-700">
-                    Found <strong>{gedcomPreview.totalCount}</strong> people. Select the storyteller (the person being interviewed):
-                  </p>
-                  <input
-                    type="text"
-                    placeholder="Search by name..."
-                    value={gedcomSearch}
-                    onChange={(e) => setGedcomSearch(e.target.value)}
-                    className="w-full px-3 py-2 border border-emerald-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  />
-                  <div className="max-h-48 overflow-y-auto space-y-1">
-                    {gedcomPreview.individuals
-                      .filter((i) => !gedcomSearch || i.name.toLowerCase().includes(gedcomSearch.toLowerCase()))
-                      .slice(0, 50)
-                      .map((indi) => (
-                        <button
-                          key={indi.id}
-                          onClick={() => {
-                            if (!familyId) return;
-                            const members = importGedcom(gedcomContent, indi.id);
-                            updateFamilyTree(familyId, [...familyTree, ...members]);
-                            setShowGedcomImport(false);
-                            setGedcomPreview(null);
-                            setGedcomContent('');
-                            setGedcomSearch('');
-                          }}
-                          className="w-full text-left px-3 py-2 rounded-lg text-sm hover:bg-emerald-100 transition-colors"
-                        >
-                          <span className="font-medium text-slate-800">{indi.name}</span>
-                          {indi.birthDate && (
-                            <span className="text-xs text-slate-400 ml-2">b. {indi.birthDate}</span>
-                          )}
-                          {indi.birthPlace && (
-                            <span className="text-xs text-slate-400 ml-1">({indi.birthPlace})</span>
-                          )}
-                        </button>
-                      ))}
-                    {gedcomPreview.individuals.filter((i) => !gedcomSearch || i.name.toLowerCase().includes(gedcomSearch.toLowerCase())).length === 0 && (
-                      <p className="text-xs text-slate-400 italic py-2">No matches found.</p>
-                    )}
-                  </div>
-                </>
-              )}
-
-              <button
-                onClick={() => { setShowGedcomImport(false); setGedcomPreview(null); setGedcomContent(''); setGedcomSearch(''); }}
-                className="text-xs text-emerald-600 font-medium hover:underline"
-              >
-                Cancel
-              </button>
-            </div>
-          )}
-
-          <div className="grid grid-cols-1 gap-2">
-            {familyTree.map((member, idx) => (
-              <div key={idx} className="flex gap-2 items-center group">
-                <input
-                  className="flex-1 p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs"
-                  placeholder="Name"
-                  value={member.name}
-                  onChange={(e) => handleFamilyMemberChange(idx, { name: e.target.value })}
-                />
-                <input
-                  className="w-28 p-2 bg-slate-50 border border-slate-200 rounded-lg text-xs"
-                  placeholder="Relation"
-                  value={member.relation}
-                  onChange={(e) => handleFamilyMemberChange(idx, { relation: e.target.value })}
-                />
-                <button
-                  onClick={() => handleRemoveFamilyMember(idx)}
-                  className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity text-lg"
-                  title="Remove"
-                >
-                  &times;
-                </button>
-              </div>
-            ))}
-          </div>
         </section>
 
         <hr className="border-slate-100" />

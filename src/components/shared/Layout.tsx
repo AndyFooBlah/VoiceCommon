@@ -1,7 +1,7 @@
 /**
  * Layout — the app shell with navigation and auth guard.
  * Extended with family context and role-based navigation.
- *   - Admin nav shows: Members, Sign Out
+ *   - Admin nav shows: Family, Sign Out
  *   - Storyteller nav shows: Sign Out
  *   - Hidden during live sessions for distraction-free experience
  */
@@ -67,10 +67,10 @@ export const Layout: React.FC = () => {
           <div className="flex items-center gap-4">
             {familyId && isAdmin && (
               <button
-                onClick={() => navigate(`/family/${familyId}/members`)}
+                onClick={() => navigate(`/family/${familyId}`)}
                 className="text-sm text-slate-500 hover:text-slate-700 font-medium transition-colors"
               >
-                Members
+                Family
               </button>
             )}
             <span className="text-sm text-slate-500">

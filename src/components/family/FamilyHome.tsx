@@ -1,8 +1,8 @@
 /**
  * FamilyHome — role-based landing page within a family.
- * Admin: shows DossierList
+ * Admin: shows FamilyPage (unified member management + storytellers)
  * Storyteller-only: auto-redirects to their session page
- * Both: shows DossierList (admin view) with storyteller access
+ * Both: shows FamilyPage (admin view) with storyteller access
  */
 
 import React, { useEffect } from 'react';
@@ -10,7 +10,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { useCurrentRoles } from '../../hooks/useFamily';
 import { useDossierList } from '../../hooks/useDossier';
-import { DossierList } from '../dossier/DossierList';
+import { FamilyPage } from './FamilyPage';
 
 export const FamilyHome: React.FC = () => {
   const { familyId } = useParams<{ familyId: string }>();
@@ -42,7 +42,7 @@ export const FamilyHome: React.FC = () => {
 
   // Admins (even with dual role) see the full admin view
   if (isAdmin) {
-    return <DossierList />;
+    return <FamilyPage />;
   }
 
   // Storyteller with no dossier yet
