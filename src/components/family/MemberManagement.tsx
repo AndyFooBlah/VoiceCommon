@@ -286,13 +286,26 @@ export const MemberManagement: React.FC = () => {
                   {resetting === member.uid ? 'Generating...' : 'Reset Password'}
                 </button>
                 {member.roles.includes('storyteller') && (
-                  <button
-                    onClick={() => handleReissueInvite(member.uid, member.email, member.displayName)}
-                    disabled={reissuing === member.uid}
-                    className="text-xs text-slate-500 font-medium hover:text-emerald-600 transition-colors disabled:opacity-50"
-                  >
-                    {reissuing === member.uid ? 'Creating...' : 'Reissue Invite'}
-                  </button>
+                  <>
+                    <button
+                      onClick={() => handleReissueInvite(member.uid, member.email, member.displayName)}
+                      disabled={reissuing === member.uid}
+                      className="text-xs text-slate-500 font-medium hover:text-emerald-600 transition-colors disabled:opacity-50"
+                    >
+                      {reissuing === member.uid ? 'Creating...' : 'Reissue Invite'}
+                    </button>
+                    {dossiers
+                      .filter((d) => d.storytellerUid === member.uid)
+                      .map((d) => (
+                        <button
+                          key={d.id}
+                          onClick={() => navigate(`/family/${familyId}/dossier/${d.id}`)}
+                          className="text-xs text-indigo-500 font-medium hover:text-indigo-700 transition-colors"
+                        >
+                          Edit Dossier
+                        </button>
+                      ))}
+                  </>
                 )}
               </div>
             )}
