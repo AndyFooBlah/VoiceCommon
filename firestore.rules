@@ -139,6 +139,7 @@ service cloud.firestore {
       allow update: if isAuthenticated()
         && resource.data.email == request.auth.token.email
         && request.resource.data.status == 'accepted';
+      allow delete: if isAuthenticated() && isFamilyAdmin(resource.data.familyId);
     }
   }
 }
