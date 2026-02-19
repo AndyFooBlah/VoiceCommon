@@ -41,6 +41,7 @@ import {
   Memoir,
   MediaItem,
   AudioClip,
+  PromptPhoto,
 } from '../types';
 
 // ---------------------------------------------------------------------------
@@ -602,5 +603,63 @@ export async function deleteAudioClip(
 ): Promise<void> {
   const { deleteDoc: firestoreDeleteDoc } = await import('firebase/firestore');
   const docRef = doc(db, 'families', familyId, 'dossiers', dossierId, 'clips', clipId);
+  await firestoreDeleteDoc(docRef);
+}
+
+// ---------------------------------------------------------------------------
+// Prompt photos (#54)
+// ---------------------------------------------------------------------------
+
+/**
+ * Upload a prompt photo to Firebase Storage and create a Firestore metadata doc.
+ */
+export async function uploadPromptPhoto(
+  familyId: string,
+  dossierId: string,
+  file: File,
+  caption: string,
+  uploaderUid: string,
+): Promise<string> {
+  const photoId = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+  const storagePath = `${familyId}/${dossierId}/promptPhotos/${photoId}`;
+  const storageRef = ref(storage, storagePath);
+
+  await uploadBytes(storageRef, file, { contentType: file.type });
+  const storageUrl = await getDownloadURL(storageRef);
+
+  const colRef = collection(db, 'families', familyId, 'dossiers', dossierId, 'promptPhotos');
+  const item: Omit<PromptPhoto, 'id'> = {
+    storageUrl,
+    caption,
+    uploadedBy: uploaderUid,
+    createdAt: Timestamp.now(),
+  };
+  const docRef = await addDoc(colRef, item);
+  return docRef.id;
+}
+
+/**
+ * Fetch all prompt photos for a dossier.
+ */
+export async function getPromptPhotos(
+  familyId: string,
+  dossierId: string,
+): Promise<PromptPhoto[]> {
+  const colRef = collection(db, 'families', familyId, 'dossiers', dossierId, 'promptPhotos');
+  const q = query(colRef, orderBy('createdAt', 'asc'));
+  const snapshot = await getDocs(q);
+  return snapshot.docs.map((d) => ({ ...d.data(), id: d.id }) as PromptPhoto);
+}
+
+/**
+ * Delete a prompt photo (Firestore doc only; Storage remains).
+ */
+export async function deletePromptPhoto(
+  familyId: string,
+  dossierId: string,
+  photoId: string,
+): Promise<void> {
+  const { deleteDoc: firestoreDeleteDoc } = await import('firebase/firestore');
+  const docRef = doc(db, 'families', familyId, 'dossiers', dossierId, 'promptPhotos', photoId);
   await firestoreDeleteDoc(docRef);
 }

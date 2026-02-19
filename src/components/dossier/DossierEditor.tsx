@@ -16,7 +16,7 @@
  * References: design.md §4 | GitHub Issues #4, #5, #6, #7
  */
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { useCurrentRoles, useFamily, updateFamilyTree } from '../../hooks/useFamily';
@@ -24,7 +24,8 @@ import { useDossier } from '../../hooks/useDossier';
 import { useFamilyInvitations } from '../../hooks/useInvitations';
 import { StorytellerProfile } from './StorytellerProfile';
 import { previewGedcom, importGedcom, GedcomImportResult } from '../../services/gedcomParser';
-import { PersonalityMode, VoicePreset, FamilyMember } from '../../types';
+import { uploadPromptPhoto, getPromptPhotos, deletePromptPhoto } from '../../services/storage';
+import { PersonalityMode, VoicePreset, FamilyMember, PromptPhoto } from '../../types';
 
 export const DossierEditor: React.FC = () => {
   const { familyId, dossierId } = useParams<{ familyId: string; dossierId: string }>();
@@ -54,6 +55,17 @@ export const DossierEditor: React.FC = () => {
   const [gedcomContent, setGedcomContent] = useState<string>('');
   const [gedcomSearch, setGedcomSearch] = useState('');
   const [showGedcomImport, setShowGedcomImport] = useState(false);
+
+  // Prompt photos state
+  const [promptPhotos, setPromptPhotos] = useState<PromptPhoto[]>([]);
+  const [promptPhotoCaption, setPromptPhotoCaption] = useState('');
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const promptPhotoFileRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!familyId || !dossierId) return;
+    getPromptPhotos(familyId, dossierId).then(setPromptPhotos).catch(console.error);
+  }, [familyId, dossierId]);
 
   async function handleInviteStoryteller() {
     if (!familyId || !dossierId || !inviteEmail.trim() || !user) return;
@@ -371,6 +383,92 @@ export const DossierEditor: React.FC = () => {
               </div>
             ))}
           </div>
+        </section>
+
+        <hr className="border-slate-100" />
+
+        {/* Prompt Photos */}
+        <section className="space-y-4">
+          <div className="flex justify-between items-center">
+            <h3 className="font-bold text-slate-700 flex items-center gap-2">
+              <svg className="w-5 h-5 text-violet-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              </svg>
+              Prompt Photos
+            </h3>
+          </div>
+          <p className="text-xs text-slate-400">
+            Upload photos for the interviewer to show {dossier.storytellerName} during sessions. Add a caption or question to guide the conversation.
+          </p>
+
+          {/* Upload form */}
+          <div className="bg-violet-50 rounded-2xl border border-violet-200 p-4 space-y-3">
+            <input
+              ref={promptPhotoFileRef}
+              type="file"
+              accept="image/*"
+              className="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-violet-100 file:text-violet-700 hover:file:bg-violet-200"
+            />
+            <input
+              type="text"
+              value={promptPhotoCaption}
+              onChange={(e) => setPromptPhotoCaption(e.target.value)}
+              placeholder="Caption or question (e.g. 'Who is this? Tell me about this day.')"
+              className="w-full px-3 py-2 border border-violet-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-violet-500"
+            />
+            <button
+              onClick={async () => {
+                const file = promptPhotoFileRef.current?.files?.[0];
+                if (!file || !promptPhotoCaption.trim() || !familyId || !dossierId || !user) return;
+                setUploadingPhoto(true);
+                try {
+                  await uploadPromptPhoto(familyId, dossierId, file, promptPhotoCaption.trim(), user.uid);
+                  setPromptPhotoCaption('');
+                  if (promptPhotoFileRef.current) promptPhotoFileRef.current.value = '';
+                  const updated = await getPromptPhotos(familyId, dossierId);
+                  setPromptPhotos(updated);
+                } catch (err) {
+                  console.error('[DossierEditor] Prompt photo upload error:', err);
+                  alert('Failed to upload photo');
+                } finally {
+                  setUploadingPhoto(false);
+                }
+              }}
+              disabled={uploadingPhoto}
+              className="px-4 py-2 bg-violet-600 text-white rounded-xl text-sm font-semibold hover:bg-violet-700 transition-colors disabled:opacity-50"
+            >
+              {uploadingPhoto ? 'Uploading...' : 'Upload Photo'}
+            </button>
+          </div>
+
+          {/* Photo list */}
+          {promptPhotos.length > 0 && (
+            <div className="grid grid-cols-1 gap-3">
+              {promptPhotos.map((photo) => (
+                <div key={photo.id} className="flex gap-3 items-start bg-slate-50 rounded-xl border border-slate-100 p-3 group">
+                  <img
+                    src={photo.storageUrl}
+                    alt={photo.caption}
+                    className="w-20 h-20 object-cover rounded-lg shrink-0"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-slate-700">{photo.caption}</p>
+                  </div>
+                  <button
+                    onClick={async () => {
+                      if (!familyId || !dossierId || !photo.id) return;
+                      await deletePromptPhoto(familyId, dossierId, photo.id);
+                      setPromptPhotos((prev) => prev.filter((p) => p.id !== photo.id));
+                    }}
+                    className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity text-lg shrink-0"
+                    title="Remove"
+                  >
+                    &times;
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </section>
 
         <hr className="border-slate-100" />

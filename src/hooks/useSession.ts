@@ -20,7 +20,7 @@
 import { useState, useRef, useCallback } from 'react';
 import { GoogleGenAI, LiveServerMessage, Modality, Type, FunctionDeclaration } from '@google/genai';
 import { Timestamp } from 'firebase/firestore';
-import { Message, Dossier, InterviewQuestion, FamilyMember, ConnectionStatus, TranscriptEntry } from '../types';
+import { Message, Dossier, InterviewQuestion, FamilyMember, PromptPhoto, ConnectionStatus, TranscriptEntry } from '../types';
 import { useAudioMixer } from './useAudioMixer';
 import { encode, decode, decodeAudioData } from '../services/audioUtils';
 import { buildSystemInstruction } from '../services/gemini';
@@ -48,8 +48,12 @@ interface UseSessionOptions {
   questions: InterviewQuestion[];
   /** Family tree (shared across all dossiers in the family). */
   familyTree?: FamilyMember[];
+  /** Prompt photos uploaded by admin for the bot to optionally show. */
+  promptPhotos?: PromptPhoto[];
   /** Called when the bot updates a question's status via function calling. */
   onQuestionUpdate: (questionId: string, status: string, findings: string) => void;
+  /** Called when the bot shows a prompt photo to the storyteller. */
+  onShowPhoto?: (photoId: string) => void;
 }
 
 export function useSession({
@@ -59,7 +63,9 @@ export function useSession({
   dossier,
   questions,
   familyTree,
+  promptPhotos,
   onQuestionUpdate,
+  onShowPhoto,
 }: UseSessionOptions) {
   const [status, setStatus] = useState<ConnectionStatus>(ConnectionStatus.DISCONNECTED);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -233,12 +239,28 @@ export function useSession({
         },
       };
 
+      const showPhotoTool: FunctionDeclaration = {
+        name: 'showPhoto',
+        parameters: {
+          type: Type.OBJECT,
+          description: 'Display a prompt photo to the storyteller during the interview. Use this when a photo is relevant to the current conversation topic.',
+          properties: {
+            photoId: {
+              type: Type.STRING,
+              description: 'The unique ID of the prompt photo to display.',
+            },
+          },
+          required: ['photoId'],
+        },
+      };
+
       // 5. Connect to Gemini Live API
       const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
       const systemInstruction = buildSystemInstruction({
         dossier,
         questions,
         familyTree,
+        promptPhotos,
         completedSessionCount,
         previousSessionSummary,
       });
@@ -287,6 +309,14 @@ export function useSession({
                   updateQuestionStateInFirestore(familyId, dossierId, id, status, findings).catch(
                     (err) => console.error('[Firestore] Question update error:', err),
                   );
+                } else if (fc.name === 'showPhoto') {
+                  const { photoId } = fc.args as any;
+                  if (onShowPhoto) onShowPhoto(photoId);
+                  // Log the photo display in the transcript for linking
+                  const photo = promptPhotos?.find((p) => p.id === photoId);
+                  if (photo) {
+                    addMessage('bot', `[Showed photo: ${photo.caption}]`);
+                  }
                 } else if (fc.name === 'reportEmotionalObservation') {
                   const { mood, confidence, trigger, recommendation } = fc.args as any;
                   const currentSid = sessionIdRef.current;
@@ -383,7 +413,11 @@ export function useSession({
               prebuiltVoiceConfig: { voiceName: dossier.selectedVoice },
             },
           },
-          tools: [{ functionDeclarations: [updateQuestionStatusTool, reportEmotionalObservationTool] }],
+          tools: [{ functionDeclarations: [
+            updateQuestionStatusTool,
+            reportEmotionalObservationTool,
+            ...(promptPhotos && promptPhotos.length > 0 ? [showPhotoTool] : []),
+          ] }],
           inputAudioTranscription: {},
           outputAudioTranscription: {},
         },
@@ -397,7 +431,7 @@ export function useSession({
       }
       setStatus(ConnectionStatus.ERROR);
     }
-  }, [familyId, dossierId, storytellerUid, dossier, questions, mixer, addMessage, createPCMData, handleInterruption, onQuestionUpdate, status]);
+  }, [familyId, dossierId, storytellerUid, dossier, questions, promptPhotos, mixer, addMessage, createPCMData, handleInterruption, onQuestionUpdate, onShowPhoto, status]);
 
   /**
    * Gracefully stop the current session.

@@ -18,15 +18,17 @@
  * References: product_requirements.md §4 | GitHub Issues #17, #19
  */
 
-import React, { useCallback } from 'react';
+import React, { useCallback, useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { useFamily } from '../../hooks/useFamily';
 import { useDossier } from '../../hooks/useDossier';
 import { useSession } from '../../hooks/useSession';
+import { getPromptPhotos } from '../../services/storage';
 import { Visualizer } from './Visualizer';
 import { TranscriptFeed } from './TranscriptFeed';
-import { ConnectionStatus } from '../../types';
+import { ConnectionStatus, PromptPhoto } from '../../types';
+import { Logo } from '../shared/Logo';
 
 export const SessionView: React.FC = () => {
   const { familyId, dossierId } = useParams<{ familyId: string; dossierId: string }>();
@@ -39,6 +41,23 @@ export const SessionView: React.FC = () => {
     loading: dossierLoading,
     updateQuestion,
   } = useDossier(familyId, dossierId);
+
+  // Prompt photos
+  const [promptPhotos, setPromptPhotos] = useState<PromptPhoto[]>([]);
+  const [activePhoto, setActivePhoto] = useState<PromptPhoto | null>(null);
+
+  useEffect(() => {
+    if (!familyId || !dossierId) return;
+    getPromptPhotos(familyId, dossierId).then(setPromptPhotos).catch(console.error);
+  }, [familyId, dossierId]);
+
+  const handleShowPhoto = useCallback(
+    (photoId: string) => {
+      const photo = promptPhotos.find((p) => p.id === photoId);
+      if (photo) setActivePhoto(photo);
+    },
+    [promptPhotos],
+  );
 
   /** Handler for Gemini function-calling question updates during a session. */
   const handleQuestionUpdate = useCallback(
@@ -67,7 +86,9 @@ export const SessionView: React.FC = () => {
     dossier: dossier!,
     questions,
     familyTree: family?.familyTree,
+    promptPhotos,
     onQuestionUpdate: handleQuestionUpdate,
+    onShowPhoto: handleShowPhoto,
   });
 
   if (dossierLoading || !dossier) {
@@ -90,9 +111,12 @@ export const SessionView: React.FC = () => {
 
       {/* Header */}
       <div className="text-center space-y-2">
-        <h1 className="text-5xl font-bold text-slate-800 tracking-tighter font-display">
-          LegacyBot
-        </h1>
+        <div className="flex items-center justify-center gap-3">
+          <Logo size={48} />
+          <h1 className="text-5xl font-bold text-slate-800 tracking-tighter font-display">
+            LegacyBot
+          </h1>
+        </div>
         <p className="text-slate-400 font-medium italic">
           Session with {dossier.storytellerName}
         </p>
@@ -177,6 +201,28 @@ export const SessionView: React.FC = () => {
 
       {/* Live transcript feed */}
       <TranscriptFeed messages={messages} sessionId={sessionId} />
+
+      {/* Prompt photo display */}
+      {activePhoto && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-[2rem] shadow-2xl max-w-lg w-full overflow-hidden">
+            <img
+              src={activePhoto.storageUrl}
+              alt={activePhoto.caption}
+              className="w-full max-h-[60vh] object-contain bg-slate-100"
+            />
+            <div className="p-6 space-y-3">
+              <p className="text-slate-600 text-sm italic">{activePhoto.caption}</p>
+              <button
+                onClick={() => setActivePhoto(null)}
+                className="w-full py-3 bg-slate-100 text-slate-600 rounded-2xl font-medium hover:bg-slate-200 transition-colors text-sm"
+              >
+                Close Photo
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Device error dialog (microphone issues) */}
       {status === ConnectionStatus.ERROR && deviceError && (

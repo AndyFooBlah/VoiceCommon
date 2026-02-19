@@ -17,7 +17,7 @@
  * References: design.md §3.2 | GitHub Issues #12, #33, #34, #38
  */
 
-import { Dossier, InterviewQuestion, FamilyMember, PersonalityMode } from '../types';
+import { Dossier, InterviewQuestion, FamilyMember, PersonalityMode, PromptPhoto } from '../types';
 
 /** Maps each personality mode to its system instruction fragment. */
 const PERSONALITY_TRAITS: Record<PersonalityMode, string> = {
@@ -34,6 +34,8 @@ export interface BuildInstructionOptions {
   questions: InterviewQuestion[];
   /** Family tree (shared across all dossiers in the family). */
   familyTree?: FamilyMember[];
+  /** Prompt photos uploaded by the admin for the bot to optionally show. */
+  promptPhotos?: PromptPhoto[];
   /** Number of previously completed sessions for this dossier. */
   completedSessionCount: number;
   /** Summary of topics covered in recent sessions (from Story Queue findings). */
@@ -48,7 +50,7 @@ export interface BuildInstructionOptions {
  * notes for custom guidance.
  */
 export function buildSystemInstruction(options: BuildInstructionOptions): string {
-  const { dossier, questions, familyTree, completedSessionCount, previousSessionSummary } = options;
+  const { dossier, questions, familyTree, promptPhotos, completedSessionCount, previousSessionSummary } = options;
   const isFirstSession = completedSessionCount === 0;
   const name = dossier.storytellerName;
 
@@ -117,6 +119,13 @@ KNOWLEDGE BASE:
 - Historical Context: ${dossier.historicalContext}
 ${dossier.storytellerContext ? `- Storyteller Background: ${dossier.storytellerContext}` : ''}
 ${adminNotesSection}
+${promptPhotos && promptPhotos.length > 0 ? `
+PROMPT PHOTOS:
+The family has uploaded ${promptPhotos.length} photo(s) that may spark memories. You can show a photo to the storyteller at any time by calling the 'showPhoto' tool with the photo's ID.
+- You are NOT obligated to show every photo. Use your judgment.
+- Show a photo when it naturally fits the conversation (e.g. discussing a person or event in the photo).
+- When you show a photo, tell the storyteller what they're looking at and ask about it using the caption as a guide.
+- Photos: ${JSON.stringify(promptPhotos.map((p) => ({ id: p.id, caption: p.caption })))}` : ''}
 
 ${greetingSection}
   `.trim();

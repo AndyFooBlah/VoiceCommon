@@ -257,6 +257,19 @@ export interface MediaItem {
 }
 
 // ---------------------------------------------------------------------------
+// Prompt Photos (#54)
+// ---------------------------------------------------------------------------
+
+/** Firestore document at families/{familyId}/dossiers/{dossierId}/promptPhotos/{photoId}. */
+export interface PromptPhoto {
+  id?: string;
+  storageUrl: string; // Firebase Storage download URL
+  caption: string; // Leading question or caption for the bot to use
+  uploadedBy: string; // uid
+  createdAt: Timestamp;
+}
+
+// ---------------------------------------------------------------------------
 // Audio Clips (#42)
 // ---------------------------------------------------------------------------
 

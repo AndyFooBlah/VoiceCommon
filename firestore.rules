@@ -88,6 +88,12 @@ service cloud.firestore {
           allow create: if isFamilyStoryteller(familyId) && isOwnDossier(familyId, dossierId);
         }
 
+        // --- Prompt photos ---
+        match /promptPhotos/{photoId} {
+          allow read, write: if isFamilyAdmin(familyId);
+          allow read: if isFamilyStoryteller(familyId) && isOwnDossier(familyId, dossierId);
+        }
+
         // --- Media attachments ---
         match /media/{mediaId} {
           allow read, write: if isFamilyAdmin(familyId);
