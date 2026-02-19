@@ -19,7 +19,7 @@ import { useFamilyInvitations } from '../../hooks/useInvitations';
 import { useDossierList } from '../../hooks/useDossier';
 import { updateMemberEmail, resetMemberPassword } from '../../services/adminActions';
 import { InviteMember } from './InviteMember';
-import { FamilyMember } from '../../types';
+import { FamilyMember, RelationType, MemberType } from '../../types';
 
 export const FamilyPage: React.FC = () => {
   const { familyId } = useParams<{ familyId: string }>();
@@ -124,22 +124,63 @@ export const FamilyPage: React.FC = () => {
     navigate(`/family/${familyId}/dossier/${dossierId}`);
   }
 
-  function handleFamilyMemberChange(index: number, updates: Partial<FamilyMember>) {
+  // Family Tree handlers (relational model)
+  function handleAddFamilyMember(memberType: MemberType) {
     if (!familyId || !family) return;
-    const updated = [...(family.familyTree ?? [])];
-    updated[index] = { ...updated[index], ...updates };
+    const newMember: FamilyMember = {
+      id: `member-${Date.now()}`, // simple ID generation
+      name: '',
+      relations: [],
+      memberType,
+    };
+    updateFamilyTree(familyId, [...(family.familyTree ?? []), newMember]);
+  }
+
+  function handleFamilyMemberChange(memberId: string, updates: Partial<FamilyMember>) {
+    if (!familyId || !family) return;
+    const updated = (family.familyTree ?? []).map((m) =>
+      m.id === memberId ? { ...m, ...updates } : m
+    );
     updateFamilyTree(familyId, updated);
   }
 
-  function handleAddFamilyMember() {
+  function handleRemoveFamilyMember(memberId: string) {
     if (!familyId || !family) return;
-    updateFamilyTree(familyId, [...(family.familyTree ?? []), { name: '', relation: '' }]);
+    const updated = (family.familyTree ?? []).filter((m) => m.id !== memberId);
+    updateFamilyTree(familyId, updated);
   }
 
-  function handleRemoveFamilyMember(index: number) {
+  function handleAddRelation(memberId: string) {
     if (!familyId || !family) return;
-    const updated = (family.familyTree ?? []).filter((_, i) => i !== index);
-    updateFamilyTree(familyId, updated);
+    const member = (family.familyTree ?? []).find((m) => m.id === memberId);
+    if (!member) return;
+    const updatedMember = {
+      ...member,
+      relations: [...member.relations, { type: 'Parent' as RelationType, toMemberId: '' }],
+    };
+    handleFamilyMemberChange(memberId, updatedMember);
+  }
+
+  function handleRemoveRelation(memberId: string, relationIndex: number) {
+    if (!familyId || !family) return;
+    const member = (family.familyTree ?? []).find((m) => m.id === memberId);
+    if (!member) return;
+    const updatedRelations = member.relations.filter((_, i) => i !== relationIndex);
+    handleFamilyMemberChange(memberId, { relations: updatedRelations });
+  }
+
+  function handleUpdateRelation(
+    memberId: string,
+    relationIndex: number,
+    updates: { type?: RelationType; toMemberId?: string }
+  ) {
+    if (!familyId || !family) return;
+    const member = (family.familyTree ?? []).find((m) => m.id === memberId);
+    if (!member) return;
+    const updatedRelations = member.relations.map((r, i) =>
+      i === relationIndex ? { ...r, ...updates } : r
+    );
+    handleFamilyMemberChange(memberId, { relations: updatedRelations });
   }
 
   if (familyLoading || membersLoading || invitesLoading || dossiersLoading) {
@@ -445,58 +486,140 @@ export const FamilyPage: React.FC = () => {
         )}
       </section>
 
-      {/* Family Tree Section */}
+      {/* Family Tree Section (Relational Model) */}
       <section className="space-y-4">
         <div className="flex items-center justify-between">
           <h3 className="text-xl font-bold text-slate-700">Family Tree</h3>
-          <button
-            onClick={handleAddFamilyMember}
-            className="px-4 py-2 bg-white border border-slate-200 text-slate-600 rounded-xl text-sm font-semibold hover:bg-slate-50 transition-colors"
-          >
-            + Add Person
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={() => handleAddFamilyMember('person')}
+              className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-sm font-semibold hover:bg-indigo-700 transition-colors"
+            >
+              + Add Person
+            </button>
+            <button
+              onClick={() => handleAddFamilyMember('pet')}
+              className="px-4 py-2 bg-white border border-slate-200 text-slate-600 rounded-xl text-sm font-semibold hover:bg-slate-50 transition-colors"
+            >
+              + Add Pet
+            </button>
+          </div>
         </div>
 
         {familyTree.length === 0 ? (
           <div className="bg-slate-50 rounded-2xl border border-slate-200 p-8 text-center text-slate-400">
-            No family members added yet.
+            No family members added yet. Add people, pets, and friends to build your family tree.
           </div>
         ) : (
-          <div className="space-y-3">
-            {familyTree.map((member, idx) => (
+          <div className="space-y-4">
+            {familyTree.map((member) => (
               <div
-                key={idx}
-                className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm space-y-3"
+                key={member.id}
+                className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-4"
               >
-                <div className="grid grid-cols-2 gap-3">
-                  <input
-                    type="text"
-                    value={member.name}
-                    onChange={(e) => handleFamilyMemberChange(idx, { name: e.target.value })}
-                    placeholder="Name"
-                    className="p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:ring-1 focus:ring-indigo-500"
-                  />
-                  <input
-                    type="text"
-                    value={member.relation}
-                    onChange={(e) => handleFamilyMemberChange(idx, { relation: e.target.value })}
-                    placeholder="Relation (e.g., Father)"
-                    className="p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:ring-1 focus:ring-indigo-500"
-                  />
+                {/* Member header */}
+                <div className="flex items-start justify-between">
+                  <div className="flex-1 space-y-3">
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={member.name}
+                        onChange={(e) => handleFamilyMemberChange(member.id, { name: e.target.value })}
+                        placeholder={member.memberType === 'pet' ? 'Pet name' : 'Person name'}
+                        className="flex-1 p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:ring-1 focus:ring-indigo-500"
+                      />
+                      <span className="text-xs px-2 py-1 bg-slate-100 text-slate-600 rounded-full font-medium">
+                        {member.memberType === 'pet' ? '🐾 Pet' : '👤 Person'}
+                      </span>
+                    </div>
+
+                    <textarea
+                      value={member.notes || ''}
+                      onChange={(e) => handleFamilyMemberChange(member.id, { notes: e.target.value })}
+                      placeholder="Notes (optional)"
+                      rows={2}
+                      className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:ring-1 focus:ring-indigo-500 resize-none"
+                    />
+                  </div>
+
+                  <button
+                    onClick={() => handleRemoveFamilyMember(member.id)}
+                    className="text-slate-300 hover:text-rose-500 transition-colors text-xl ml-4"
+                    title="Remove member"
+                  >
+                    &times;
+                  </button>
                 </div>
-                <textarea
-                  value={member.notes || ''}
-                  onChange={(e) => handleFamilyMemberChange(idx, { notes: e.target.value })}
-                  placeholder="Notes (optional)"
-                  rows={2}
-                  className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:ring-1 focus:ring-indigo-500 resize-none"
-                />
-                <button
-                  onClick={() => handleRemoveFamilyMember(idx)}
-                  className="text-xs text-rose-500 hover:underline"
-                >
-                  Remove
-                </button>
+
+                {/* Relationships */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Relationships</p>
+                    <button
+                      onClick={() => handleAddRelation(member.id)}
+                      className="text-xs text-indigo-600 font-medium hover:underline"
+                    >
+                      + Add Relationship
+                    </button>
+                  </div>
+
+                  {member.relations.length === 0 ? (
+                    <p className="text-xs text-slate-400 italic">No relationships defined yet.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {member.relations.map((relation, relationIdx) => (
+                        <div key={relationIdx} className="flex items-center gap-2 bg-slate-50 rounded-lg p-2">
+                          <select
+                            value={relation.type}
+                            onChange={(e) =>
+                              handleUpdateRelation(member.id, relationIdx, {
+                                type: e.target.value as RelationType,
+                              })
+                            }
+                            className="p-1.5 bg-white border border-slate-200 rounded text-xs outline-none focus:ring-1 focus:ring-indigo-500"
+                          >
+                            <option value="Parent">Parent</option>
+                            <option value="Spouse">Spouse</option>
+                            <option value="Child">Child</option>
+                            <option value="Sibling">Sibling</option>
+                            <option value="Friend">Friend</option>
+                            <option value="Pet Owner">Pet Owner</option>
+                            <option value="Pet">Pet</option>
+                          </select>
+
+                          <span className="text-xs text-slate-400">of</span>
+
+                          <select
+                            value={relation.toMemberId}
+                            onChange={(e) =>
+                              handleUpdateRelation(member.id, relationIdx, {
+                                toMemberId: e.target.value,
+                              })
+                            }
+                            className="flex-1 p-1.5 bg-white border border-slate-200 rounded text-xs outline-none focus:ring-1 focus:ring-indigo-500"
+                          >
+                            <option value="">Select a member...</option>
+                            {familyTree
+                              .filter((m) => m.id !== member.id)
+                              .map((m) => (
+                                <option key={m.id} value={m.id}>
+                                  {m.name || 'Unnamed'} ({m.memberType === 'pet' ? 'Pet' : 'Person'})
+                                </option>
+                              ))}
+                          </select>
+
+                          <button
+                            onClick={() => handleRemoveRelation(member.id, relationIdx)}
+                            className="text-slate-300 hover:text-rose-500 transition-colors text-lg"
+                            title="Remove relationship"
+                          >
+                            &times;
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             ))}
           </div>

@@ -78,11 +78,34 @@ export interface Invitation {
 // Dossier & Storyteller
 // ---------------------------------------------------------------------------
 
-/** A single relative in the Storyteller's family tree. */
+/** Valid relationship types in the family tree. */
+export type RelationType =
+  | 'Parent'
+  | 'Spouse'
+  | 'Child'
+  | 'Sibling'
+  | 'Friend'
+  | 'Pet Owner'
+  | 'Pet';
+
+/** Type of family tree member (person or pet). */
+export type MemberType = 'person' | 'pet';
+
+/**
+ * A single entry in the family tree (relational model).
+ * Each member can have relationships to other members.
+ * Supports people, pets, and friends.
+ */
 export interface FamilyMember {
+  id: string; // unique ID for this family tree entry
   name: string;
-  relation: string;
+  linkedMemberUid?: string; // optional link to actual family member account
+  relations: Array<{
+    type: RelationType;
+    toMemberId: string; // references another FamilyMember.id
+  }>;
   notes?: string;
+  memberType: MemberType; // 'person' or 'pet'
 }
 
 /** The three interviewer personality modes the Archivist can choose from. */
