@@ -28,6 +28,7 @@ import { MemoirViewer } from './components/memoir/MemoirViewer';
 import { MediaGallery } from './components/media/MediaGallery';
 import { StorytellerDashboard } from './components/storyteller/StorytellerDashboard';
 import { FamilyHome } from './components/family/FamilyHome';
+import { FamilyEventDetail } from './components/family/FamilyEventDetail';
 
 const App: React.FC = () => {
   return (
@@ -39,6 +40,7 @@ const App: React.FC = () => {
             <Route path="/create-family" element={<CreateFamily />} />
             <Route path="/invite" element={<AcceptInvite />} />
             <Route path="/family/:familyId" element={<FamilyHome />} />
+            <Route path="/family/:familyId/events/:eventId" element={<FamilyEventDetail />} />
             <Route path="/family/:familyId/dossier/:dossierId" element={<DossierEditor />} />
             <Route path="/family/:familyId/dossier/:dossierId/session" element={<SessionView />} />
             <Route path="/family/:familyId/dossier/:dossierId/memoir" element={<MemoirViewer />} />

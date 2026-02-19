@@ -34,6 +34,7 @@ import {
   getPreviousSessionSummary,
   logEmotionalObservation,
   saveExtractedEvents,
+  saveFamilyEvents,
   saveEngagementAssessment,
   saveSuggestedQuestions,
   getEvents,
@@ -514,9 +515,21 @@ export function useSession({
               return [];
             }),
           ]);
+          const familyEvents = events.map((e) => ({
+            familyId,
+            title: e.title,
+            date: e.date ?? undefined,
+            description: e.description,
+            storytellerUids: [storytellerUid],
+            sessionIds: [sid],
+            createdBy: storytellerUid,
+          }));
           await Promise.all([
             events.length > 0
               ? saveExtractedEvents(familyId, dossierId, events)
+              : Promise.resolve(),
+            familyEvents.length > 0
+              ? saveFamilyEvents(familyId, familyEvents)
               : Promise.resolve(),
             engagement
               ? saveEngagementAssessment(familyId, dossierId, sid, engagement)

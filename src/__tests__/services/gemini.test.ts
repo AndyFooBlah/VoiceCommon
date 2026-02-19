@@ -20,7 +20,7 @@ function makeDossier(overrides: Partial<Dossier> = {}): Dossier {
     adminName: 'Andy',
     storytellerContext: 'Grew up on a farm in Iowa.',
     historicalContext: 'Post-war rural America, 1950s.',
-    familyTree: [{ name: 'Arthur', relation: 'Father' }],
+    familyTree: [{ id: 'member-1', name: 'Arthur', memberType: 'person', relations: [{ type: 'Parent', toMemberId: 'margaret' }] }],
     selectedVoice: 'Zephyr',
     personality: 'empathetic',
     interviewerNotes: '',
@@ -78,14 +78,14 @@ describe('buildSystemInstruction', () => {
   it('includes family tree members', () => {
     const dossier = makeDossier({
       familyTree: [
-        { name: 'Arthur', relation: 'Father' },
-        { name: 'Eleanor', relation: 'Mother' },
+        { id: 'member-1', name: 'Arthur', memberType: 'person', relations: [{ type: 'Parent', toMemberId: 'margaret' }] },
+        { id: 'member-2', name: 'Eleanor', memberType: 'person', relations: [{ type: 'Parent', toMemberId: 'margaret' }] },
       ],
     });
     const instruction = buildSystemInstruction(makeOptions({ dossier }));
     expect(instruction).toContain('Arthur');
     expect(instruction).toContain('Eleanor');
-    expect(instruction).toContain('Father');
+    expect(instruction).toContain('Parent');
   });
 
   it('includes historical context', () => {

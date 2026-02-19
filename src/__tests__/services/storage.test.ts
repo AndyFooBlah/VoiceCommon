@@ -11,6 +11,7 @@ import {
   archiveAudioToGCS,
   syncTranscriptToFirestore,
   updateQuestionStateInFirestore,
+  saveFamilyEvents,
 } from '../../services/storage';
 
 beforeEach(() => {
@@ -155,5 +156,61 @@ describe('updateQuestionStateInFirestore', () => {
     expect(updateData.status).toBe('InProgress');
     expect(updateData.findings).toBe('User mentioned a farm.');
     expect(updateData.updatedAt).toBeDefined();
+  });
+});
+
+describe('saveFamilyEvents', () => {
+  const baseEvent = {
+    familyId: 'family-1',
+    title: 'Marriage of Ralph and Margaret',
+    date: 'June 15, 1952',
+    description: 'They married in a small ceremony in Ohio.',
+    storytellerUids: ['storyteller-uid'] as string[],
+    sessionIds: ['session-1'] as string[],
+    createdBy: 'storyteller-uid',
+  };
+
+  it('calls addDoc once per event', async () => {
+    await saveFamilyEvents('family-1', [baseEvent]);
+
+    expect(mockFirestore.addDoc).toHaveBeenCalledTimes(1);
+  });
+
+  it('calls addDoc for each event in the array', async () => {
+    const events = [baseEvent, { ...baseEvent, title: 'Birth of Margaret' }];
+
+    await saveFamilyEvents('family-1', events);
+
+    expect(mockFirestore.addDoc).toHaveBeenCalledTimes(2);
+  });
+
+  it('saves event data with createdAt and updatedAt timestamps', async () => {
+    await saveFamilyEvents('family-1', [baseEvent]);
+
+    const data = mockFirestore.addDoc.mock.calls[0][1];
+    expect(data.title).toBe('Marriage of Ralph and Margaret');
+    expect(data.description).toBe('They married in a small ceremony in Ohio.');
+    expect(data.storytellerUids).toEqual(['storyteller-uid']);
+    expect(data.sessionIds).toEqual(['session-1']);
+    expect(data.createdAt).toBeDefined();
+    expect(data.updatedAt).toBeDefined();
+  });
+
+  it('writes to the family-level events collection path', async () => {
+    await saveFamilyEvents('family-1', [baseEvent]);
+
+    // collection() is called with db, 'families', familyId, 'events'
+    expect(mockFirestore.collection).toHaveBeenCalledWith(
+      expect.anything(),
+      'families',
+      'family-1',
+      'events',
+    );
+  });
+
+  it('does nothing when given an empty array', async () => {
+    await saveFamilyEvents('family-1', []);
+
+    expect(mockFirestore.addDoc).not.toHaveBeenCalled();
   });
 });

@@ -223,6 +223,28 @@ export interface SessionEngagement {
 }
 
 // ---------------------------------------------------------------------------
+// Events (Phase 3)
+// ---------------------------------------------------------------------------
+
+/**
+ * Firestore document at families/{familyId}/events/{eventId}.
+ * Events are independent entities that can be referenced from multiple
+ * sessions and tagged by multiple storytellers.
+ */
+export interface FamilyEvent {
+  id?: string; // Firestore document ID
+  familyId: string;
+  title: string; // e.g., "Marriage of Ralph and Margaret"
+  date?: string; // flexible format: "June 15, 1952" or "Summer 1952"
+  description: string;
+  storytellerUids: string[]; // storytellers who mentioned this event
+  sessionIds: string[]; // sessions where this event was discussed
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+  createdBy: string; // uid of admin who created it
+}
+
+// ---------------------------------------------------------------------------
 // AI-Suggested Questions (#41)
 // ---------------------------------------------------------------------------
 

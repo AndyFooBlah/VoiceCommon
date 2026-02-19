@@ -17,6 +17,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { useFamily, useFamilyMembers, updateFamilyTree } from '../../hooks/useFamily';
 import { useFamilyInvitations } from '../../hooks/useInvitations';
 import { useDossierList } from '../../hooks/useDossier';
+import { useFamilyEvents, createEvent, updateEvent, deleteEvent } from '../../hooks/useEvents';
 import { updateMemberEmail, resetMemberPassword } from '../../services/adminActions';
 import { InviteMember } from './InviteMember';
 import { FamilyMember, RelationType, MemberType } from '../../types';
@@ -29,6 +30,7 @@ export const FamilyPage: React.FC = () => {
   const { members, loading: membersLoading } = useFamilyMembers(familyId);
   const { invitations, loading: invitesLoading, createInvite, cancelInvite } = useFamilyInvitations(familyId);
   const { dossiers, loading: dossiersLoading, createDossier, deleteDossier } = useDossierList(familyId);
+  const { events, loading: eventsLoading } = useFamilyEvents(familyId);
 
   const [showInviteForm, setShowInviteForm] = useState(false);
 
@@ -52,6 +54,14 @@ export const FamilyPage: React.FC = () => {
   const [reissueLink, setReissueLink] = useState<string | null>(null);
   const [reissueForName, setReissueForName] = useState('');
   const [reissuing, setReissuing] = useState<string | null>(null);
+
+  // Events state
+  const [showEventForm, setShowEventForm] = useState(false);
+  const [editingEventId, setEditingEventId] = useState<string | null>(null);
+  const [eventTitle, setEventTitle] = useState('');
+  const [eventDate, setEventDate] = useState('');
+  const [eventDescription, setEventDescription] = useState('');
+  const [savingEvent, setSavingEvent] = useState(false);
 
   async function handleSaveEmail(targetUid: string) {
     if (!familyId || !editEmail.trim()) return;
@@ -183,7 +193,69 @@ export const FamilyPage: React.FC = () => {
     handleFamilyMemberChange(memberId, { relations: updatedRelations });
   }
 
-  if (familyLoading || membersLoading || invitesLoading || dossiersLoading) {
+  // Events handlers
+  function handleCreateEventClick() {
+    setEditingEventId(null);
+    setEventTitle('');
+    setEventDate('');
+    setEventDescription('');
+    setShowEventForm(true);
+  }
+
+  function handleEditEventClick(eventId: string) {
+    const event = events.find((e) => e.id === eventId);
+    if (!event) return;
+    setEditingEventId(eventId);
+    setEventTitle(event.title);
+    setEventDate(event.date || '');
+    setEventDescription(event.description);
+    setShowEventForm(true);
+  }
+
+  async function handleSaveEvent() {
+    if (!familyId || !user || !eventTitle.trim()) return;
+    setSavingEvent(true);
+    try {
+      if (editingEventId) {
+        await updateEvent(familyId, editingEventId, {
+          title: eventTitle.trim(),
+          date: eventDate.trim() || undefined,
+          description: eventDescription.trim(),
+        });
+      } else {
+        await createEvent(
+          familyId,
+          eventTitle.trim(),
+          eventDescription.trim(),
+          eventDate.trim() || undefined,
+          user.uid,
+        );
+      }
+      setShowEventForm(false);
+      setEditingEventId(null);
+      setEventTitle('');
+      setEventDate('');
+      setEventDescription('');
+    } catch (err: any) {
+      console.error('[FamilyPage] Save event error:', err);
+      alert(err.message || 'Failed to save event');
+    } finally {
+      setSavingEvent(false);
+    }
+  }
+
+  async function handleDeleteEvent(eventId: string) {
+    if (!familyId) return;
+    if (!confirm('Are you sure you want to delete this event?')) return;
+    try {
+      await deleteEvent(familyId, eventId);
+    } catch (err: any) {
+      console.error('[FamilyPage] Delete event error:', err);
+      alert(err.message || 'Failed to delete event');
+    }
+  }
+
+  if (familyLoading || membersLoading || invitesLoading || dossiersLoading || eventsLoading) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600" />
@@ -294,8 +366,8 @@ export const FamilyPage: React.FC = () => {
         )}
 
         {/* Invite Form */}
-        {showInviteForm && (
-          <InviteMember onClose={() => setShowInviteForm(false)} />
+        {showInviteForm && familyId && (
+          <InviteMember familyId={familyId} onClose={() => setShowInviteForm(false)} />
         )}
 
         {/* Members List */}
@@ -619,6 +691,140 @@ export const FamilyPage: React.FC = () => {
                       ))}
                     </div>
                   )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* Events Section */}
+      <section className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-xl font-bold text-slate-700">Family Events</h3>
+          <button
+            onClick={handleCreateEventClick}
+            className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-sm font-semibold hover:bg-indigo-700 transition-colors"
+          >
+            + Add Event
+          </button>
+        </div>
+
+        {/* Event Form */}
+        {showEventForm && (
+          <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-4">
+            <h4 className="font-bold text-slate-800">
+              {editingEventId ? 'Edit Event' : 'Create New Event'}
+            </h4>
+            <div className="space-y-3">
+              <input
+                type="text"
+                value={eventTitle}
+                onChange={(e) => setEventTitle(e.target.value)}
+                placeholder="Event title (e.g., Marriage of Ralph and Margaret)"
+                className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:ring-1 focus:ring-indigo-500"
+              />
+              <input
+                type="text"
+                value={eventDate}
+                onChange={(e) => setEventDate(e.target.value)}
+                placeholder="Date (optional, e.g., June 15, 1952 or Summer 1952)"
+                className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:ring-1 focus:ring-indigo-500"
+              />
+              <textarea
+                value={eventDescription}
+                onChange={(e) => setEventDescription(e.target.value)}
+                placeholder="Event description"
+                rows={3}
+                className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:ring-1 focus:ring-indigo-500 resize-none"
+              />
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={handleSaveEvent}
+                disabled={!eventTitle.trim() || savingEvent}
+                className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-sm font-semibold hover:bg-indigo-700 transition-colors disabled:opacity-50"
+              >
+                {savingEvent ? 'Saving...' : editingEventId ? 'Update Event' : 'Create Event'}
+              </button>
+              <button
+                onClick={() => {
+                  setShowEventForm(false);
+                  setEditingEventId(null);
+                  setEventTitle('');
+                  setEventDate('');
+                  setEventDescription('');
+                }}
+                className="px-4 py-2 text-slate-500 font-medium hover:text-slate-700 transition-colors text-sm"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Events Timeline */}
+        {events.length === 0 ? (
+          <div className="bg-slate-50 rounded-2xl border border-slate-200 p-8 text-center text-slate-400">
+            No events added yet. Add important family milestones and events to the timeline.
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {events.map((event) => (
+              <div
+                key={event.id}
+                className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-2"
+              >
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <h4 className="font-semibold text-slate-800">{event.title}</h4>
+                    {event.date && (
+                      <p className="text-xs text-slate-400 mt-0.5">{event.date}</p>
+                    )}
+                    {event.description && (
+                      <p className="text-sm text-slate-600 mt-2">{event.description}</p>
+                    )}
+                    {/* Attribution badges */}
+                    {(event.storytellerUids.length > 0 || event.sessionIds.length > 0) && (
+                      <div className="flex flex-wrap gap-2 mt-3">
+                        {event.storytellerUids.length > 0 && (
+                          <span className="text-xs text-indigo-600 bg-indigo-50 rounded-full px-2 py-0.5">
+                            {event.storytellerUids.length === 1
+                              ? (() => {
+                                  const m = members.find((mb) => mb.uid === event.storytellerUids[0]);
+                                  return m?.displayName || m?.email || 'Storyteller';
+                                })()
+                              : `${event.storytellerUids.length} storytellers`}
+                          </span>
+                        )}
+                        {event.sessionIds.length > 0 && (
+                          <span className="text-xs text-slate-500 bg-slate-100 rounded-full px-2 py-0.5">
+                            {event.sessionIds.length} {event.sessionIds.length === 1 ? 'session' : 'sessions'}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex gap-2 ml-4 shrink-0">
+                    <button
+                      onClick={() => navigate(`/family/${familyId}/events/${event.id}`)}
+                      className="text-xs text-slate-500 hover:underline font-medium"
+                    >
+                      Details
+                    </button>
+                    <button
+                      onClick={() => handleEditEventClick(event.id)}
+                      className="text-xs text-indigo-600 hover:underline font-medium"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => handleDeleteEvent(event.id)}
+                      className="text-xs text-rose-500 hover:underline font-medium"
+                    >
+                      Delete
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}

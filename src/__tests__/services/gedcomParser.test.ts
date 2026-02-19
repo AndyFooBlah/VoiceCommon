@@ -113,29 +113,29 @@ describe('importGedcom', () => {
   it('identifies parents correctly', () => {
     const members = importGedcom(SAMPLE_GEDCOM, '@I1@');
     const father = members.find((m) => m.name === 'Robert Johnson');
-    expect(father?.relation).toBe('Father');
+    expect(father?.notes).toContain('GEDCOM relation: Father');
     const mother = members.find((m) => m.name === 'Mary Smith');
-    expect(mother?.relation).toBe('Mother');
+    expect(mother?.notes).toContain('GEDCOM relation: Mother');
   });
 
   it('identifies spouse correctly', () => {
     const members = importGedcom(SAMPLE_GEDCOM, '@I1@');
     const husband = members.find((m) => m.name === 'David Williams');
-    expect(husband?.relation).toBe('Husband');
+    expect(husband?.notes).toContain('GEDCOM relation: Husband');
   });
 
   it('identifies children correctly', () => {
     const members = importGedcom(SAMPLE_GEDCOM, '@I1@');
     const daughter = members.find((m) => m.name === 'Sarah Williams');
-    expect(daughter?.relation).toBe('Daughter');
+    expect(daughter?.notes).toContain('GEDCOM relation: Daughter');
     const son = members.find((m) => m.name === 'James Williams');
-    expect(son?.relation).toBe('Son');
+    expect(son?.notes).toContain('GEDCOM relation: Son');
   });
 
   it('identifies siblings correctly', () => {
     const members = importGedcom(SAMPLE_GEDCOM, '@I1@');
     const brother = members.find((m) => m.name === 'Thomas Johnson');
-    expect(brother?.relation).toBe('Brother');
+    expect(brother?.notes).toContain('GEDCOM relation: Brother');
   });
 
   it('includes birth/death info in notes', () => {
@@ -147,7 +147,7 @@ describe('importGedcom', () => {
 
   it('sorts by relationship priority', () => {
     const members = importGedcom(SAMPLE_GEDCOM, '@I1@');
-    const relations = members.map((m) => m.relation);
+    const relations = members.map((m) => m.notes?.match(/GEDCOM relation: (\w+)/)?.[1] || '');
     const husbandIdx = relations.indexOf('Husband');
     const fatherIdx = relations.indexOf('Father');
     const daughterIdx = relations.indexOf('Daughter');

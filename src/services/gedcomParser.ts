@@ -307,29 +307,37 @@ export function previewGedcom(fileContent: string): GedcomImportResult {
  * @param fileContent - Raw GEDCOM file text
  * @param rootId - The GEDCOM ID of the storyteller (e.g. "@I1@")
  * @returns FamilyMember[] with relationship labels relative to the root
+ *
+ * Note: This returns members in the new relational model format (Phase 2).
+ * Each member has an ID and empty relations array - relationships need to be
+ * added manually by the user in the UI.
  */
 export function importGedcom(fileContent: string, rootId: string): FamilyMember[] {
   const { individuals, families } = parseGedcom(fileContent);
 
   const members: FamilyMember[] = [];
+  let idCounter = 0;
 
   for (const [id, indi] of individuals) {
     if (id === rootId) continue; // Skip the root person (they are the storyteller)
 
     const relation = determineRelation(id, rootId, individuals, families);
     const notes: string[] = [];
+    notes.push(`GEDCOM relation: ${relation}`);
     if (indi.birthDate) notes.push(`Born: ${indi.birthDate}`);
     if (indi.birthPlace) notes.push(indi.birthPlace);
     if (indi.deathDate) notes.push(`Died: ${indi.deathDate}`);
 
     members.push({
+      id: `gedcom-${idCounter++}`,
       name: indi.name || 'Unknown',
-      relation,
+      memberType: 'person',
+      relations: [], // Relations need to be added manually in the new relational model
       notes: notes.length > 0 ? notes.join('. ') : undefined,
     });
   }
 
-  // Sort by relationship priority
+  // Sort by relationship priority (based on old relation string in notes)
   const relationOrder: Record<string, number> = {
     'Spouse': 0, 'Husband': 0, 'Wife': 0,
     'Father': 1, 'Mother': 1, 'Parent': 1,
@@ -342,8 +350,10 @@ export function importGedcom(fileContent: string, rootId: string): FamilyMember[
   };
 
   members.sort((a, b) => {
-    const orderA = relationOrder[a.relation] ?? 99;
-    const orderB = relationOrder[b.relation] ?? 99;
+    const relationA = a.notes?.match(/GEDCOM relation: (\w+)/)?.[1] || '';
+    const relationB = b.notes?.match(/GEDCOM relation: (\w+)/)?.[1] || '';
+    const orderA = relationOrder[relationA] ?? 99;
+    const orderB = relationOrder[relationB] ?? 99;
     if (orderA !== orderB) return orderA - orderB;
     return a.name.localeCompare(b.name);
   });

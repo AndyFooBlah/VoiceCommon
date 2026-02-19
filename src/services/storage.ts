@@ -36,6 +36,7 @@ import {
   SessionMetadata,
   InterviewQuestion,
   StoryEvent,
+  FamilyEvent,
   SessionEngagement,
   SuggestedQuestion,
   Memoir,
@@ -291,6 +292,28 @@ export async function getEvents(
   const colRef = collection(db, 'families', familyId, 'dossiers', dossierId, 'events');
   const snapshot = await getDocs(colRef);
   return snapshot.docs.map((d) => ({ ...d.data(), id: d.id }) as StoryEvent);
+}
+
+// ---------------------------------------------------------------------------
+// Family-level event storage (#62)
+// ---------------------------------------------------------------------------
+
+/**
+ * Save auto-extracted events to the family-level events collection.
+ * Called after post-session StoryEvent extraction to promote events to
+ * family scope with session and storyteller attribution.
+ *
+ * Firestore path: families/{familyId}/events/{eventId}
+ */
+export async function saveFamilyEvents(
+  familyId: string,
+  events: Omit<FamilyEvent, 'id' | 'createdAt' | 'updatedAt'>[],
+): Promise<void> {
+  const colRef = collection(db, 'families', familyId, 'events');
+  const now = Timestamp.now();
+  for (const event of events) {
+    await addDoc(colRef, { ...event, createdAt: now, updatedAt: now });
+  }
 }
 
 // ---------------------------------------------------------------------------
