@@ -307,18 +307,28 @@ export function useSession({
             }
 
             // --- Handle Transcriptions ---
-            if (message.serverContent?.outputTranscription) {
-              currentOutputRef.current += message.serverContent.outputTranscription.text;
-            } else if (message.serverContent?.inputTranscription) {
+            if (message.serverContent?.inputTranscription) {
               currentInputRef.current += message.serverContent.inputTranscription.text;
             }
+            if (message.serverContent?.outputTranscription) {
+              // When the bot starts speaking, flush any accumulated user input first
+              if (currentInputRef.current) {
+                addMessage('user', currentInputRef.current);
+                currentInputRef.current = '';
+              }
+              currentOutputRef.current += message.serverContent.outputTranscription.text;
+            }
 
-            // When a turn is complete, commit the accumulated text as messages
+            // When a turn is complete, commit any remaining accumulated text
             if (message.serverContent?.turnComplete) {
-              if (currentInputRef.current) addMessage('user', currentInputRef.current);
-              if (currentOutputRef.current) addMessage('bot', currentOutputRef.current);
-              currentInputRef.current = '';
-              currentOutputRef.current = '';
+              if (currentInputRef.current) {
+                addMessage('user', currentInputRef.current);
+                currentInputRef.current = '';
+              }
+              if (currentOutputRef.current) {
+                addMessage('bot', currentOutputRef.current);
+                currentOutputRef.current = '';
+              }
             }
 
             // --- Handle Bot Audio Playback ---
@@ -395,6 +405,16 @@ export function useSession({
    *   4. Finalize the session document in Firestore
    */
   const stopSession = useCallback(async () => {
+    // Flush any accumulated user/bot text that hasn't been committed yet
+    if (currentInputRef.current) {
+      addMessage('user', currentInputRef.current);
+      currentInputRef.current = '';
+    }
+    if (currentOutputRef.current) {
+      addMessage('bot', currentOutputRef.current);
+      currentOutputRef.current = '';
+    }
+
     // Close Gemini connection
     if (sessionRef.current) {
       sessionRef.current.close();
@@ -483,6 +503,16 @@ export function useSession({
    * Called when the Gemini connection drops unexpectedly.
    */
   const flushPartialSession = useCallback(async () => {
+    // Flush any accumulated text before saving
+    if (currentInputRef.current) {
+      addMessage('user', currentInputRef.current);
+      currentInputRef.current = '';
+    }
+    if (currentOutputRef.current) {
+      addMessage('bot', currentOutputRef.current);
+      currentOutputRef.current = '';
+    }
+
     const partialBlob = mixer.flush();
     const durationSeconds = Math.round((Date.now() - sessionStartTimeRef.current) / 1000);
     const currentSessionId = sessionIdRef.current;
@@ -510,7 +540,7 @@ export function useSession({
         await finalizeSession(familyId, dossierId, currentSessionId, 'interrupted', durationSeconds).catch(() => {});
       }
     }
-  }, [familyId, dossierId, mixer]);
+  }, [familyId, dossierId, mixer, addMessage]);
 
   const clearDeviceError = useCallback(() => {
     setDeviceError(null);
