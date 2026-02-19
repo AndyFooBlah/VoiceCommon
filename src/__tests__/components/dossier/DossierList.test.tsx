@@ -66,8 +66,8 @@ describe('DossierList — loading state', () => {
 describe('DossierList — dossier cards', () => {
   beforeEach(() => {
     mockDossiers = [
-      { id: 'd1', storytellerName: 'Margaret', storytellerContext: 'Grew up in Iowa', personality: 'empathetic', selectedVoice: 'Zephyr', storytellerUid: null },
-      { id: 'd2', storytellerName: 'Arthur', storytellerContext: '', personality: 'investigative', selectedVoice: 'Kore', storytellerUid: 'user-123' },
+      { id: 'd1', storytellerName: 'Margaret', adminName: 'Andy', storytellerContext: 'Grew up in Iowa', personality: 'empathetic', selectedVoice: 'Zephyr', storytellerUid: null },
+      { id: 'd2', storytellerName: 'Arthur', adminName: 'Andy', storytellerContext: '', personality: 'investigative', selectedVoice: 'Kore', storytellerUid: 'user-123' },
     ];
   });
 
@@ -152,7 +152,7 @@ describe('DossierList — create flow', () => {
 describe('DossierList — delete flow', () => {
   beforeEach(() => {
     mockDossiers = [
-      { id: 'd1', storytellerName: 'Margaret', storytellerContext: '', personality: 'empathetic', selectedVoice: 'Zephyr', storytellerUid: null },
+      { id: 'd1', storytellerName: 'Margaret', adminName: 'Andy', storytellerContext: '', personality: 'empathetic', selectedVoice: 'Zephyr', storytellerUid: null },
     ];
   });
 

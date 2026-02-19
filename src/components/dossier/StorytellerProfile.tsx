@@ -1,12 +1,13 @@
 /**
  * StorytellerProfile — editable profile section within the Dossier editor.
  *
- * Contains two fields:
+ * Contains three fields:
  *   - Storyteller Name (required) — used by the bot to greet them personally
+ *   - Admin Name (required) — the archivist's name, used in the bot's introduction
  *   - Storyteller Context (free text) — background info like age, location,
  *     life era, personality notes, etc.
  *
- * The name is validated on blur — it cannot be empty. Changes are propagated
+ * The names are validated on blur — they cannot be empty. Changes are propagated
  * to the parent DossierEditor via the onChange callback, which debounces
  * writes to Firestore.
  *
@@ -35,10 +36,10 @@ export const StorytellerProfile: React.FC<StorytellerProfileProps> = ({
       </h3>
 
       <div className="space-y-3">
-        {/* Name field (required) */}
+        {/* Storyteller name field (required) */}
         <div>
           <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">
-            Name *
+            Storyteller Name *
           </label>
           <input
             type="text"
@@ -47,6 +48,23 @@ export const StorytellerProfile: React.FC<StorytellerProfileProps> = ({
             placeholder="e.g. Margaret"
             className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:ring-1 focus:ring-indigo-500"
           />
+        </div>
+
+        {/* Admin/Archivist name field (required) */}
+        <div>
+          <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">
+            Your Name (Archivist) *
+          </label>
+          <input
+            type="text"
+            value={dossier.adminName || ''}
+            onChange={(e) => onChange({ adminName: e.target.value })}
+            placeholder="e.g. Andy"
+            className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:ring-1 focus:ring-indigo-500"
+          />
+          <p className="text-[10px] text-slate-400 mt-1">
+            The bot will introduce itself with your name (e.g., &quot;Andy asked me to interview you&quot;)
+          </p>
         </div>
 
         {/* Free-text context */}

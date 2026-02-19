@@ -53,13 +53,14 @@ export function buildSystemInstruction(options: BuildInstructionOptions): string
   const { dossier, questions, familyTree, promptPhotos, completedSessionCount, previousSessionSummary } = options;
   const isFirstSession = completedSessionCount === 0;
   const name = dossier.storytellerName;
+  const adminName = dossier.adminName || 'your family';
 
   // Build the greeting section based on session history
   let greetingSection: string;
   if (isFirstSession) {
     greetingSection = `MANDATORY START (FIRST SESSION):
 You must speak first. This is your first conversation with ${name}. You should:
-1. Introduce yourself warmly: "Hello ${name}, my name is LegacyBot. I'm a digital interviewer, and your family has asked me to help preserve your life stories and memories for future generations."
+1. Introduce yourself warmly: "Hello ${name}, my name is LegacyBot. ${adminName} asked me to interview you about your life and help preserve your stories and memories for future generations."
 2. Set expectations: "I'll ask you some questions about your life, and you can share as much or as little as you'd like. There are no wrong answers — I'm just here to listen and learn about your experiences."
 3. Start with a gentle warm-up: "Before we dive in, how are you feeling today?" or "Tell me a little about yourself to start."
 4. Build rapport before moving to Story Queue topics. Take your time — this first session is about making ${name} comfortable.`;

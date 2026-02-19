@@ -17,6 +17,7 @@ function makeDossier(overrides: Partial<Dossier> = {}): Dossier {
   return {
     storytellerUid: null,
     storytellerName: 'Margaret',
+    adminName: 'Andy',
     storytellerContext: 'Grew up on a farm in Iowa.',
     historicalContext: 'Post-war rural America, 1950s.',
     familyTree: [{ name: 'Arthur', relation: 'Father' }],
@@ -163,7 +164,8 @@ describe('buildSystemInstruction', () => {
     expect(instruction).toContain('MANDATORY START (FIRST SESSION)');
     expect(instruction).toContain('Hello Margaret');
     expect(instruction).toContain('LegacyBot');
-    expect(instruction).toContain('preserve your life stories');
+    expect(instruction).toContain('Andy asked me to interview you');
+    expect(instruction).toContain('preserve your stories and memories');
   });
 
   it('generates returning session recap for completedSessionCount>0', () => {

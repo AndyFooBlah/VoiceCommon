@@ -26,6 +26,7 @@ vi.mock('../../../hooks/useFamily', () => ({
 
 let mockDossier: any = {
   storytellerName: 'Margaret',
+  adminName: 'Andy',
   personality: 'empathetic',
   selectedVoice: 'Zephyr',
 };
@@ -72,7 +73,7 @@ beforeEach(() => {
   mockStartSession.mockClear();
   mockStopSession.mockClear();
   mockFlushPartialSession.mockClear();
-  mockDossier = { storytellerName: 'Margaret', personality: 'empathetic', selectedVoice: 'Zephyr' };
+  mockDossier = { storytellerName: 'Margaret', adminName: 'Andy', personality: 'empathetic', selectedVoice: 'Zephyr' };
   mockDossierLoading = false;
   mockStatus = ConnectionStatus.DISCONNECTED;
   mockMessages = [];
