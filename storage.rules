@@ -1,15 +1,19 @@
 /**
  * Cloud Storage Security Rules for LegacyBot.
- * Audio files: gs://{bucket}/{familyId}/{dossierId}/{sessionId}.webm
+ *
+ * Paths:
+ *   Audio:        {familyId}/{dossierId}/{sessionId}.webm
+ *   Media:        {familyId}/{dossierId}/media/{fileId}
+ *   Clips:        {familyId}/{dossierId}/clips/{clipId}.webm
+ *   Prompt photos: {familyId}/{dossierId}/promptPhotos/{photoId}
  *
  * Access is restricted to authenticated users. Fine-grained family membership
- * checks are enforced at the Firestore level (session docs are only readable
- * by family members, so the audioUrl is only accessible to them).
+ * checks are enforced at the Firestore level.
  */
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
-    match /{familyId}/{dossierId}/{sessionId} {
+    match /{familyId}/{dossierId}/{allPaths=**} {
       allow read, write: if request.auth != null;
     }
   }
