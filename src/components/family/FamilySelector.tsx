@@ -9,6 +9,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { getUserFamilyIds } from '../../hooks/useFamily';
+import { Logo } from '../shared/Logo';
 
 export const FamilySelector: React.FC = () => {
   const { user } = useAuth();
@@ -52,9 +53,12 @@ export const FamilySelector: React.FC = () => {
     return (
       <div className="max-w-md mx-auto p-8 mt-20 space-y-8 text-center">
         <div className="space-y-2">
-          <h1 className="text-4xl font-bold text-slate-800 tracking-tighter font-display">
-            LegacyBot
-          </h1>
+          <div className="flex items-center justify-center gap-3">
+            <Logo size={44} />
+            <h1 className="text-4xl font-bold text-slate-800 tracking-tighter font-display">
+              LegacyBot
+            </h1>
+          </div>
           <p className="text-slate-400">
             Preserve your family's stories for generations to come.
           </p>

@@ -11,6 +11,7 @@ import { Outlet, useNavigate, useLocation, useParams } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { useCurrentRoles } from '../../hooks/useFamily';
 import { LoginScreen } from '../auth/LoginScreen';
+import { Logo } from './Logo';
 
 export const Layout: React.FC = () => {
   const { user, loading, signInWithGoogle, signInWithEmail, signUpWithEmail, signOut } = useAuth();
@@ -57,6 +58,7 @@ export const Layout: React.FC = () => {
             onClick={() => familyId ? navigate(`/family/${familyId}`) : navigate('/')}
             className="flex items-center gap-2 hover:opacity-80 transition-opacity"
           >
+            <Logo size={28} />
             <h1 className="text-xl font-bold text-slate-800 tracking-tight font-display">
               LegacyBot
             </h1>

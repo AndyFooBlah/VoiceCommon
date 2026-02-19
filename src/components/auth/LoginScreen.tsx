@@ -18,6 +18,7 @@
  */
 
 import React, { useState } from 'react';
+import { Logo } from '../shared/Logo';
 
 interface LoginScreenProps {
   onGoogleSignIn: () => Promise<void>;
@@ -94,9 +95,12 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
       <div className="w-full max-w-md bg-white rounded-3xl shadow-2xl p-10 space-y-8">
         {/* Header */}
         <div className="text-center space-y-2">
-          <h1 className="text-4xl font-bold text-slate-800 tracking-tight font-display">
-            LegacyBot
-          </h1>
+          <div className="flex items-center justify-center gap-3">
+            <Logo size={44} />
+            <h1 className="text-4xl font-bold text-slate-800 tracking-tight font-display">
+              LegacyBot
+            </h1>
+          </div>
           {inviteEmail ? (
             <p className="text-slate-500 text-sm">
               Create an account to accept your invitation.
