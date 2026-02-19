@@ -21,7 +21,7 @@
 import React, { useCallback, useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
-import { useFamily } from '../../hooks/useFamily';
+import { useFamily, useCurrentRoles } from '../../hooks/useFamily';
 import { useDossier } from '../../hooks/useDossier';
 import { useSession } from '../../hooks/useSession';
 import { getPromptPhotos } from '../../services/storage';
@@ -35,6 +35,7 @@ export const SessionView: React.FC = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
   const { family } = useFamily(familyId);
+  const { isAdmin } = useCurrentRoles(familyId, user?.uid);
   const {
     dossier,
     questions,
@@ -101,12 +102,15 @@ export const SessionView: React.FC = () => {
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-slate-50 p-6 space-y-8">
-      {/* Back to Dossier link (small, unobtrusive) */}
+      {/* Back link (role-aware) */}
       <button
-        onClick={() => navigate(`/family/${familyId}/dossier/${dossierId}`)}
+        onClick={() => navigate(isAdmin
+          ? `/family/${familyId}/dossier/${dossierId}`
+          : `/family/${familyId}/dossier/${dossierId}/history`
+        )}
         className="absolute top-4 left-4 text-sm text-slate-400 hover:text-slate-600 transition-colors"
       >
-        &larr; Back to Dossier
+        &larr; {isAdmin ? 'Back to Dossier' : 'View Past Sessions'}
       </button>
 
       {/* Header */}
@@ -250,10 +254,13 @@ export const SessionView: React.FC = () => {
                 Try Again
               </button>
               <button
-                onClick={() => navigate(`/family/${familyId}/dossier/${dossierId}`)}
+                onClick={() => navigate(isAdmin
+                  ? `/family/${familyId}/dossier/${dossierId}`
+                  : `/family/${familyId}/dossier/${dossierId}/history`
+                )}
                 className="w-full py-3 text-slate-500 font-medium hover:text-slate-700 transition-colors"
               >
-                Back to Dossier
+                {isAdmin ? 'Back to Dossier' : 'View Past Sessions'}
               </button>
             </div>
           </div>
@@ -284,7 +291,10 @@ export const SessionView: React.FC = () => {
               <button
                 onClick={async () => {
                   await flushPartialSession();
-                  navigate(`/family/${familyId}/dossier/${dossierId}`);
+                  navigate(isAdmin
+                    ? `/family/${familyId}/dossier/${dossierId}`
+                    : `/family/${familyId}/dossier/${dossierId}/history`
+                  );
                 }}
                 className="w-full py-3 text-slate-500 font-medium hover:text-slate-700 transition-colors"
               >

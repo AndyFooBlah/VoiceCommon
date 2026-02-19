@@ -21,6 +21,7 @@ vi.mock('../../../hooks/useAuth', () => ({
 
 vi.mock('../../../hooks/useFamily', () => ({
   useFamily: () => ({ family: { familyTree: [] }, loading: false }),
+  useCurrentRoles: () => ({ isAdmin: false, isStoryteller: true, loading: false }),
 }));
 
 let mockDossier: any = {
@@ -105,20 +106,20 @@ describe('SessionView — disconnected state', () => {
   it('calls startSession when start button is clicked', () => {
     render(<SessionView />);
     const buttons = screen.getAllByRole('button');
-    const startBtn = buttons.find((b) => !b.textContent?.includes('Back'));
+    const startBtn = buttons.find((b) => !b.textContent?.includes('View Past') && !b.textContent?.includes('Back'));
     fireEvent.click(startBtn!);
     expect(mockStartSession).toHaveBeenCalledTimes(1);
   });
 
-  it('shows the Back to Dossier link', () => {
+  it('shows the View Past Sessions link for storytellers', () => {
     render(<SessionView />);
-    expect(screen.getByText(/Back to Dossier/)).toBeInTheDocument();
+    expect(screen.getByText(/View Past Sessions/)).toBeInTheDocument();
   });
 
-  it('navigates back with familyId prefix on Back link click', () => {
+  it('navigates to history on Back link click for storytellers', () => {
     render(<SessionView />);
-    fireEvent.click(screen.getByText(/Back to Dossier/));
-    expect(mockNavigate).toHaveBeenCalledWith('/family/family-1/dossier/dossier-1');
+    fireEvent.click(screen.getByText(/View Past Sessions/));
+    expect(mockNavigate).toHaveBeenCalledWith('/family/family-1/dossier/dossier-1/history');
   });
 });
 
@@ -154,7 +155,7 @@ describe('SessionView — connected state', () => {
   it('calls stopSession when stop button is clicked', () => {
     render(<SessionView />);
     const buttons = screen.getAllByRole('button');
-    const stopBtn = buttons.find((b) => !b.textContent?.includes('Back'));
+    const stopBtn = buttons.find((b) => !b.textContent?.includes('View Past') && !b.textContent?.includes('Back'));
     fireEvent.click(stopBtn!);
     expect(mockStopSession).toHaveBeenCalledTimes(1);
   });

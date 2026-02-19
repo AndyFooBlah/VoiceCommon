@@ -273,3 +273,101 @@ The following issues were identified during code review and should be verified b
 ### 6.4 Sharing & Collaboration
 - Allow an Archivist to invite other family members to view (read-only) a Storyteller's archive.
 - Shared Dossier editing for collaborative question planning.
+
+---
+
+## 7. User Navigation Flows
+
+### 7.1 Admin User Flow
+
+**Login → FamilySelector → DossierList (Admin Hub)**
+
+1. **DossierList** (`/family/:familyId`)
+   - View all storytellers as cards
+   - Create new storyteller
+   - Click storyteller card to edit their dossier
+
+2. **DossierEditor** (`/family/:familyId/dossier/:dossierId`)
+   - Edit storyteller profile, voice, personality
+   - Manage Story Queue (questions)
+   - Manage Family Tree (shared across all dossiers)
+   - Upload Prompt Photos
+   - Set Interviewer Notes
+   - Navigate to:
+     - Session History → View all sessions
+     - Events → Timeline of extracted events
+     - Memoir → AI-generated life story
+     - Photos → Media gallery
+     - Start Session → Record a session (optional, primarily for storytellers)
+
+3. **MemberManagement** (`/family/:familyId/members`)
+   - Accessible from top nav "Members" link
+   - Invite new members (admins or storytellers)
+   - Edit member emails, reset passwords
+   - Cancel pending invitations
+   - Edit Dossier links for storytellers
+
+4. **SessionList** (`/family/:familyId/dossier/:dossierId/history`)
+   - Browse all sessions for a storyteller
+   - Back: Returns to DossierEditor
+
+5. **TranscriptViewer** (`/family/:familyId/dossier/:dossierId/history/:sessionId`)
+   - Full transcript editing capability
+   - View engagement analysis
+   - See AI-suggested follow-up questions
+   - Create audio clips
+   - Back: Returns to SessionList
+   - "Dossier" link: Returns to DossierEditor
+
+### 7.2 Storyteller User Flow
+
+**Login → FamilySelector → SessionView (Storyteller's Primary Interface)**
+
+1. **SessionView** (`/family/:familyId/dossier/:dossierId/session`)
+   - Auto-redirected here on login (FamilyHome detects role)
+   - Large Start/Stop recording button
+   - Live waveform visualizer
+   - Real-time transcript feed
+   - Prompt photo display (triggered by AI)
+   - Back: Returns to SessionList (NOT DossierEditor — storytellers cannot access it)
+
+2. **SessionList** (`/family/:familyId/dossier/:dossierId/history`)
+   - View all past recording sessions
+   - Click session to view transcript
+   - Back: Returns to family home (no access to DossierEditor)
+
+3. **TranscriptViewer** (`/family/:familyId/dossier/:dossierId/history/:sessionId`)
+   - Read-only view (no editing capability)
+   - Listen to audio playback
+   - View audio clips
+   - NO access to:
+     - Transcript editing
+     - Engagement analysis
+     - AI suggestions
+     - Dossier link (admin-only)
+   - Back: Returns to SessionList
+
+4. **Memoir/Events/Media** (read-only access)
+   - Can view generated memoirs
+   - Can browse events timeline
+   - Can view media gallery
+
+### 7.3 Access Control Summary
+
+| Feature | Admin | Storyteller |
+|---------|-------|-------------|
+| DossierList | ✓ Full Access | ✗ Access Denied |
+| DossierEditor | ✓ Full Edit | ✗ Access Denied |
+| SessionView | ✓ Access (optional) | ✓ Primary Interface |
+| SessionList | ✓ Browse All | ✓ Browse Own |
+| TranscriptViewer | ✓ Read + Edit | ✓ Read Only |
+| MemberManagement | ✓ Full | ✗ Not Accessible |
+| Memoir/Events/Media | ✓ Full | ✓ Read Access |
+
+### 7.4 Navigation Principles
+
+1. **Storytellers never see admin interfaces** — They are auto-redirected from FamilyHome directly to SessionView
+2. **Back buttons are role-aware** — Admin "back" goes to DossierEditor, Storyteller "back" goes to SessionList or family home
+3. **DossierEditor is admin-only** — Hard access check prevents storytellers from accessing it, even via direct URL
+4. **Dual-role users default to admin** — If a user has both admin and storyteller roles, they see the admin interface (DossierList)
+5. **SessionView is the storyteller's hub** — Primary interface for recording, no intermediate dashboard
