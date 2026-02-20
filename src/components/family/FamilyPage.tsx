@@ -156,6 +156,8 @@ export const FamilyPage: React.FC = () => {
 
   function handleRemoveFamilyMember(memberId: string) {
     if (!familyId || !family) return;
+    const member = (family.familyTree ?? []).find((m) => m.id === memberId);
+    if (!window.confirm(`Remove ${member?.name ?? 'this member'} from the family tree?`)) return;
     const updated = (family.familyTree ?? []).filter((m) => m.id !== memberId);
     updateFamilyTree(familyId, updated);
   }
@@ -545,7 +547,10 @@ export const FamilyPage: React.FC = () => {
                         {inv.roles.join(', ')}
                       </span>
                       <button
-                        onClick={() => cancelInvite(inv.id!)}
+                        onClick={() => {
+                          if (!window.confirm(`Cancel invitation for ${inv.email}?`)) return;
+                          cancelInvite(inv.id!);
+                        }}
                         className="text-xs text-rose-500 hover:underline"
                       >
                         Cancel
