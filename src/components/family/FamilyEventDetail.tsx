@@ -10,7 +10,7 @@
  */
 
 import React, { useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { useFamilyEvents, updateEvent, deleteEvent } from '../../hooks/useEvents';
 import { useFamilyMembers, useCurrentRoles } from '../../hooks/useFamily';
@@ -211,11 +211,34 @@ export const FamilyEventDetail: React.FC = () => {
         {event.sessionIds.length === 0 ? (
           <p className="text-sm text-slate-400">No sessions linked yet.</p>
         ) : (
-          <p className="text-sm text-slate-600">
-            Referenced in{' '}
-            <span className="font-semibold text-slate-800">{event.sessionIds.length}</span>{' '}
-            {event.sessionIds.length === 1 ? 'session' : 'sessions'}.
-          </p>
+          <div className="space-y-2">
+            <p className="text-sm text-slate-600">
+              Referenced in{' '}
+              <span className="font-semibold text-slate-800">{event.sessionIds.length}</span>{' '}
+              {event.sessionIds.length === 1 ? 'session' : 'sessions'}.
+            </p>
+            {/* View in transcript links — only for sessions with message-level references */}
+            {(event.messageReferences ?? []).length > 0 && (() => {
+              // Group references by sessionId
+              const bySession = new Map<string, { dossierId: string; indices: number[] }>();
+              for (const ref of event.messageReferences!) {
+                if (!bySession.has(ref.sessionId)) {
+                  bySession.set(ref.sessionId, { dossierId: ref.dossierId, indices: [] });
+                }
+                bySession.get(ref.sessionId)!.indices.push(ref.messageIndex);
+              }
+              return Array.from(bySession.entries()).map(([sid, { dossierId: did, indices }]) => (
+                <Link
+                  key={sid}
+                  to={`/family/${familyId}/dossier/${did}/session/${sid}`}
+                  state={{ highlightIndices: indices }}
+                  className="inline-flex items-center gap-1 text-sm text-indigo-600 hover:underline font-medium"
+                >
+                  View {indices.length} referenced {indices.length === 1 ? 'message' : 'messages'} in transcript →
+                </Link>
+              ));
+            })()}
+          </div>
         )}
       </section>
     </div>

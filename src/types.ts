@@ -180,6 +180,7 @@ export interface TranscriptEntry {
   role: 'user' | 'bot';
   text: string;
   timestamp: Timestamp;
+  messageIndex?: number; // 0-based position in the session transcript
 }
 
 // ---------------------------------------------------------------------------
@@ -239,6 +240,7 @@ export interface FamilyEvent {
   description: string;
   storytellerUids: string[]; // storytellers who mentioned this event
   sessionIds: string[]; // sessions where this event was discussed
+  messageReferences?: Array<{ sessionId: string; dossierId: string; messageIndex: number }>; // specific messages that mention this event
   createdAt: Timestamp;
   updatedAt: Timestamp;
   createdBy: string; // uid of admin who created it

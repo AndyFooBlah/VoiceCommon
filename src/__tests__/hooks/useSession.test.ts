@@ -443,6 +443,42 @@ describe('flushPartialSession', () => {
 });
 
 // ---------------------------------------------------------------------------
+describe('messageIndex tracking', () => {
+  it('assigns sequential messageIndex to each transcript entry', async () => {
+    const { result } = renderSession();
+    await act(async () => { await result.current.startSession(); });
+
+    // Simulate two turn-complete messages to add a bot + user entry each
+    await act(async () => {
+      capturedCallbacks.current.onmessage?.({
+        serverContent: { outputTranscription: { text: 'Hello, Margaret.' }, turnComplete: false },
+      });
+      capturedCallbacks.current.onmessage?.({
+        serverContent: { turnComplete: true },
+      });
+    });
+
+    await act(async () => {
+      capturedCallbacks.current.onmessage?.({
+        serverContent: { inputTranscription: { text: 'I grew up in Ohio.' }, turnComplete: false },
+      });
+      capturedCallbacks.current.onmessage?.({
+        serverContent: { turnComplete: true },
+      });
+    });
+
+    // Check the transcript entries passed to syncTranscriptToFirestore
+    const lastCall = storageSpies.syncTranscriptToFirestore.mock.calls.at(-1);
+    const entries = lastCall?.[3] ?? [];
+    expect(entries.length).toBeGreaterThanOrEqual(2);
+    // Each entry should have a sequential messageIndex
+    entries.forEach((entry: any, i: number) => {
+      expect(entry.messageIndex).toBe(i);
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
 describe('function call handlers', () => {
   it('calls onQuestionUpdate and updateQuestionStateInFirestore on updateQuestionStatus tool call', async () => {
     const onQuestionUpdate = vi.fn();

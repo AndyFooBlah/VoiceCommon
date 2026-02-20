@@ -172,12 +172,34 @@ describe('extractEvents', () => {
     expect(results[0].people).toEqual(['Arthur']);
   });
 
-  it('attaches a source object with the sessionId and empty entryIndices', async () => {
+  it('attaches a source object with sessionId and empty entryIndices when AI omits them', async () => {
     mockAIText(JSON.stringify([{ title: 'Graduation Day' }]));
 
     const results = await extractEvents([], 'session-abc', []);
 
     expect(results[0].sources).toEqual([{ sessionId: 'session-abc', entryIndices: [] }]);
+  });
+
+  it('populates entryIndices from AI-returned indices', async () => {
+    mockAIText(JSON.stringify([{ title: 'Farm Life', entryIndices: [2, 3, 5] }]));
+
+    const results = await extractEvents([], 'session-xyz', []);
+
+    expect(results[0].sources[0].entryIndices).toEqual([2, 3, 5]);
+  });
+
+  it('formats transcript with [index] prefix for event extraction', async () => {
+    mockAIText('[]');
+    const entries = [
+      makeEntry('bot', 'Hello.'),
+      makeEntry('user', 'I grew up in Ohio.'),
+    ];
+
+    await extractEvents(entries, 'session-1', []);
+
+    const prompt: string = mockGenerateContent.mock.calls[0][0].contents;
+    expect(prompt).toContain('[0] Bot: Hello.');
+    expect(prompt).toContain('[1] Storyteller: I grew up in Ohio.');
   });
 
   it('applies field defaults when the JSON object is missing all fields', async () => {

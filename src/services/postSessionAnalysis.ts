@@ -25,10 +25,17 @@ import {
 
 const getAI = () => new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
 
-/** Format transcript entries into readable text for the LLM. */
+/** Format transcript entries into readable text for the LLM (no indices). */
 function formatTranscript(entries: TranscriptEntry[]): string {
   return entries
     .map((e) => `${e.role === 'user' ? 'Storyteller' : 'Bot'}: ${e.text}`)
+    .join('\n');
+}
+
+/** Format transcript entries with [index] prefix for event extraction. */
+function formatTranscriptIndexed(entries: TranscriptEntry[]): string {
+  return entries
+    .map((e, idx) => `[${idx}] ${e.role === 'user' ? 'Storyteller' : 'Bot'}: ${e.text}`)
     .join('\n');
 }
 
@@ -42,7 +49,7 @@ export async function extractEvents(
   existingEvents: StoryEvent[],
 ): Promise<Omit<StoryEvent, 'id' | 'createdAt' | 'updatedAt'>[]> {
   const ai = getAI();
-  const transcript = formatTranscript(entries);
+  const transcript = formatTranscriptIndexed(entries);
 
   const existingEventsContext = existingEvents.length > 0
     ? `\nExisting events already extracted from previous sessions:\n${JSON.stringify(existingEvents.map(e => ({ title: e.title, date: e.date, description: e.description })), null, 2)}\n\nDo NOT duplicate these. Only extract NEW events or provide additional details for existing events.`
@@ -53,6 +60,8 @@ export async function extractEvents(
     contents: `You are an expert oral historian analyzing an interview transcript.
 Extract discrete life events mentioned in this conversation. Each event should be a specific moment, period, or experience — not a vague topic.
 
+Each line of the transcript is prefixed with [index]. Use these indices to record which lines mention each event.
+
 For each event provide:
 - title: Short descriptive title (e.g. "First day at Lincoln Elementary")
 - description: 2-3 sentence narrative summary
@@ -61,6 +70,7 @@ For each event provide:
 - location: Place name or null if not mentioned
 - themes: Array of themes (e.g. ["childhood", "education"])
 - people: Names of people mentioned in connection with this event
+- entryIndices: Array of transcript line indices (numbers) that mention or describe this event
 
 ${existingEventsContext}
 
@@ -86,7 +96,7 @@ ${transcript}`,
       people: Array.isArray(e.people) ? e.people : [],
       sources: [{
         sessionId,
-        entryIndices: [],
+        entryIndices: Array.isArray(e.entryIndices) ? (e.entryIndices as number[]) : [],
       }] as EventSource[],
     }));
   } catch {
