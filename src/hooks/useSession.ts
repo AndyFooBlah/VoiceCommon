@@ -546,6 +546,7 @@ export function useSession({
     }
 
     sessionIdRef.current = null;
+    setSessionId(null);
     setStatus(ConnectionStatus.DISCONNECTED);
   }, [familyId, dossierId, dossier, questions, mixer, handleInterruption]);
 
