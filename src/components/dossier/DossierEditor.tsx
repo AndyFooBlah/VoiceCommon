@@ -304,7 +304,10 @@ export const DossierEditor: React.FC = () => {
               >
                 {/* Remove button */}
                 <button
-                  onClick={() => removeQuestion(q.id!)}
+                  onClick={() => {
+                    if (!window.confirm(`Remove question "${q.text}"?`)) return;
+                    removeQuestion(q.id!);
+                  }}
                   className="absolute top-2 right-2 text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
                   title="Remove question"
                 >
@@ -429,6 +432,7 @@ export const DossierEditor: React.FC = () => {
                   <button
                     onClick={async () => {
                       if (!familyId || !dossierId || !photo.id) return;
+                      if (!window.confirm(`Remove photo "${photo.caption}"?`)) return;
                       await deletePromptPhoto(familyId, dossierId, photo.id);
                       setPromptPhotos((prev) => prev.filter((p) => p.id !== photo.id));
                     }}

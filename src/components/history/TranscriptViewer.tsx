@@ -4,8 +4,8 @@
  * with speaker labels (Storyteller vs Bot) and timestamps.
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../hooks/useAuth';
@@ -27,8 +27,13 @@ export const TranscriptViewer: React.FC = () => {
     sessionId: string;
   }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const { user } = useAuth();
   const { isAdmin } = useCurrentRoles(familyId, user?.uid);
+
+  // Indices of messages to highlight (passed via router state from FamilyEventDetail)
+  const highlightedIndices: number[] = (location.state as any)?.highlightIndices ?? [];
+  const messageRefs = useRef<Map<number, HTMLDivElement>>(new Map());
 
   const [entries, setEntries] = useState<TranscriptEntry[]>([]);
   const [editedEntries, setEditedEntries] = useState<TranscriptEntry[] | null>(null);
@@ -88,6 +93,16 @@ export const TranscriptViewer: React.FC = () => {
 
     loadData();
   }, [familyId, dossierId, sessionId]);
+
+  // Scroll to first highlighted message after transcript loads
+  useEffect(() => {
+    if (highlightedIndices.length === 0 || entries.length === 0) return;
+    const firstIdx = highlightedIndices[0];
+    const el = messageRefs.current.get(firstIdx);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [entries, highlightedIndices]);
 
   if (loading) {
     return (
@@ -270,16 +285,22 @@ export const TranscriptViewer: React.FC = () => {
               </p>
             );
           }
-          return displayEntries.map((entry, idx) => (
+          return displayEntries.map((entry, idx) => {
+            const msgIndex = entry.messageIndex ?? idx;
+            const isHighlighted = highlightedIndices.includes(msgIndex);
+            return (
             <div
               key={idx}
-              className={`flex ${entry.role === 'user' ? 'justify-end' : 'justify-start'}`}
+              ref={(el) => { if (el) messageRefs.current.set(msgIndex, el); }}
+              className={`flex ${entry.role === 'user' ? 'justify-end' : 'justify-start'} ${isHighlighted ? 'rounded-2xl ring-2 ring-amber-400 ring-offset-2' : ''}`}
             >
               <div
                 className={`max-w-[85%] px-5 py-3 rounded-3xl text-sm leading-relaxed ${
                   entry.role === 'user'
                     ? 'bg-indigo-600 text-white rounded-br-none'
-                    : 'bg-slate-50 text-slate-700 border border-slate-200 rounded-bl-none'
+                    : isHighlighted
+                      ? 'bg-amber-50 text-slate-700 border border-amber-300 rounded-bl-none'
+                      : 'bg-slate-50 text-slate-700 border border-slate-200 rounded-bl-none'
                 }`}
               >
                 <div className="flex items-center gap-2 mb-1">
@@ -321,7 +342,7 @@ export const TranscriptViewer: React.FC = () => {
                 )}
               </div>
             </div>
-          ));
+          );});
         })()}
       </div>
 

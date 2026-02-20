@@ -120,11 +120,13 @@ export function useSession({
       };
       setMessages((prev) => [...prev, newMsg]);
 
-      // Also append to the Firestore transcript
+      // Also append to the Firestore transcript (messageIndex = position before push)
+      const messageIndex = transcriptEntriesRef.current.length;
       transcriptEntriesRef.current.push({
         role,
         text,
         timestamp: Timestamp.now(),
+        messageIndex,
       });
 
       // Sync to Firestore (fire-and-forget — errors are logged, not thrown)
@@ -523,6 +525,11 @@ export function useSession({
             storytellerUids: [storytellerUid],
             sessionIds: [sid],
             createdBy: storytellerUid,
+            messageReferences: (e.sources?.[0]?.entryIndices ?? []).map((idx) => ({
+              sessionId: sid,
+              dossierId,
+              messageIndex: idx,
+            })),
           }));
           await Promise.all([
             events.length > 0
@@ -546,6 +553,7 @@ export function useSession({
     }
 
     sessionIdRef.current = null;
+    setSessionId(null);
     setStatus(ConnectionStatus.DISCONNECTED);
   }, [familyId, dossierId, dossier, questions, mixer, handleInterruption]);
 
