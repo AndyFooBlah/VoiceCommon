@@ -139,6 +139,16 @@ CI uses Node 20 on Ubuntu with npm caching enabled for fast installs. A concurre
 - Firebase and Web Audio API mocks are set up globally in `src/__tests__/setup.ts` — no per-test boilerplate needed
 - See [design.md §5](design.md) for the full testing strategy, priority tiers, and mocking approach
 
+## Built With AI
+
+LegacyBot was developed collaboratively with several AI coding assistants across different phases of the project.
+
+| AI | Model | Role |
+|----|-------|------|
+| Google AI Studio | Gemini 3.0 | Built the initial UI and application scaffold |
+| Claude Code | Opus 4.5, Opus 4.6, Sonnet 4.6 | Feature development, architecture, testing, and ongoing iteration |
+| Gemini CLI | Gemini 3.1 Pro | Feature development and iteration |
+
 ## License
 
 Private repository. All rights reserved.
