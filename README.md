@@ -149,6 +149,86 @@ CI uses Node 20 on Ubuntu with npm caching enabled for fast installs. A concurre
 - Firebase and Web Audio API mocks are set up globally in `src/__tests__/setup.ts` — no per-test boilerplate needed
 - See [design.md §5](design.md) for the full testing strategy, priority tiers, and mocking approach
 
+## Privacy & Security
+
+LegacyBot stores deeply personal information — life stories, family histories, health details, and childhood memories. Deploying it responsibly requires understanding exactly where that data goes, who can access it, and under what conditions it may be used by third-party services.
+
+### Keeping credentials out of your repository
+
+All secret values must be kept in `.env.local`, which is listed in `.gitignore` and must **never be committed**. The `.env.example` file shows the required variable names with empty values — it is safe to commit, but contains no secrets.
+
+**Before each commit, verify no credentials are staged:**
+```bash
+git diff --cached | grep -i "VITE_\|apiKey\|secret"
+```
+
+Additional safeguards:
+- Enable [GitHub secret scanning](https://docs.github.com/en/code-security/secret-scanning/about-secret-scanning) on the repository — it will alert you if a key is accidentally pushed.
+- Restrict each Firebase API key in the [Google Cloud Console](https://console.cloud.google.com/apis/credentials) to only the HTTP referrers and APIs it needs.
+- Never log environment variables or pass them to client-side error reporters.
+- Rotate any key that you suspect was exposed; Firebase and Gemini keys can both be regenerated in their respective consoles without data loss.
+
+### Where user data is stored
+
+#### Firebase Cloud Firestore
+Firestore holds all structured application data: family records, dossiers, session metadata, transcripts, events, memoirs, and question progress. Data is **encrypted at rest (AES-256) and in transit (TLS)** by default. You control retention — there is no automatic expiry unless you configure TTL policies. After account deletion, Google removes data within 180 days.
+
+The region your Firestore database is hosted in is set at creation time. If you want data to stay in a specific geography (e.g., the EU), you must select that region when creating the database — it cannot be changed later. See [available locations](https://cloud.google.com/about/locations/).
+
+#### Firebase Cloud Storage
+Cloud Storage holds audio recordings (WebM/Opus) and uploaded media files. The same encryption-at-rest and in-transit protections apply. Recordings persist until explicitly deleted; there is no automatic expiry. As with Firestore, the storage bucket's region is fixed at creation.
+
+#### Firebase Authentication
+Auth stores user account records (email, hashed password, sign-in history). Unlike Firestore and Cloud Storage, **Firebase Auth always processes data in the United States** — there is no regional configuration option. If strict EU data residency is a requirement, this is a material constraint.
+
+#### Google Gemini Live API
+This is the most important service to understand from a privacy standpoint.
+
+During a session, the real-time audio stream and conversation turns are sent to Google's Gemini Live API. **What Google does with that data depends on which pricing tier you are on:**
+
+| Tier | Used to train Gemini? | Human review of conversations? |
+|------|-----------------------|--------------------------------|
+| **Free (no billing enabled)** | **Yes** — Google explicitly reserves the right to use prompts and responses to improve and develop its products | **Yes** — de-identified conversations can be reviewed by human annotators |
+| **Paid (billing enabled, pay-as-you-go)** | **No** — Google acts only as a data processor under its Cloud Data Processing Addendum | Only for abuse/safety violation investigation |
+
+> **This is the most critical configuration decision for a production deployment.** If your GCP project has no billing account attached, your users' voice conversations and transcripts may be used to train future versions of Gemini. Enable billing and use the pay-as-you-go tier to opt out of this. At typical usage volumes the cost is low, and the privacy protection is significant given the sensitive nature of the content.
+
+To check your current tier: visit the [Google AI Studio](https://aistudio.google.com) and confirm that your project has an active billing account in the [GCP Console](https://console.cloud.google.com/billing).
+
+On the paid tier, conversation data is retained only transiently for abuse detection purposes and is not stored long-term by Google.
+
+### Data residency and the Cloud Data Processing Addendum
+
+When billing is enabled, Google's [Cloud Data Processing Addendum (CDPA)](https://cloud.google.com/terms/data-processing-terms) applies. Under the CDPA, Google acts as a data processor rather than a data controller — it processes data only on your documented instructions. This is the contractual basis for GDPR compliance.
+
+If you are operating in the EU or processing data from EU residents, confirm that your Firestore and Cloud Storage regions are set to an EU location. Firebase Auth's US-only processing should be reviewed against your applicable data protection obligations.
+
+### Summary of data flows
+
+```
+Storyteller voice → Gemini Live API (transient, paid tier = not retained or used for training)
+                  → useAudioMixer → WebM/Opus file → Firebase Cloud Storage (persists until deleted)
+
+Gemini transcription → useSession → Firestore transcript/entries (persists until deleted)
+
+Family data, dossiers, events, memoirs → Firestore (persists until deleted)
+
+User accounts → Firebase Authentication (US only)
+```
+
+### Relevant terms of service and privacy documentation
+
+| Service | Link |
+|---------|------|
+| Gemini API Terms of Service | [ai.google.dev/gemini-api/terms](https://ai.google.dev/gemini-api/terms) |
+| Google Cloud Data Processing Addendum | [cloud.google.com/terms/data-processing-terms](https://cloud.google.com/terms/data-processing-terms) |
+| Firebase Privacy and Security | [firebase.google.com/support/privacy](https://firebase.google.com/support/privacy) |
+| Firebase Data Processing Terms | [firebase.google.com/terms/data-processing-terms](https://firebase.google.com/terms/data-processing-terms) |
+| Google Privacy Policy | [policies.google.com/privacy](https://policies.google.com/privacy) |
+| Google Cloud compliance certifications | [cloud.google.com/security/compliance/services-in-scope](https://cloud.google.com/security/compliance/services-in-scope) |
+
+---
+
 ## Built With AI
 
 LegacyBot was developed collaboratively with several AI coding assistants across different phases of the project.
