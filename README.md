@@ -11,20 +11,26 @@ A voice-first life story preservation app that helps families capture and archiv
 ## Key Features
 
 - Real-time voice conversation powered by Google Gemini Live API
+- Two user roles: **Archivist** (sets up dossiers, reviews sessions) and **Storyteller** (voice-only interview access)
 - Three interviewer personalities: empathetic, investigative, casual
 - Automatic question tracking with status updates via Gemini function calling
 - Audio archival in WebM/Opus format to Firebase Cloud Storage
 - Live transcript display during sessions
-- Multi-user support with per-user data isolation via Firebase Auth
-- Multiple storyteller dossiers per user
-- Session history with audio playback and transcript review
+- Per-message transcript editing with full edit history for both Archivists and Storytellers
+- Session history with audio playback, transcript review, and audio clip creation
+- Relational family tree with friends and pets, GEDCOM import
+- Events timeline — life events extracted from transcripts and linked to source messages
+- AI-generated memoirs from session transcripts, exported as PDF
+- Post-session engagement analysis and suggested follow-up questions
+- Media gallery for photos and documents
+- Family-based access control via Firebase Auth with invitation workflow
 - Partial session recovery (audio chunks saved every 10 seconds)
 
 ## Tech Stack
 
-- **Frontend**: React 19, TypeScript, Vite, Tailwind CSS
+- **Frontend**: React 19, TypeScript, Vite 6, Tailwind CSS v4, React Router v7
 - **AI**: Google Gemini Live API (`@google/genai`)
-- **Backend**: Firebase (Authentication, Firestore, Cloud Storage)
+- **Backend**: Firebase (Authentication, Firestore, Cloud Storage, Cloud Functions)
 - **Audio**: Web Audio API, MediaRecorder API
 - **Testing**: Vitest, React Testing Library, jsdom
 
@@ -33,15 +39,19 @@ A voice-first life story preservation app that helps families capture and archiv
 ```
 src/
 ├── components/
-│   ├── auth/          # LoginScreen
+│   ├── auth/          # LoginScreen, AcceptInvite
 │   ├── dossier/       # DossierList, DossierEditor, StorytellerProfile
+│   ├── family/        # FamilyHome, FamilyPage, FamilySelector, FamilyEventDetail, InviteMember, MemberManagement
+│   ├── history/       # SessionList, TranscriptViewer, AudioPlayer, QuestionDashboard, EventsTimeline
+│   ├── media/         # MediaGallery
+│   ├── memoir/        # MemoirViewer
 │   ├── session/       # SessionView, TranscriptFeed, Visualizer
-│   ├── history/       # SessionList, TranscriptViewer, AudioPlayer, QuestionDashboard
-│   └── shared/        # Layout, ErrorBoundary
-├── hooks/             # useAuth, useDossier, useSession, useAudioMixer
-├── services/          # firebase, gemini, storage, audioUtils
+│   ├── shared/        # Layout, ErrorBoundary, Logo
+│   └── storyteller/   # StorytellerDashboard
+├── hooks/             # useAuth, useFamily, useDossier, useSession, useAudioMixer, useEvents, useInvitations
+├── services/          # firebase, gemini, storage, audioUtils, memoirGeneration, memoirExport, postSessionAnalysis, gedcomParser, invitations, adminActions
 ├── types.ts           # TypeScript interfaces
-└── App.tsx            # Router setup
+└── App.tsx            # Router setup (11 routes)
 ```
 
 ## Documentation
@@ -113,7 +123,7 @@ GitHub Actions runs automatically on every push to `main` and on every pull requ
 |------|---------|---------|
 | Install | `npm ci` | Clean install from lockfile |
 | Type check | `npx tsc --noEmit` | Catch type errors without emitting files |
-| Tests | `npm test` | Run all 154 unit and integration tests |
+| Tests | `npm test` | Run all 327 unit and integration tests |
 
 CI uses Node 20 on Ubuntu with npm caching enabled for fast installs. A concurrency group ensures that only one run per branch is active at a time — pushing again cancels the previous in-progress run.
 
