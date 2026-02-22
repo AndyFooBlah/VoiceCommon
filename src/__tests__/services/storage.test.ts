@@ -12,6 +12,7 @@ import {
   syncTranscriptToFirestore,
   updateQuestionStateInFirestore,
   saveFamilyEvents,
+  saveMessageEdit,
 } from '../../services/storage';
 
 beforeEach(() => {
@@ -212,5 +213,112 @@ describe('saveFamilyEvents', () => {
     await saveFamilyEvents('family-1', []);
 
     expect(mockFirestore.addDoc).not.toHaveBeenCalled();
+  });
+});
+
+describe('saveMessageEdit', () => {
+  const baseEntry = {
+    role: 'user' as const,
+    text: 'Original transcription',
+    timestamp: mockFirestore.Timestamp.now(),
+    messageIndex: 1,
+  };
+
+  it('updates the entry text in editedEntries', async () => {
+    mockFirestore.getDoc.mockResolvedValueOnce({
+      exists: () => true,
+      data: () => ({ entries: [baseEntry] }),
+    });
+
+    await saveMessageEdit('family-1', 'dossier-1', 'session-1', 1, 'Corrected text', 'user-uid', 'Alice');
+
+    expect(mockFirestore.updateDoc).toHaveBeenCalledTimes(1);
+    const updateData = mockFirestore.updateDoc.mock.calls[0][1];
+    expect(updateData.editedEntries[0].text).toBe('Corrected text');
+  });
+
+  it('sets originalText to the pre-edit text on first edit', async () => {
+    mockFirestore.getDoc.mockResolvedValueOnce({
+      exists: () => true,
+      data: () => ({ entries: [baseEntry] }),
+    });
+
+    await saveMessageEdit('family-1', 'dossier-1', 'session-1', 1, 'Corrected text', 'user-uid', 'Alice');
+
+    const updateData = mockFirestore.updateDoc.mock.calls[0][1];
+    expect(updateData.editedEntries[0].originalText).toBe('Original transcription');
+  });
+
+  it('does not overwrite originalText on subsequent edits', async () => {
+    const alreadyEditedEntry = {
+      ...baseEntry,
+      text: 'First edit',
+      originalText: 'Original transcription',
+      editHistory: [{ text: 'First edit', editedBy: 'user-uid', editedByName: 'Alice', editedAt: mockFirestore.Timestamp.now() }],
+    };
+    mockFirestore.getDoc.mockResolvedValueOnce({
+      exists: () => true,
+      data: () => ({ editedEntries: [alreadyEditedEntry] }),
+    });
+
+    await saveMessageEdit('family-1', 'dossier-1', 'session-1', 1, 'Second edit', 'user-uid', 'Alice');
+
+    const updateData = mockFirestore.updateDoc.mock.calls[0][1];
+    expect(updateData.editedEntries[0].originalText).toBe('Original transcription');
+    expect(updateData.editedEntries[0].editHistory).toHaveLength(2);
+  });
+
+  it('appends a history entry with editor metadata', async () => {
+    mockFirestore.getDoc.mockResolvedValueOnce({
+      exists: () => true,
+      data: () => ({ entries: [baseEntry] }),
+    });
+
+    await saveMessageEdit('family-1', 'dossier-1', 'session-1', 1, 'Corrected text', 'user-uid', 'Alice');
+
+    const updateData = mockFirestore.updateDoc.mock.calls[0][1];
+    const historyItem = updateData.editedEntries[0].editHistory[0];
+    expect(historyItem.text).toBe('Corrected text');
+    expect(historyItem.editedBy).toBe('user-uid');
+    expect(historyItem.editedByName).toBe('Alice');
+    expect(historyItem.editedAt).toBeDefined();
+  });
+
+  it('uses editedEntries as base when they already exist', async () => {
+    const editedEntry = { ...baseEntry, text: 'Previous edit', originalText: 'Original transcription' };
+    mockFirestore.getDoc.mockResolvedValueOnce({
+      exists: () => true,
+      data: () => ({ entries: [baseEntry], editedEntries: [editedEntry] }),
+    });
+
+    await saveMessageEdit('family-1', 'dossier-1', 'session-1', 1, 'New edit', 'user-uid', 'Alice');
+
+    const updateData = mockFirestore.updateDoc.mock.calls[0][1];
+    expect(updateData.editedEntries[0].originalText).toBe('Original transcription');
+  });
+
+  it('only modifies the targeted message index, leaving others unchanged', async () => {
+    const entries = [
+      { role: 'bot' as const, text: 'Bot message', timestamp: mockFirestore.Timestamp.now(), messageIndex: 0 },
+      baseEntry,
+    ];
+    mockFirestore.getDoc.mockResolvedValueOnce({
+      exists: () => true,
+      data: () => ({ entries }),
+    });
+
+    await saveMessageEdit('family-1', 'dossier-1', 'session-1', 1, 'Corrected text', 'user-uid', 'Alice');
+
+    const updateData = mockFirestore.updateDoc.mock.calls[0][1];
+    expect(updateData.editedEntries[0].text).toBe('Bot message');
+    expect(updateData.editedEntries[1].text).toBe('Corrected text');
+  });
+
+  it('throws when transcript document does not exist', async () => {
+    mockFirestore.getDoc.mockResolvedValueOnce({ exists: () => false });
+
+    await expect(
+      saveMessageEdit('family-1', 'dossier-1', 'session-1', 1, 'Corrected', 'user-uid', 'Alice'),
+    ).rejects.toThrow('Transcript not found');
   });
 });

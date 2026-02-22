@@ -2,6 +2,9 @@
  * TranscriptViewer — read-only view of a past session's transcript.
  * Loads the transcript from Firestore and displays it as a conversation
  * with speaker labels (Storyteller vs Bot) and timestamps.
+ *
+ * Phase 5: Per-message inline editing with full edit history.
+ * Both admins and storytellers can edit storyteller messages.
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
@@ -10,15 +13,85 @@ import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../hooks/useAuth';
 import { useCurrentRoles } from '../../hooks/useFamily';
-import { TranscriptEntry, SessionMetadata, SessionEngagement, SuggestedQuestion, AudioClip } from '../../types';
+import { TranscriptEntry, TranscriptEditHistoryEntry, SessionMetadata, SessionEngagement, SuggestedQuestion, AudioClip } from '../../types';
 import { AudioPlayer } from './AudioPlayer';
-import { getEngagementAssessment, getSuggestedQuestions, saveEditedTranscript, saveAudioClip, getAudioClips, deleteAudioClip } from '../../services/storage';
+import { getEngagementAssessment, getSuggestedQuestions, saveMessageEdit, saveAudioClip, getAudioClips, deleteAudioClip } from '../../services/storage';
 
 function formatClipTime(seconds: number): string {
   const m = Math.floor(seconds / 60);
   const s = Math.floor(seconds % 60);
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
+
+function formatEditDate(entry: TranscriptEditHistoryEntry): string {
+  const d = entry.editedAt?.toDate?.();
+  if (!d) return '';
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+// ---------------------------------------------------------------------------
+// Edit history modal
+// ---------------------------------------------------------------------------
+
+interface EditHistoryModalProps {
+  entry: TranscriptEntry;
+  onClose: () => void;
+}
+
+const EditHistoryModal: React.FC<EditHistoryModalProps> = ({ entry, onClose }) => {
+  const history = entry.editHistory ?? [];
+  return (
+    <div
+      className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white rounded-3xl shadow-xl max-w-lg w-full p-8 space-y-5 max-h-[80vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between">
+          <h3 className="text-lg font-bold text-slate-800">Edit History</h3>
+          <button
+            onClick={onClose}
+            className="text-sm text-slate-400 hover:text-slate-600 font-medium"
+          >
+            Close
+          </button>
+        </div>
+
+        {/* Original transcription */}
+        <div className="space-y-1">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+            Original (AI Transcription)
+          </p>
+          <p className="text-sm text-slate-600 bg-slate-50 rounded-xl p-3 leading-relaxed">
+            {entry.originalText ?? entry.text}
+          </p>
+        </div>
+
+        {/* Each edit in chronological order */}
+        {history.map((h, i) => (
+          <div key={i} className="space-y-1">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-indigo-400">
+              Edit {i + 1} &mdash; {h.editedByName} &middot; {formatEditDate(h)}
+            </p>
+            <p className={`text-sm rounded-xl p-3 leading-relaxed ${
+              i === history.length - 1
+                ? 'bg-indigo-50 text-indigo-900 border border-indigo-200 font-medium'
+                : 'bg-slate-50 text-slate-600'
+            }`}>
+              {h.text}
+            </p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+// ---------------------------------------------------------------------------
+// Main component
+// ---------------------------------------------------------------------------
 
 export const TranscriptViewer: React.FC = () => {
   const { familyId, dossierId, sessionId } = useParams<{
@@ -29,7 +102,7 @@ export const TranscriptViewer: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { user } = useAuth();
-  const { isAdmin } = useCurrentRoles(familyId, user?.uid);
+  const { isAdmin, isStoryteller } = useCurrentRoles(familyId, user?.uid);
 
   // Indices of messages to highlight (passed via router state from FamilyEventDetail)
   const highlightedIndices: number[] = (location.state as any)?.highlightIndices ?? [];
@@ -42,8 +115,14 @@ export const TranscriptViewer: React.FC = () => {
   const [suggestions, setSuggestions] = useState<SuggestedQuestion[]>([]);
   const [clips, setClips] = useState<AudioClip[]>([]);
   const [loading, setLoading] = useState(true);
-  const [editing, setEditing] = useState(false);
-  const [savingEdits, setSavingEdits] = useState(false);
+
+  // Per-message edit state
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [editingText, setEditingText] = useState('');
+  const [savingEdit, setSavingEdit] = useState(false);
+
+  // Edit history modal
+  const [historyEntry, setHistoryEntry] = useState<TranscriptEntry | null>(null);
 
   useEffect(() => {
     if (!familyId || !dossierId || !sessionId) return;
@@ -104,6 +183,45 @@ export const TranscriptViewer: React.FC = () => {
     }
   }, [entries, highlightedIndices]);
 
+  const handleSaveEdit = useCallback(async (msgIndex: number) => {
+    if (!familyId || !dossierId || !sessionId || !user) return;
+    setSavingEdit(true);
+    try {
+      const displayName = user.displayName ?? user.email ?? 'User';
+      await saveMessageEdit(familyId, dossierId, sessionId, msgIndex, editingText, user.uid, displayName);
+
+      // Update local state so UI reflects the edit immediately
+      const base = editedEntries ?? entries;
+      const updated = base.map((entry, idx) => {
+        if ((entry.messageIndex ?? idx) !== msgIndex) return entry;
+        return {
+          ...entry,
+          text: editingText,
+          originalText: entry.originalText ?? entry.text,
+          editHistory: [
+            ...(entry.editHistory ?? []),
+            {
+              text: editingText,
+              editedBy: user.uid,
+              editedByName: displayName,
+              editedAt: { toDate: () => new Date() } as any,
+            },
+          ],
+        };
+      });
+      setEditedEntries(updated);
+      setEditingIndex(null);
+    } catch (err) {
+      console.error('[Transcript] Save edit error:', err);
+      alert('Failed to save edit.');
+    } finally {
+      setSavingEdit(false);
+    }
+  }, [familyId, dossierId, sessionId, user, editingText, editedEntries, entries]);
+
+  const canEdit = isAdmin || isStoryteller;
+  const displayEntries = editedEntries ?? entries;
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -151,61 +269,6 @@ export const TranscriptViewer: React.FC = () => {
           </p>
         )}
       </div>
-
-      {/* Edit controls (admin-only) */}
-      {isAdmin && (
-        <div className="flex items-center gap-3">
-          {!editing ? (
-            <button
-              onClick={() => {
-                setEditing(true);
-                if (!editedEntries) {
-                  setEditedEntries([...entries]);
-                }
-              }}
-              className="text-sm text-indigo-600 font-medium hover:underline"
-            >
-              Edit Transcript
-            </button>
-          ) : (
-            <>
-              <button
-                onClick={async () => {
-                  if (!familyId || !dossierId || !sessionId || !editedEntries || !user) return;
-                  setSavingEdits(true);
-                  try {
-                    await saveEditedTranscript(familyId, dossierId, sessionId, editedEntries, user.uid);
-                    setEditing(false);
-                  } catch (err) {
-                    console.error('[Transcript] Save error:', err);
-                    alert('Failed to save edits');
-                  } finally {
-                    setSavingEdits(false);
-                  }
-                }}
-                disabled={savingEdits}
-                className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-sm font-semibold hover:bg-indigo-700 transition-colors disabled:opacity-50"
-              >
-                {savingEdits ? 'Saving...' : 'Save Edits'}
-              </button>
-              <button
-                onClick={() => { setEditing(false); setEditedEntries(entries.length > 0 ? [...entries] : null); }}
-                className="text-sm text-slate-500 font-medium hover:underline"
-              >
-                Cancel
-              </button>
-              <span className="text-xs text-slate-400">
-                Editing corrects names, dates, and context. Original transcript is always preserved.
-              </span>
-            </>
-          )}
-          {editedEntries && !editing && (
-            <span className="text-xs text-emerald-600 font-medium">
-              (showing edited version)
-            </span>
-          )}
-        </div>
-      )}
 
       {session?.audioUrl && (
         <AudioPlayer
@@ -275,75 +338,119 @@ export const TranscriptViewer: React.FC = () => {
         </div>
       )}
 
+      {/* Transcript */}
       <div className="bg-white rounded-3xl border border-slate-200 p-8 space-y-6 shadow-sm">
-        {(() => {
-          const displayEntries = editing ? (editedEntries ?? entries) : (editedEntries ?? entries);
-          if (displayEntries.length === 0) {
-            return (
-              <p className="text-slate-400 italic text-center py-8">
-                No transcript entries for this session.
-              </p>
-            );
-          }
-          return displayEntries.map((entry, idx) => {
+        {displayEntries.length === 0 ? (
+          <p className="text-slate-400 italic text-center py-8">
+            No transcript entries for this session.
+          </p>
+        ) : (
+          displayEntries.map((entry, idx) => {
             const msgIndex = entry.messageIndex ?? idx;
             const isHighlighted = highlightedIndices.includes(msgIndex);
+            const isEditing = editingIndex === msgIndex;
+            const isEdited = Boolean(entry.editHistory?.length);
+            const lastEdit = entry.editHistory?.[entry.editHistory.length - 1];
+            const showEditButton = canEdit && entry.role === 'user' && !isEditing;
+
             return (
-            <div
-              key={idx}
-              ref={(el) => { if (el) messageRefs.current.set(msgIndex, el); }}
-              className={`flex ${entry.role === 'user' ? 'justify-end' : 'justify-start'} ${isHighlighted ? 'rounded-2xl ring-2 ring-amber-400 ring-offset-2' : ''}`}
-            >
               <div
-                className={`max-w-[85%] px-5 py-3 rounded-3xl text-sm leading-relaxed ${
-                  entry.role === 'user'
-                    ? 'bg-indigo-600 text-white rounded-br-none'
-                    : isHighlighted
-                      ? 'bg-amber-50 text-slate-700 border border-amber-300 rounded-bl-none'
-                      : 'bg-slate-50 text-slate-700 border border-slate-200 rounded-bl-none'
-                }`}
+                key={idx}
+                ref={(el) => { if (el) messageRefs.current.set(msgIndex, el); }}
+                className={`flex ${entry.role === 'user' ? 'justify-end' : 'justify-start'} ${isHighlighted ? 'rounded-2xl ring-2 ring-amber-400 ring-offset-2' : ''}`}
               >
-                <div className="flex items-center gap-2 mb-1">
-                  <span
-                    className={`text-[9px] font-bold uppercase ${
-                      entry.role === 'user' ? 'text-indigo-200' : 'text-slate-400'
+                <div className="max-w-[85%] space-y-1">
+                  <div
+                    className={`group relative px-5 py-3 rounded-3xl text-sm leading-relaxed ${
+                      entry.role === 'user'
+                        ? 'bg-indigo-600 text-white rounded-br-none'
+                        : isHighlighted
+                          ? 'bg-amber-50 text-slate-700 border border-amber-300 rounded-bl-none'
+                          : 'bg-slate-50 text-slate-700 border border-slate-200 rounded-bl-none'
                     }`}
                   >
-                    {entry.role === 'user' ? 'Storyteller' : 'LegacyBot'}
-                  </span>
-                  {entry.timestamp?.toDate && (
-                    <span
-                      className={`text-[9px] opacity-50 ${
-                        entry.role === 'user' ? 'text-white' : 'text-slate-400'
-                      }`}
-                    >
-                      {entry.timestamp.toDate().toLocaleTimeString([], {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
-                    </span>
+                    <div className="flex items-center gap-2 mb-1">
+                      <span
+                        className={`text-[9px] font-bold uppercase ${
+                          entry.role === 'user' ? 'text-indigo-200' : 'text-slate-400'
+                        }`}
+                      >
+                        {entry.role === 'user' ? 'Storyteller' : 'LegacyBot'}
+                      </span>
+                      {entry.timestamp?.toDate && (
+                        <span
+                          className={`text-[9px] opacity-50 ${
+                            entry.role === 'user' ? 'text-white' : 'text-slate-400'
+                          }`}
+                        >
+                          {entry.timestamp.toDate().toLocaleTimeString([], {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </span>
+                      )}
+                      {/* Edit button — visible on hover */}
+                      {showEditButton && (
+                        <button
+                          onClick={() => {
+                            setEditingIndex(msgIndex);
+                            setEditingText(entry.text);
+                          }}
+                          className="opacity-0 group-hover:opacity-100 transition-opacity ml-auto text-[9px] font-semibold text-indigo-200 hover:text-white underline"
+                          title="Edit this message"
+                        >
+                          Edit
+                        </button>
+                      )}
+                    </div>
+
+                    {isEditing ? (
+                      <div className="space-y-2">
+                        <textarea
+                          value={editingText}
+                          onChange={(e) => setEditingText(e.target.value)}
+                          className="w-full bg-indigo-700 text-white placeholder-indigo-300 rounded-xl p-2 resize-none outline-none text-sm leading-relaxed"
+                          rows={Math.max(2, Math.ceil(editingText.length / 60))}
+                          autoFocus
+                        />
+                        <div className="flex items-center gap-3">
+                          <button
+                            onClick={() => handleSaveEdit(msgIndex)}
+                            disabled={savingEdit || editingText.trim() === entry.text.trim()}
+                            className="px-3 py-1 bg-white text-indigo-700 rounded-full text-xs font-bold hover:bg-indigo-50 transition-colors disabled:opacity-50"
+                          >
+                            {savingEdit ? 'Saving...' : 'Save'}
+                          </button>
+                          <button
+                            onClick={() => setEditingIndex(null)}
+                            className="text-xs text-indigo-200 hover:text-white"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      entry.text
+                    )}
+                  </div>
+
+                  {/* Edited badge */}
+                  {isEdited && lastEdit && !isEditing && (
+                    <div className="flex justify-end">
+                      <button
+                        onClick={() => setHistoryEntry(entry)}
+                        className="text-[10px] text-slate-400 hover:text-indigo-600 transition-colors"
+                        title="View edit history"
+                      >
+                        Edited by {lastEdit.editedByName} &middot; {formatEditDate(lastEdit)} &middot; View history
+                      </button>
+                    </div>
                   )}
                 </div>
-                {editing ? (
-                  <textarea
-                    value={entry.text}
-                    onChange={(e) => {
-                      const updated = [...(editedEntries ?? entries)];
-                      updated[idx] = { ...updated[idx], text: e.target.value };
-                      setEditedEntries(updated);
-                    }}
-                    className={`w-full bg-transparent resize-none outline-none ${
-                      entry.role === 'user' ? 'text-white placeholder-indigo-300' : 'text-slate-700'
-                    }`}
-                    rows={Math.max(2, Math.ceil(entry.text.length / 60))}
-                  />
-                ) : (
-                  entry.text
-                )}
               </div>
-            </div>
-          );});
-        })()}
+            );
+          })
+        )}
       </div>
 
       {/* Engagement Assessment (admin-only) */}
@@ -404,6 +511,14 @@ export const TranscriptViewer: React.FC = () => {
             ))}
           </div>
         </div>
+      )}
+
+      {/* Edit history modal */}
+      {historyEntry && (
+        <EditHistoryModal
+          entry={historyEntry}
+          onClose={() => setHistoryEntry(null)}
+        />
       )}
     </div>
   );

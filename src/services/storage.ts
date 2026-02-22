@@ -33,6 +33,7 @@ import {
 import { db, storage } from './firebase';
 import {
   TranscriptEntry,
+  TranscriptEditHistoryEntry,
   SessionMetadata,
   InterviewQuestion,
   StoryEvent,
@@ -429,6 +430,55 @@ export async function saveEditedTranscript(
     editedEntries,
     editedBy,
     editedAt: Timestamp.now(),
+  });
+}
+
+/**
+ * Save an edit to a single storyteller message.
+ * - Initialises editedEntries from the original entries on first edit.
+ * - Preserves the original AI transcription in originalText (set once).
+ * - Appends every edit to the entry's editHistory array.
+ */
+export async function saveMessageEdit(
+  familyId: string,
+  dossierId: string,
+  sessionId: string,
+  messageIndex: number,
+  newText: string,
+  editedBy: string,
+  editedByName: string,
+): Promise<void> {
+  const docRef = doc(
+    db, 'families', familyId, 'dossiers', dossierId,
+    'sessions', sessionId, 'transcript', 'entries',
+  );
+  const snap = await getDoc(docRef);
+  if (!snap.exists()) throw new Error('Transcript not found');
+
+  const data = snap.data();
+  const baseEntries: TranscriptEntry[] = data.editedEntries ?? data.entries ?? [];
+  const now = Timestamp.now();
+
+  const updated: TranscriptEntry[] = baseEntries.map((entry, idx) => {
+    if ((entry.messageIndex ?? idx) !== messageIndex) return entry;
+    const historyItem: TranscriptEditHistoryEntry = {
+      text: newText,
+      editedBy,
+      editedByName,
+      editedAt: now,
+    };
+    return {
+      ...entry,
+      text: newText,
+      originalText: entry.originalText ?? entry.text,
+      editHistory: [...(entry.editHistory ?? []), historyItem],
+    };
+  });
+
+  await updateDoc(docRef, {
+    editedEntries: updated,
+    editedBy,
+    editedAt: now,
   });
 }
 

@@ -175,12 +175,22 @@ export interface SessionMetadata {
   durationSeconds: number;
 }
 
+/** A single version record in a message's edit history. */
+export interface TranscriptEditHistoryEntry {
+  text: string;         // text after this edit was applied
+  editedBy: string;     // uid of the editor
+  editedByName: string; // display name of the editor
+  editedAt: Timestamp;
+}
+
 /** A single turn in the conversation transcript. */
 export interface TranscriptEntry {
   role: 'user' | 'bot';
-  text: string;
+  text: string;         // current (display) text
   timestamp: Timestamp;
-  messageIndex?: number; // 0-based position in the session transcript
+  messageIndex?: number;   // 0-based position in the session transcript
+  originalText?: string;   // original AI transcription, set on first edit
+  editHistory?: TranscriptEditHistoryEntry[]; // ordered list of edits
 }
 
 // ---------------------------------------------------------------------------
