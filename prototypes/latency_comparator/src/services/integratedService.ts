@@ -138,6 +138,9 @@ export class IntegratedService {
   // ---------------------------------------------------------------------------
 
   private async handleMessage(msg: LiveServerMessage): Promise<void> {
+    const raw = JSON.stringify(msg);
+    console.log(`[${ts()}] [Integrated] Raw message (${raw.length} chars): ${raw.substring(0, 300)}${raw.length > 300 ? '…' : ''}`);
+
     // --- User speech transcription ---
     // Track the timestamp of the most recent input transcript as a proxy
     // for when the user stopped talking (Gemini doesn't expose a VAD event).
@@ -232,7 +235,7 @@ export class IntegratedService {
   // ---------------------------------------------------------------------------
 
   private startMicStreaming(): void {
-    if (!this.stream || !this.inputCtx || !this.session) return;
+    if (!this.stream || !this.inputCtx) return;
 
     const source = this.inputCtx.createMediaStreamSource(this.stream);
     this.scriptProcessor = this.inputCtx.createScriptProcessor(4096, 1, 1);
