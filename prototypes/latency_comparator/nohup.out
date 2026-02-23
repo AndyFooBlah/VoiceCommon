@@ -1,0 +1,10 @@
+
+> latency_comparator@0.0.0 dev
+> vite
+
+
+  VITE v7.3.1  ready in 456 ms
+
+  ➜  Local:   http://localhost:5173/
+  ➜  Network: use --host to expose
+12:58:59 PM [vite] (client) hmr update /src/App.tsx
