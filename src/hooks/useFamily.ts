@@ -97,7 +97,7 @@ export function useFamilyMembers(familyId: string | undefined) {
             relations: data.relations ?? [],
             uid: d.id,
           };
-        }) as (FamilyMemberRecord & { uid: string })[];
+        }) as unknown as (FamilyMemberRecord & { uid: string })[];
         setMembers(items);
         setLoading(false);
       },

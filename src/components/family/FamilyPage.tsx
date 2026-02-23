@@ -11,7 +11,7 @@
  * References: GitHub Issue #60 (Phase 1)
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { useFamily, useFamilyMembers, updateFamilyTree } from '../../hooks/useFamily';
@@ -133,6 +133,32 @@ export const FamilyPage: React.FC = () => {
     setShowCreateForm(false);
     navigate(`/family/${familyId}/dossier/${dossierId}`);
   }
+
+  // Auto-sync storytellers into the family tree.
+  // Every storyteller should appear as a tree entry so other members can be
+  // linked to them. Runs whenever members or the family document changes;
+  // exits immediately if all storytellers are already present.
+  useEffect(() => {
+    if (!familyId || !family || membersLoading || familyLoading) return;
+
+    const currentTree = family.familyTree ?? [];
+    const storytellers = members.filter((m) => m.roles.includes('storyteller'));
+    const unlinked = storytellers.filter(
+      (st) => !currentTree.some((fm) => fm.linkedMemberUid === st.uid),
+    );
+
+    if (unlinked.length === 0) return;
+
+    const newEntries: FamilyMember[] = unlinked.map((st) => ({
+      id: `linked-${st.uid}`,
+      name: st.displayName || st.email || 'Storyteller',
+      linkedMemberUid: st.uid,
+      relations: [],
+      memberType: 'person' as MemberType,
+    }));
+
+    updateFamilyTree(familyId, [...currentTree, ...newEntries]);
+  }, [familyId, family, members, membersLoading, familyLoading]);
 
   // Family Tree handlers (relational model)
   function handleAddFamilyMember(memberType: MemberType) {
