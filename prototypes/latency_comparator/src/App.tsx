@@ -5,6 +5,7 @@ import { conversationHistory as initialConversation } from './context/conversati
 import { interviewPlan } from './context/interview_plan';
 import { HybridService } from './services/hybridService';
 import type { StepTimings } from './services/hybridService';
+import { IntegratedService } from './services/integratedService';
 
 type Architecture = 'integrated' | 'hybrid';
 type Status = 'idle' | 'listening' | 'thinking' | 'speaking';
@@ -18,7 +19,7 @@ function App() {
   const [latency, setLatency] = useState({ total: 0, stt: 0, llm: 0, tts: 0 });
   const [hasPermission, setHasPermission] = useState(false);
 
-  const serviceRef = useRef<HybridService | null>(null);
+  const serviceRef = useRef<HybridService | IntegratedService | null>(null);
 
   const context = `
     ${backstory}
@@ -61,8 +62,7 @@ function App() {
     if (architecture === 'hybrid') {
       serviceRef.current = new HybridService(serviceConfig);
     } else {
-      // Placeholder for IntegratedService
-      serviceRef.current = null;
+      serviceRef.current = new IntegratedService(serviceConfig);
     }
   }, [architecture]);
 
@@ -78,15 +78,16 @@ function App() {
   const handleStartStop = async () => {
     if (status === 'idle') {
       setStatus('listening');
-      // Pass context + history so the service can auto-stop via VAD without
-      // needing another call from App.tsx.
       await serviceRef.current?.start(context, transcript);
-    } else if (status === 'listening') {
-      // Manual stop — service guards against double-invocation with VAD.
-      await serviceRef.current?.stop(context, transcript);
     } else {
-      await serviceRef.current?.stop(context, transcript);
-      setStatus('idle');
+      // For hybrid: stop() triggers final LLM+TTS pass then sets status via callbacks.
+      // For integrated: disconnect() ends the session immediately.
+      if (serviceRef.current instanceof HybridService) {
+        await serviceRef.current.stop(context, transcript);
+      } else {
+        serviceRef.current?.disconnect();
+        setStatus('idle');
+      }
     }
   };
 
@@ -107,14 +108,16 @@ function App() {
             disabled={status !== 'idle'}
           >
             <option value="hybrid">Hybrid (Gradium + Gemini)</option>
-            <option value="integrated" disabled>Integrated (Not Implemented)</option>
+            <option value="integrated">Integrated (Gemini Live)</option>
           </select>
         </div>
         <button onClick={handleStartStop} className={`status-${status}`} disabled={!hasPermission}>
           {status === 'idle'
             ? 'Start Interview'
             : status === 'listening'
-              ? 'Listening… (VAD auto-stops | click to stop manually)'
+              ? architecture === 'integrated'
+                ? 'Connected — speak naturally (click to disconnect)'
+                : 'Listening… (VAD auto-stops | click to stop manually)'
               : `${status.charAt(0).toUpperCase() + status.slice(1)}…`}
         </button>
       </div>
@@ -124,25 +127,29 @@ function App() {
         <table style={{ borderCollapse: 'collapse', width: '100%' }}>
           <tbody>
             <tr>
-              <td><strong>Total (stop → audio ready)</strong></td>
+              <td><strong>Total (last word → first audio)</strong></td>
               <td style={{ textAlign: 'right' }}>{latency.total > 0 ? `${latency.total.toFixed(0)} ms` : '—'}</td>
             </tr>
-            <tr>
-              <td style={{ paddingLeft: '1em' }}>STT lag (last segment vs stop click)</td>
-              <td style={{ textAlign: 'right' }}>
-                {latency.total > 0
-                  ? `${latency.stt >= 0 ? '+' : ''}${latency.stt.toFixed(0)} ms`
-                  : '—'}
-              </td>
-            </tr>
-            <tr>
-              <td style={{ paddingLeft: '1em' }}>LLM (Gemini 2.5 Flash)</td>
-              <td style={{ textAlign: 'right' }}>{latency.total > 0 ? `${latency.llm.toFixed(0)} ms` : '—'}</td>
-            </tr>
-            <tr>
-              <td style={{ paddingLeft: '1em' }}>TTS (Gradium)</td>
-              <td style={{ textAlign: 'right' }}>{latency.total > 0 ? `${latency.tts.toFixed(0)} ms` : '—'}</td>
-            </tr>
+            {architecture === 'hybrid' && (
+              <>
+                <tr>
+                  <td style={{ paddingLeft: '1em' }}>STT lag (last segment vs VAD stop)</td>
+                  <td style={{ textAlign: 'right' }}>
+                    {latency.total > 0
+                      ? `${latency.stt >= 0 ? '+' : ''}${latency.stt.toFixed(0)} ms`
+                      : '—'}
+                  </td>
+                </tr>
+                <tr>
+                  <td style={{ paddingLeft: '1em' }}>LLM (Gemini 2.5 Flash)</td>
+                  <td style={{ textAlign: 'right' }}>{latency.total > 0 ? `${latency.llm.toFixed(0)} ms` : '—'}</td>
+                </tr>
+                <tr>
+                  <td style={{ paddingLeft: '1em' }}>TTS (Gradium)</td>
+                  <td style={{ textAlign: 'right' }}>{latency.total > 0 ? `${latency.tts.toFixed(0)} ms` : '—'}</td>
+                </tr>
+              </>
+            )}
           </tbody>
         </table>
       </div>
