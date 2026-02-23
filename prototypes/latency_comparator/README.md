@@ -36,53 +36,48 @@ npm install
 
 ### 2. Environment Variables
 
-This prototype requires API keys for the services it uses. Create a `.env.local` file in the `legacybot/prototypes/latency_comparator` directory and add your keys:
+Copy `.env.example` to `.env.local` and fill in your keys:
 
-```
-# Example .env.local
-
-# For the Hybrid Architecture
-VITE_GRADIUM_API_KEY="your_gradium_api_key_here"
-
-# For the LLM call in the Hybrid architecture and the Integrated architecture
-VITE_GEMINI_API_KEY="your_google_ai_gemini_api_key_here"
+```bash
+cp .env.example .env.local
 ```
 
-**Note:** The current implementation uses placeholder services and does not actually make API calls. To build out the full prototype, you will need to replace the placeholder logic in `src/services/` with actual SDK integrations for these services.
+| Variable | Where to get it | Required |
+|----------|-----------------|----------|
+| `VITE_GEMINI_API_KEY` | [Google AI Studio](https://aistudio.google.com/apikey) | Yes |
+| `VITE_GRADIUM_API_KEY` | [Gradium dashboard](https://gradium.ai) | Yes |
+| `VITE_GRADIUM_VOICE_ID` | `GET https://us.api.gradium.ai/api/voices` with your key | Recommended |
+
+**Getting a Gradium voice ID:** Gradium TTS requires a specific voice ID from your account. Make a quick curl call once you have your API key:
+```bash
+curl -H "x-api-key: YOUR_KEY" https://us.api.gradium.ai/api/voices
+```
+Copy one of the returned IDs into `VITE_GRADIUM_VOICE_ID`. If the field is left blank the prototype will fall back to `"default"`, which may or may not be valid.
 
 ### 3. Running the Prototype
 
-This prototype now has a two-part startup process: a backend proxy server and the frontend client. You will need two terminals open.
+The prototype has a two-part startup: a **Node.js proxy** (forwards microphone audio to Gradium STT securely) and the **Vite frontend**. You need two terminals.
 
-**Terminal 1: Start the Proxy Server**
-
-The proxy server is required to securely handle the Gradium API key.
-
+**Terminal 1 — Proxy server** (port 3001, relays to `wss://us.api.gradium.ai/api/speech/asr`):
 ```bash
-# In legacybot/prototypes/latency_comparator
 npm run start-server
 ```
-You should see a message indicating the proxy server has started on port 3001.
+Expected output: `WebSocket proxy server started on port 3001`
 
-**Terminal 2: Start the Frontend Client**
-
-Once the proxy is running, start the Vite development server for the UI.
-
+**Terminal 2 — Frontend** (port 5173):
 ```bash
-# In legacybot/prototypes/latency_comparator
 npm run dev
 ```
-
-Open your browser to the local address provided (usually `http://localhost:5173`).
+Open `http://localhost:5173` in your browser.
 
 ### 4. How to Test
 
-1.  Open the application in your browser. The app will request microphone permission. Please grant it.
-2.  Select the architecture you want to test from the dropdown menu ("Hybrid" or "Integrated").
-3.  Click the "Start Interview" button. The status will change to "listening...".
-4.  Speak into your microphone as if you are the user, Dr. Eleanor Vance.
-5.  When you are finished speaking, click the button again (which now says "Status: listening... (Click to Stop)").
-6.  The application status will change to "thinking..." and then "speaking...".
-7.  Observe the latency metrics displayed on the screen. The console will also log the flow of data through the placeholder services.
-8.  To test again, wait for the bot to finish speaking and click the button to stop. Then you can start again.
+1. Grant microphone permission when prompted.
+2. Select **Hybrid (Gradium + Gemini)** from the architecture dropdown (Integrated is not yet implemented).
+3. Click **Start Interview** — status changes to `listening`.
+4. Speak as Dr. Eleanor Vance, then click the button again to stop.
+5. Status will cycle through `thinking` → `speaking` → `listening`.
+6. **Primary latency** (ms shown after each turn): time from stop-speaking to first audio byte.
+7. **Secondary latency**: time from stop-speaking to final transcription appearing on screen.
+8. Run multiple turns to collect a representative sample before drawing conclusions.
 

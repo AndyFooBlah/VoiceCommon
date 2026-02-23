@@ -1,5 +1,5 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { convertFloat32ToInt16, Resampler } from "../utils/audioUtils";
+import { convertFloat32ToInt16, Resampler, arrayBufferToBase64 } from "../utils/audioUtils";
 
 interface HybridServiceConfig {
   onTranscriptionUpdate: (text: string, isFinal: boolean) => void;
@@ -48,15 +48,15 @@ export class HybridService {
   }
 
   private connectToStt = () => {
-    // Connect to local proxy
-    const sttUrl = 'ws://localhost:8001/stt-proxy'; 
+    // Connect to the local Node.js proxy (server.ts runs on port 3001)
+    const sttUrl = 'ws://localhost:3001';
 
     this.sttSocket = new WebSocket(sttUrl);
     
     return new Promise<void>((resolve, reject) => {
-      this.sttSocket!.onopen = async () => {
+      this.sttSocket!.onopen = () => {
         console.log("STT WebSocket connected to proxy. Sending setup message...");
-        
+
         const setupMessage = {
           type: "setup",
           model_name: "default",
@@ -64,27 +64,26 @@ export class HybridService {
         };
         this.sttSocket!.send(JSON.stringify(setupMessage));
 
-        // Wait for Gradium to send the 'ready' message before resolving
-        await this.sttReadyPromise; 
-        console.log("Gradium STT is ready to receive audio.");
+        // Resolve immediately after sending setup — audio streaming can begin.
+        // Handle the 'ready' acknowledgment in onmessage if Gradium sends one.
+        console.log("Setup sent. Ready to stream audio.");
         resolve();
       };
 
       this.sttSocket!.onmessage = (event) => {
         const data = JSON.parse(event.data);
-        if (data.type === 'transcript') {
-          this.config.onTranscriptionUpdate(data.text, data.is_final);
-          if (data.is_final) {
-            this.finalTranscript += data.text + ' ';
-          }
+        if (data.type === 'text') {
+          // Gradium STT sends {type:'text', text, start_s, stop_s} — no is_final flag.
+          // Accumulate segments into a running transcript and surface as in-progress.
+          this.finalTranscript += data.text + ' ';
+          this.config.onTranscriptionUpdate(this.finalTranscript.trim(), false);
         } else if (data.type === 'ready') {
-            console.log('Gradium STT sent ready message:', data);
-            this.sttReadyResolve?.(); // Resolve the promise
+          console.log('Gradium STT ready:', data);
         } else if (data.type === 'error') {
-            console.error('Gradium STT error:', data.message);
-            reject(new Error(data.message));
+          console.error('Gradium STT error:', data.message);
+          reject(new Error(data.message));
         } else {
-            console.log('Received message from Gradium:', data);
+          console.log('Received message from Gradium STT:', data);
         }
       };
 
@@ -114,8 +113,9 @@ export class HybridService {
       const pcmData = convertFloat32ToInt16(resampledData);
 
       if (this.sttSocket && this.sttSocket.readyState === WebSocket.OPEN) {
-        // Send raw ArrayBuffer directly to proxy
-        this.sttSocket.send(pcmData.buffer); 
+        // Gradium expects JSON with base64-encoded PCM — not raw binary.
+        const base64Audio = arrayBufferToBase64(pcmData.buffer);
+        this.sttSocket.send(JSON.stringify({ type: "audio", audio: base64Audio }));
       }
     };
 
@@ -134,9 +134,10 @@ export class HybridService {
     
     this.cleanup(); // Clean up local resources
 
-    // Process the final transcript once we have it
+    // Mark the accumulated user transcript as final in the UI, then process it.
     const transcriptToProcess = this.finalTranscript.trim();
     if (transcriptToProcess) {
+      this.config.onTranscriptionUpdate(transcriptToProcess, true);
       this.processFinalTranscript(transcriptToProcess, context, history);
     }
   }
@@ -166,13 +167,13 @@ export class HybridService {
     this.config.onBotThinking();
     const botResponseText = await this.callLlm(transcript, context, history);
     if (botResponseText) {
-      this.config.onTranscriptionUpdate(botResponseText, true);
+      // Bot text is surfaced via audio playback — onTranscriptionUpdate is for user turns only.
       await this.callTts(botResponseText);
     }
   }
 
   private async callLlm(transcript: string, context: string, history: any[]): Promise<string | null> {
-    const model = this.genAI.getGenerativeModel({ model: "gemini-pro" });
+    const model = this.genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
     const prompt = `
       ${context}
       Here is the conversation history. The user is "user" and you are "bot".
@@ -192,15 +193,29 @@ export class HybridService {
 
   private async callTts(text: string) {
     const gradiumApiKey = import.meta.env.VITE_GRADIUM_API_KEY;
-    const ttsUrl = 'https://us.api.gradium.ai/api/speech/tts'; // Changed to us.api.gradium.ai
+    if (!gradiumApiKey) {
+      console.error("VITE_GRADIUM_API_KEY is not set — TTS skipped.");
+      this.config.onBotFinishedSpeaking();
+      return;
+    }
+    const ttsUrl = 'https://us.api.gradium.ai/api/speech/tts';
     try {
+      // Gradium TTS HTTP POST requires a 'setup' object with voice_id and output_format.
+      // Set VITE_GRADIUM_VOICE_ID in .env.local to match a voice from your Gradium dashboard.
+      const voiceId = import.meta.env.VITE_GRADIUM_VOICE_ID ?? "default";
       const response = await fetch(ttsUrl, {
         method: 'POST',
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
-          'x-api-key': gradiumApiKey, // Changed to x-api-key based on STT docs
+          'x-api-key': gradiumApiKey,
         },
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({
+          setup: {
+            voice_id: voiceId,
+            output_format: "wav",
+          },
+          text,
+        }),
       });
       if (!response.ok) {
         const errorBody = await response.text();
