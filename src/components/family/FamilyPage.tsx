@@ -11,7 +11,7 @@
  * References: GitHub Issue #60 (Phase 1)
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { useFamily, useFamilyMembers, updateFamilyTree } from '../../hooks/useFamily';
@@ -137,14 +137,22 @@ export const FamilyPage: React.FC = () => {
     navigate(`/family/${familyId}/dossier/${dossierId}`);
   }
 
+  // Keep a ref to the latest family tree so the auto-sync can read fresh data
+  // without depending on `family` (which would cause it to re-run on every tree
+  // write and race with user-triggered updates).
+  const familyTreeRef = useRef<FamilyMember[]>([]);
+  useEffect(() => {
+    familyTreeRef.current = family?.familyTree ?? [];
+  }, [family]);
+
   // Auto-sync storytellers into the family tree.
   // Every storyteller should appear as a tree entry so other members can be
-  // linked to them. Runs whenever members or the family document changes;
-  // exits immediately if all storytellers are already present.
+  // linked to them. Only re-runs when the members list changes (i.e. a new
+  // storyteller joins), NOT on every tree write, to avoid race conditions.
   useEffect(() => {
-    if (!familyId || !family || membersLoading || familyLoading) return;
+    if (!familyId || membersLoading || familyLoading) return;
 
-    const currentTree = family.familyTree ?? [];
+    const currentTree = familyTreeRef.current;
     const storytellers = members.filter((m) => m.roles.includes('storyteller'));
     const unlinked = storytellers.filter(
       (st) => !currentTree.some((fm) => fm.linkedMemberUid === st.uid),
@@ -168,7 +176,7 @@ export const FamilyPage: React.FC = () => {
     });
 
     updateFamilyTree(familyId, [...currentTree, ...newEntries]);
-  }, [familyId, family, members, membersLoading, familyLoading]);
+  }, [familyId, members, membersLoading, familyLoading]);
 
   // Family Tree handlers (relational model)
   function handleAddFamilyMember(memberType: MemberType) {
