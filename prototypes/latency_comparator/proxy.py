@@ -5,6 +5,10 @@ import os
 import websockets
 import base64 
 from gradium import GradiumClient 
+from dotenv import load_dotenv # Import load_dotenv
+
+# Load environment variables from .env.local
+load_dotenv(dotenv_path='./.env.local') # Call load_dotenv
 
 async def proxy_websocket(client_websocket, path=None):
     print(f"Client connected to proxy from path: {path}")
@@ -66,8 +70,8 @@ async def proxy_websocket(client_websocket, path=None):
         print("Gradium STT stream closed.")
 
 async def main():
-    async with websockets.serve(proxy_websocket, "0.0.0.0", 4001) as server:
-        print("WebSocket proxy server started on port 4001")
+    async with websockets.serve(proxy_websocket, "0.0.0.0", 8001) as server:
+        print("WebSocket proxy server started on port 8001")
         await server.wait_closed()
 
 if __name__ == "__main__":

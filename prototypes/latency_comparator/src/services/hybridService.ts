@@ -49,7 +49,7 @@ export class HybridService {
 
   private connectToStt = () => {
     // Connect to local proxy
-    const sttUrl = 'ws://localhost:4001/stt-proxy'; 
+    const sttUrl = 'ws://localhost:8001/stt-proxy'; 
 
     this.sttSocket = new WebSocket(sttUrl);
     
