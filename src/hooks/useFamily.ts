@@ -42,7 +42,17 @@ export function useFamily(familyId: string | undefined) {
       docRef,
       (snapshot) => {
         if (snapshot.exists()) {
-          setFamily({ ...snapshot.data(), id: snapshot.id } as Family);
+          const data = snapshot.data();
+          // Normalize any family tree members that were saved before the
+          // `relations` field was introduced.
+          if (Array.isArray(data.familyTree)) {
+            data.familyTree = data.familyTree.map((m: any, i: number) => ({
+              ...m,
+              id: m.id ?? `legacy-member-${i}`,
+              relations: m.relations ?? [],
+            }));
+          }
+          setFamily({ ...data, id: snapshot.id } as Family);
         } else {
           setFamily(null);
         }
@@ -80,10 +90,14 @@ export function useFamilyMembers(familyId: string | undefined) {
     const unsubscribe = onSnapshot(
       q,
       (snapshot) => {
-        const items = snapshot.docs.map((d) => ({
-          ...d.data(),
-          uid: d.id,
-        })) as (FamilyMemberRecord & { uid: string })[];
+        const items = snapshot.docs.map((d) => {
+          const data = d.data();
+          return {
+            ...data,
+            relations: data.relations ?? [],
+            uid: d.id,
+          };
+        }) as (FamilyMemberRecord & { uid: string })[];
         setMembers(items);
         setLoading(false);
       },
