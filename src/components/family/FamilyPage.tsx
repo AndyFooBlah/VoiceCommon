@@ -46,7 +46,8 @@ export const FamilyPage: React.FC = () => {
 
   // Create storyteller state
   const [showCreateForm, setShowCreateForm] = useState(false);
-  const [newName, setNewName] = useState('');
+  const [newFirstName, setNewFirstName] = useState('');
+  const [newLastName, setNewLastName] = useState('');
   const [newEmail, setNewEmail] = useState('');
   const [inviteLink, setInviteLink] = useState<string | null>(null);
 
@@ -113,8 +114,9 @@ export const FamilyPage: React.FC = () => {
   }
 
   async function handleCreateStoryteller() {
-    if (!newName.trim()) return;
-    const dossierId = await createDossier(newName.trim());
+    if (!newFirstName.trim()) return;
+    const fullName = [newFirstName.trim(), newLastName.trim()].filter(Boolean).join(' ');
+    const dossierId = await createDossier(fullName);
 
     if (newEmail.trim() && user) {
       try {
@@ -128,7 +130,8 @@ export const FamilyPage: React.FC = () => {
       }
     }
 
-    setNewName('');
+    setNewFirstName('');
+    setNewLastName('');
     setNewEmail('');
     setShowCreateForm(false);
     navigate(`/family/${familyId}/dossier/${dossierId}`);
@@ -149,13 +152,20 @@ export const FamilyPage: React.FC = () => {
 
     if (unlinked.length === 0) return;
 
-    const newEntries: FamilyMember[] = unlinked.map((st) => ({
-      id: `linked-${st.uid}`,
-      name: st.displayName || st.email || 'Storyteller',
-      linkedMemberUid: st.uid,
-      relations: [],
-      memberType: 'person' as MemberType,
-    }));
+    const newEntries: FamilyMember[] = unlinked.map((st) => {
+      const parts = (st.displayName || '').trim().split(/\s+/);
+      const firstName = parts.slice(0, -1).join(' ') || parts[0] || '';
+      const lastName = parts.length > 1 ? parts[parts.length - 1] : '';
+      return {
+        id: `linked-${st.uid}`,
+        name: st.displayName || st.email || 'Storyteller',
+        firstName,
+        lastName,
+        linkedMemberUid: st.uid,
+        relations: [],
+        memberType: 'person' as MemberType,
+      };
+    });
 
     updateFamilyTree(familyId, [...currentTree, ...newEntries]);
   }, [familyId, family, members, membersLoading, familyLoading]);
@@ -183,7 +193,7 @@ export const FamilyPage: React.FC = () => {
   function handleRemoveFamilyMember(memberId: string) {
     if (!familyId || !family) return;
     const member = (family.familyTree ?? []).find((m) => m.id === memberId);
-    if (!window.confirm(`Remove ${member?.name ?? 'this member'} from the family tree?`)) return;
+    if (!window.confirm(`Remove ${member ? treeDisplayName(member) : 'this member'} from the family tree?`)) return;
     const updated = (family.familyTree ?? []).filter((m) => m.id !== memberId);
     updateFamilyTree(familyId, updated);
   }
@@ -293,6 +303,13 @@ export const FamilyPage: React.FC = () => {
 
   const familyTree = family?.familyTree ?? [];
 
+  /** Display a family tree member as "Last, First" when both names are known. */
+  function treeDisplayName(m: { name: string; firstName?: string; lastName?: string }): string {
+    if (m.firstName && m.lastName) return `${m.lastName}, ${m.firstName}`;
+    if (m.firstName) return m.firstName;
+    return m.name || 'Unnamed';
+  }
+
   return (
     <div className="max-w-4xl mx-auto p-8 space-y-8">
       {/* Header */}
@@ -330,13 +347,22 @@ export const FamilyPage: React.FC = () => {
           <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-4">
             <h3 className="font-bold text-slate-800">Create New Storyteller</h3>
             <div className="space-y-3">
-              <input
-                type="text"
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                placeholder="Storyteller name (e.g., Margaret)"
-                className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:ring-1 focus:ring-indigo-500"
-              />
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={newFirstName}
+                  onChange={(e) => setNewFirstName(e.target.value)}
+                  placeholder="First name"
+                  className="flex-1 p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:ring-1 focus:ring-indigo-500"
+                />
+                <input
+                  type="text"
+                  value={newLastName}
+                  onChange={(e) => setNewLastName(e.target.value)}
+                  placeholder="Last name"
+                  className="flex-1 p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:ring-1 focus:ring-indigo-500"
+                />
+              </div>
               <input
                 type="email"
                 value={newEmail}
@@ -348,7 +374,7 @@ export const FamilyPage: React.FC = () => {
             <div className="flex gap-2">
               <button
                 onClick={handleCreateStoryteller}
-                disabled={!newName.trim()}
+                disabled={!newFirstName.trim()}
                 className="px-4 py-2 bg-indigo-600 text-white rounded-xl text-sm font-semibold hover:bg-indigo-700 transition-colors disabled:opacity-50"
               >
                 Create
@@ -356,7 +382,8 @@ export const FamilyPage: React.FC = () => {
               <button
                 onClick={() => {
                   setShowCreateForm(false);
-                  setNewName('');
+                  setNewFirstName('');
+                  setNewLastName('');
                   setNewEmail('');
                 }}
                 className="px-4 py-2 text-slate-500 font-medium hover:text-slate-700 transition-colors text-sm"
@@ -624,13 +651,38 @@ export const FamilyPage: React.FC = () => {
                 <div className="flex items-start justify-between">
                   <div className="flex-1 space-y-3">
                     <div className="flex items-center gap-2">
-                      <input
-                        type="text"
-                        value={member.name}
-                        onChange={(e) => handleFamilyMemberChange(member.id, { name: e.target.value })}
-                        placeholder={member.memberType === 'pet' ? 'Pet name' : 'Person name'}
-                        className="flex-1 p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:ring-1 focus:ring-indigo-500"
-                      />
+                      {member.memberType === 'pet' ? (
+                        <input
+                          type="text"
+                          value={member.name}
+                          onChange={(e) => handleFamilyMemberChange(member.id, { name: e.target.value })}
+                          placeholder="Pet name"
+                          className="flex-1 p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:ring-1 focus:ring-indigo-500"
+                        />
+                      ) : (
+                        <>
+                          <input
+                            type="text"
+                            value={member.firstName ?? ''}
+                            onChange={(e) => handleFamilyMemberChange(member.id, {
+                              firstName: e.target.value,
+                              name: [e.target.value, member.lastName ?? ''].filter(Boolean).join(' '),
+                            })}
+                            placeholder="First name"
+                            className="flex-1 p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:ring-1 focus:ring-indigo-500"
+                          />
+                          <input
+                            type="text"
+                            value={member.lastName ?? ''}
+                            onChange={(e) => handleFamilyMemberChange(member.id, {
+                              lastName: e.target.value,
+                              name: [member.firstName ?? '', e.target.value].filter(Boolean).join(' '),
+                            })}
+                            placeholder="Last name"
+                            className="flex-1 p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:ring-1 focus:ring-indigo-500"
+                          />
+                        </>
+                      )}
                       <span className="text-xs px-2 py-1 bg-slate-100 text-slate-600 rounded-full font-medium">
                         {member.memberType === 'pet' ? '🐾 Pet' : '👤 Person'}
                       </span>
@@ -706,7 +758,7 @@ export const FamilyPage: React.FC = () => {
                               .filter((m) => m.id !== member.id)
                               .map((m) => (
                                 <option key={m.id} value={m.id}>
-                                  {m.name || 'Unnamed'} ({m.memberType === 'pet' ? 'Pet' : 'Person'})
+                                  {treeDisplayName(m)}{m.memberType === 'pet' ? ' 🐾' : ''}
                                 </option>
                               ))}
                           </select>

@@ -98,7 +98,9 @@ export type MemberType = 'person' | 'pet';
  */
 export interface FamilyMember {
   id: string; // unique ID for this family tree entry
-  name: string;
+  name: string; // legacy single-name field; prefer firstName + lastName
+  firstName?: string;
+  lastName?: string;
   linkedMemberUid?: string; // optional link to actual family member account
   relations: Array<{
     type: RelationType;
