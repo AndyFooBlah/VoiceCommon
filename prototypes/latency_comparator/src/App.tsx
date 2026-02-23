@@ -37,9 +37,10 @@ function App() {
               ...prev,
               secondary: t_transcript_ready - latencyTimers.current.t_speech_end,
             }));
+            latencyTimers.current.t_speech_end = 0; // reset for next turn
           }
           if (text) {
-            setTranscript(prev => [...prev, { speaker: 'user', text: text }]);
+            setTranscript(prev => [...prev, { speaker: 'user', text }]);
           }
           setInProgressTranscript('');
         } else {
@@ -50,15 +51,16 @@ function App() {
         const t_end = performance.now();
         if (latencyTimers.current.t_start > 0) {
           setLatency(prev => ({ ...prev, primary: t_end - latencyTimers.current.t_start }));
+          latencyTimers.current.t_start = 0; // reset so stale value doesn't pollute next turn
         }
         setStatus('speaking');
-        
+
         const audioUrl = URL.createObjectURL(audio);
         const player = new Audio(audioUrl);
         audioPlayerRef.current = player;
         player.play();
         player.onended = () => {
-          setStatus('listening');
+          setStatus('idle'); // return to idle — user must click Start for the next turn
           URL.revokeObjectURL(audioUrl);
         };
       },
@@ -66,7 +68,8 @@ function App() {
         setStatus('thinking');
       },
       onBotFinishedSpeaking: () => {
-        setStatus('listening');
+        // Fallback for when TTS is skipped or errors — audio.onended handles the normal path.
+        setStatus('idle');
       }
     };
 
