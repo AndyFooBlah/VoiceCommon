@@ -25,11 +25,22 @@ wss.on('connection', (clientWs) => {
   const gradiumUrl = 'wss://us.api.gradium.ai/api/speech/asr';
   const headers = { 'x-api-key': gradiumApiKey };
 
-  console.log(`Proxy attempting to connect to: ${gradiumUrl}`);
+  // Messages that arrive from the client before Gradium's WebSocket is open
+  // are queued here and flushed in order once the connection is established.
+  // Without this, the setup message is silently dropped (it arrives while
+  // Gradium is still connecting) and Gradium later rejects audio with
+  // "Session not found. Send setup first."
+  const pendingMessages: string[] = [];
+
+  console.log(`Proxy connecting to: ${gradiumUrl}`);
   const gradiumWs = new WebSocket(gradiumUrl, { headers });
 
   gradiumWs.on('open', () => {
-    console.log('Proxy connected to Gradium');
+    console.log('Proxy connected to Gradium. Flushing', pendingMessages.length, 'queued message(s).');
+    for (const msg of pendingMessages) {
+      gradiumWs.send(msg);
+    }
+    pendingMessages.length = 0;
   });
 
   gradiumWs.on('message', (message) => {
@@ -52,24 +63,27 @@ wss.on('connection', (clientWs) => {
   clientWs.on('message', (message) => {
     const messageStr = message.toString();
     // Log specific messages being sent to Gradium
+    const action = gradiumWs.readyState === WebSocket.OPEN ? 'Sending' : 'Queuing';
     try {
       const parsedMessage = JSON.parse(messageStr);
       if (parsedMessage.type === 'setup') {
-        console.log('Forwarding SETUP message to Gradium:', JSON.stringify(parsedMessage));
+        console.log(`${action} SETUP to Gradium:`, JSON.stringify(parsedMessage));
       } else if (parsedMessage.type === 'audio') {
-        console.log('Forwarding AUDIO message to Gradium (data omitted)');
+        console.log(`${action} AUDIO to Gradium (data omitted)`);
       } else if (parsedMessage.type === 'end_of_stream') {
-        console.log('Forwarding END_OF_STREAM message to Gradium');
+        console.log(`${action} END_OF_STREAM to Gradium`);
       } else {
-        console.log('Forwarding other message to Gradium:', messageStr.substring(0, 200) + (messageStr.length > 200 ? '...' : ''));
+        console.log(`${action} message to Gradium:`, messageStr.substring(0, 200));
       }
     } catch (e) {
-      console.log('Forwarding non-JSON message to Gradium:', messageStr.substring(0, 200) + (messageStr.length > 200 ? '...' : ''));
+      console.log(`${action} non-JSON to Gradium:`, messageStr.substring(0, 200));
     }
 
-    // Forward message from client to Gradium
+    // Forward to Gradium, or queue if the upstream connection isn't open yet.
     if (gradiumWs.readyState === WebSocket.OPEN) {
       gradiumWs.send(messageStr);
+    } else {
+      pendingMessages.push(messageStr);
     }
   });
 
