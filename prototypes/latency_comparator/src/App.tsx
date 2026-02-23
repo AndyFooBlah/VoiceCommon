@@ -4,6 +4,7 @@ import { backstory } from './context/backstory';
 import { conversationHistory as initialConversation } from './context/conversation_history';
 import { interviewPlan } from './context/interview_plan';
 import { HybridService } from './services/hybridService';
+import type { StepTimings } from './services/hybridService';
 
 type Architecture = 'integrated' | 'hybrid';
 type Status = 'idle' | 'listening' | 'thinking' | 'speaking';
@@ -14,12 +15,10 @@ function App() {
   const [status, setStatus] = useState<Status>('idle');
   const [transcript, setTranscript] = useState<ConversationTurn[]>([...initialConversation]);
   const [inProgressTranscript, setInProgressTranscript] = useState<string>('');
-  const [latency, setLatency] = useState({ primary: 0, secondary: 0 });
+  const [latency, setLatency] = useState({ total: 0, stt: 0, llm: 0, tts: 0 });
   const [hasPermission, setHasPermission] = useState(false);
 
   const serviceRef = useRef<HybridService | null>(null);
-  const latencyTimers = useRef<{ t_start: number, t_speech_end: number }>({ t_start: 0, t_speech_end: 0 });
-  const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
 
   const context = `
     ${backstory}
@@ -31,14 +30,6 @@ function App() {
     const serviceConfig = {
       onTranscriptionUpdate: (text: string, isFinal: boolean) => {
         if (isFinal) {
-          const t_transcript_ready = performance.now();
-          if (latencyTimers.current.t_speech_end > 0) {
-            setLatency(prev => ({
-              ...prev,
-              secondary: t_transcript_ready - latencyTimers.current.t_speech_end,
-            }));
-            latencyTimers.current.t_speech_end = 0; // reset for next turn
-          }
           if (text) {
             setTranscript(prev => [...prev, { speaker: 'user', text }]);
           }
@@ -47,22 +38,8 @@ function App() {
           setInProgressTranscript(text);
         }
       },
-      onBotAudioResponse: (audio: Blob) => {
-        const t_end = performance.now();
-        if (latencyTimers.current.t_start > 0) {
-          setLatency(prev => ({ ...prev, primary: t_end - latencyTimers.current.t_start }));
-          latencyTimers.current.t_start = 0; // reset so stale value doesn't pollute next turn
-        }
+      onBotStartedSpeaking: () => {
         setStatus('speaking');
-
-        const audioUrl = URL.createObjectURL(audio);
-        const player = new Audio(audioUrl);
-        audioPlayerRef.current = player;
-        player.play();
-        player.onended = () => {
-          setStatus('idle'); // return to idle — user must click Start for the next turn
-          URL.revokeObjectURL(audioUrl);
-        };
       },
       onBotThinking: () => {
         setStatus('thinking');
@@ -70,7 +47,15 @@ function App() {
       onBotFinishedSpeaking: () => {
         // Fallback for when TTS is skipped or errors — audio.onended handles the normal path.
         setStatus('idle');
-      }
+      },
+      onStepTimings: (timings: StepTimings) => {
+        setLatency({
+          total: timings.totalMs,
+          stt: timings.sttMs,
+          llm: timings.llmMs,
+          tts: timings.ttsMs,
+        });
+      },
     };
 
     if (architecture === 'hybrid') {
@@ -93,13 +78,13 @@ function App() {
   const handleStartStop = async () => {
     if (status === 'idle') {
       setStatus('listening');
-      await serviceRef.current?.start();
+      // Pass context + history so the service can auto-stop via VAD without
+      // needing another call from App.tsx.
+      await serviceRef.current?.start(context, transcript);
     } else if (status === 'listening') {
-      latencyTimers.current.t_start = performance.now();
-      latencyTimers.current.t_speech_end = performance.now();
+      // Manual stop — service guards against double-invocation with VAD.
       await serviceRef.current?.stop(context, transcript);
     } else {
-      if (audioPlayerRef.current) audioPlayerRef.current.pause();
       await serviceRef.current?.stop(context, transcript);
       setStatus('idle');
     }
@@ -126,14 +111,40 @@ function App() {
           </select>
         </div>
         <button onClick={handleStartStop} className={`status-${status}`} disabled={!hasPermission}>
-          {status === 'idle' ? 'Start Interview' : `Status: ${status}... (Click to Stop)`}
+          {status === 'idle'
+            ? 'Start Interview'
+            : status === 'listening'
+              ? 'Listening… (VAD auto-stops | click to stop manually)'
+              : `${status.charAt(0).toUpperCase() + status.slice(1)}…`}
         </button>
       </div>
 
       <div className="metrics">
-        <h2>Performance Metrics</h2>
-        <p>Primary Latency (Bot Response): <span>{latency.primary.toFixed(2)} ms</span></p>
-        <p>Secondary Latency (Transcription): <span>{latency.secondary.toFixed(2)} ms</span></p>
+        <h2>Performance Metrics (last turn)</h2>
+        <table style={{ borderCollapse: 'collapse', width: '100%' }}>
+          <tbody>
+            <tr>
+              <td><strong>Total (stop → audio ready)</strong></td>
+              <td style={{ textAlign: 'right' }}>{latency.total > 0 ? `${latency.total.toFixed(0)} ms` : '—'}</td>
+            </tr>
+            <tr>
+              <td style={{ paddingLeft: '1em' }}>STT lag (last segment vs stop click)</td>
+              <td style={{ textAlign: 'right' }}>
+                {latency.total > 0
+                  ? `${latency.stt >= 0 ? '+' : ''}${latency.stt.toFixed(0)} ms`
+                  : '—'}
+              </td>
+            </tr>
+            <tr>
+              <td style={{ paddingLeft: '1em' }}>LLM (Gemini 2.5 Flash)</td>
+              <td style={{ textAlign: 'right' }}>{latency.total > 0 ? `${latency.llm.toFixed(0)} ms` : '—'}</td>
+            </tr>
+            <tr>
+              <td style={{ paddingLeft: '1em' }}>TTS (Gradium)</td>
+              <td style={{ textAlign: 'right' }}>{latency.total > 0 ? `${latency.tts.toFixed(0)} ms` : '—'}</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
 
       <div className="transcript">

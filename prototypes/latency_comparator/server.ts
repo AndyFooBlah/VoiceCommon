@@ -6,80 +6,109 @@ import express from 'express';
 import { WebSocketServer, WebSocket } from 'ws';
 import http from 'http';
 
+// HH:MM:SS.mmm timestamp prefix for all log lines.
+const ts = () => new Date().toISOString().slice(11, 23);
+
 const PORT = 3001;
 const app = express();
+app.use(express.json());
+
+// Allow the Vite dev server (port 5173) to call the proxy.
+app.use((req, res, next) => {
+  res.set('Access-Control-Allow-Origin', 'http://localhost:5173');
+  res.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.set('Access-Control-Allow-Headers', 'Content-Type');
+  if (req.method === 'OPTIONS') { res.sendStatus(204); return; }
+  next();
+});
+
 const server = http.createServer(app);
 
+// ---------------------------------------------------------------------------
+// WebSocket proxy — routes by path:
+//   /asr  → wss://us.api.gradium.ai/api/speech/asr  (STT)
+//   /tts  → wss://us.api.gradium.ai/api/speech/tts  (TTS)
+// ---------------------------------------------------------------------------
 const wss = new WebSocketServer({ server });
 
-wss.on('connection', (clientWs) => {
-  console.log('Client connected to proxy');
-
+wss.on('connection', (clientWs, req) => {
   const gradiumApiKey = process.env.VITE_GRADIUM_API_KEY;
   if (!gradiumApiKey) {
-    console.error("VITE_GRADIUM_API_KEY not found in environment variables.");
-    clientWs.close(1011, "Server configuration error: API key not found.");
+    console.error(`[${ts()}] VITE_GRADIUM_API_KEY not found.`);
+    clientWs.close(1011, 'Server configuration error: API key not found.');
     return;
   }
+
+  const url = req.url ?? '/';
+  if (url.startsWith('/tts')) {
+    handleTtsConnection(clientWs, gradiumApiKey);
+  } else {
+    handleSttConnection(clientWs, gradiumApiKey);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// STT proxy  (browser → ws://localhost:3001/asr → wss://us.api.gradium.ai/api/speech/asr)
+// ---------------------------------------------------------------------------
+function handleSttConnection(clientWs: WebSocket, gradiumApiKey: string) {
+  console.log(`[${ts()}] [STT] Client connected`);
 
   const gradiumUrl = 'wss://us.api.gradium.ai/api/speech/asr';
   const headers = { 'x-api-key': gradiumApiKey };
 
-  // Messages that arrive from the client before Gradium's WebSocket is open
-  // are queued here and flushed in order once the connection is established.
-  // Without this, the setup message is silently dropped (it arrives while
-  // Gradium is still connecting) and Gradium later rejects audio with
-  // "Session not found. Send setup first."
+  // Messages that arrive before Gradium's WebSocket opens are queued here.
   const pendingMessages: string[] = [];
 
-  console.log(`Proxy connecting to: ${gradiumUrl}`);
+  console.log(`[${ts()}] [STT] Connecting to ${gradiumUrl}`);
   const gradiumWs = new WebSocket(gradiumUrl, { headers });
 
   gradiumWs.on('open', () => {
-    console.log('Proxy connected to Gradium. Flushing', pendingMessages.length, 'queued message(s).');
-    for (const msg of pendingMessages) {
-      gradiumWs.send(msg);
-    }
+    console.log(`[${ts()}] [STT] Connected to Gradium. Flushing ${pendingMessages.length} queued message(s).`);
+    for (const msg of pendingMessages) gradiumWs.send(msg);
     pendingMessages.length = 0;
   });
 
   gradiumWs.on('message', (message) => {
-    // Log all messages received from Gradium
-    console.log('Received from Gradium:', message.toString().substring(0, 200) + (message.toString().length > 200 ? '...' : ''));
-    // Forward message from Gradium to the client
-    clientWs.send(message.toString());
+    const str = message.toString();
+    try {
+      const parsed = JSON.parse(str);
+      if (parsed.type !== 'step') {
+        console.log(`[${ts()}] [STT] Gradium → client: ${str.substring(0, 200)}${str.length > 200 ? '…' : ''}`);
+      }
+    } catch {
+      console.log(`[${ts()}] [STT] Gradium → client (non-JSON): ${str.substring(0, 200)}`);
+    }
+    clientWs.send(str);
   });
 
   gradiumWs.on('close', (code, reason) => {
-    console.log('Gradium connection closed:', code, reason.toString());
-    clientWs.close(code, "Upstream connection closed");
+    console.log(`[${ts()}] [STT] Gradium closed: ${code} ${reason.toString()}`);
+    clientWs.close(code, 'Upstream connection closed');
   });
 
   gradiumWs.on('error', (error) => {
-    console.error('Gradium connection error:', error);
+    console.error(`[${ts()}] [STT] Gradium error:`, error);
     clientWs.close(1011, 'Proxy connection error.');
   });
 
   clientWs.on('message', (message) => {
     const messageStr = message.toString();
-    // Log specific messages being sent to Gradium
     const action = gradiumWs.readyState === WebSocket.OPEN ? 'Sending' : 'Queuing';
     try {
-      const parsedMessage = JSON.parse(messageStr);
-      if (parsedMessage.type === 'setup') {
-        console.log(`${action} SETUP to Gradium:`, JSON.stringify(parsedMessage));
-      } else if (parsedMessage.type === 'audio') {
-        console.log(`${action} AUDIO to Gradium (data omitted)`);
-      } else if (parsedMessage.type === 'end_of_stream') {
-        console.log(`${action} END_OF_STREAM to Gradium`);
+      const parsed = JSON.parse(messageStr);
+      if (parsed.type === 'setup') {
+        console.log(`[${ts()}] [STT] ${action} SETUP:`, JSON.stringify(parsed));
+      } else if (parsed.type === 'audio') {
+        // Too frequent to log.
+      } else if (parsed.type === 'end_of_stream') {
+        console.log(`[${ts()}] [STT] ${action} END_OF_STREAM`);
       } else {
-        console.log(`${action} message to Gradium:`, messageStr.substring(0, 200));
+        console.log(`[${ts()}] [STT] ${action}:`, messageStr.substring(0, 200));
       }
-    } catch (e) {
-      console.log(`${action} non-JSON to Gradium:`, messageStr.substring(0, 200));
+    } catch {
+      console.log(`[${ts()}] [STT] ${action} non-JSON:`, messageStr.substring(0, 200));
     }
 
-    // Forward to Gradium, or queue if the upstream connection isn't open yet.
     if (gradiumWs.readyState === WebSocket.OPEN) {
       gradiumWs.send(messageStr);
     } else {
@@ -88,13 +117,88 @@ wss.on('connection', (clientWs) => {
   });
 
   clientWs.on('close', (code, reason) => {
-    console.log('Client connection closed:', code, reason.toString());
+    console.log(`[${ts()}] [STT] Client closed: ${code} ${reason.toString()}`);
     if (gradiumWs.readyState === WebSocket.OPEN || gradiumWs.readyState === WebSocket.CONNECTING) {
       gradiumWs.close();
     }
   });
-});
+}
+
+// ---------------------------------------------------------------------------
+// TTS proxy  (browser → ws://localhost:3001/tts → wss://us.api.gradium.ai/api/speech/tts)
+// Gradium TTS sends binary audio frames back; we forward them as binary.
+// ---------------------------------------------------------------------------
+function handleTtsConnection(clientWs: WebSocket, gradiumApiKey: string) {
+  console.log(`[${ts()}] [TTS] Client connected`);
+
+  const gradiumUrl = 'wss://us.api.gradium.ai/api/speech/tts';
+  const headers = { 'x-api-key': gradiumApiKey };
+
+  const pendingMessages: (string | Buffer)[] = [];
+
+  console.log(`[${ts()}] [TTS] Connecting to ${gradiumUrl}`);
+  const gradiumWs = new WebSocket(gradiumUrl, { headers });
+
+  gradiumWs.on('open', () => {
+    console.log(`[${ts()}] [TTS] Connected to Gradium. Flushing ${pendingMessages.length} queued message(s).`);
+    for (const msg of pendingMessages) gradiumWs.send(msg);
+    pendingMessages.length = 0;
+  });
+
+  let audioChunkCount = 0;
+  gradiumWs.on('message', (data, isBinary) => {
+    if (isBinary) {
+      audioChunkCount++;
+      console.log(`[${ts()}] [TTS] Binary audio frame #${audioChunkCount}: ${(data as Buffer).length} bytes → forwarding`);
+      clientWs.send(data, { binary: true }, (err) => {
+        if (err) console.error(`[${ts()}] [TTS] Error forwarding binary to client:`, err);
+      });
+    } else {
+      const str = data.toString();
+      let msgType = 'unknown';
+      try { msgType = JSON.parse(str).type; } catch { /* ignore */ }
+      if (msgType === 'audio') {
+        audioChunkCount++;
+        console.log(`[${ts()}] [TTS] JSON audio chunk #${audioChunkCount} → forwarding (${str.length} chars)`);
+      } else {
+        console.log(`[${ts()}] [TTS] Gradium → client [${msgType}]: ${str.substring(0, 200)}`);
+      }
+      clientWs.send(str, (err) => {
+        if (err) console.error(`[${ts()}] [TTS] Error forwarding [${msgType}] to client:`, err);
+      });
+    }
+  });
+
+  gradiumWs.on('close', (code, reason) => {
+    console.log(`[${ts()}] [TTS] Gradium closed: ${code} ${reason.toString()}`);
+    clientWs.close(code, 'Upstream connection closed');
+  });
+
+  gradiumWs.on('error', (error) => {
+    console.error(`[${ts()}] [TTS] Gradium error:`, error);
+    clientWs.close(1011, 'Proxy connection error.');
+  });
+
+  clientWs.on('message', (message) => {
+    const messageStr = message.toString();
+    const action = gradiumWs.readyState === WebSocket.OPEN ? 'Sending' : 'Queuing';
+    console.log(`[${ts()}] [TTS] ${action} to Gradium:`, messageStr.substring(0, 200));
+
+    if (gradiumWs.readyState === WebSocket.OPEN) {
+      gradiumWs.send(messageStr);
+    } else {
+      pendingMessages.push(messageStr);
+    }
+  });
+
+  clientWs.on('close', (code, reason) => {
+    console.log(`[${ts()}] [TTS] Client closed: ${code} ${reason.toString()}`);
+    if (gradiumWs.readyState === WebSocket.OPEN || gradiumWs.readyState === WebSocket.CONNECTING) {
+      gradiumWs.close();
+    }
+  });
+}
 
 server.listen(PORT, () => {
-  console.log(`WebSocket proxy server started on port ${PORT}`);
+  console.log(`[${ts()}] Proxy server started on port ${PORT} (STT: /asr, TTS: /tts)`);
 });
