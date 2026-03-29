@@ -414,14 +414,17 @@ export function useSession({
 
           onerror: (error) => {
             console.error('[Gemini] Connection error:', error);
+            // Null the ref immediately so the AudioWorklet's onmessage handler
+            // stops sending PCM to the dead socket before onclose fires.
+            sessionRef.current = null;
             setStatus(ConnectionStatus.ERROR);
-            // Flush partial data on error (see error recovery in stopSession)
           },
 
           onclose: () => {
-            // sessionRef is nulled by stopSession — if it's still set here,
-            // this is an unexpected disconnect (not triggered by the user)
+            // sessionRef is nulled by stopSession (clean stop) or onerror (error path).
+            // If it's still set here, this is an unexpected disconnect with no prior error.
             if (sessionRef.current !== null) {
+              sessionRef.current = null; // Stop AudioWorklet from sending to dead socket
               setStatus(ConnectionStatus.ERROR);
             }
           },

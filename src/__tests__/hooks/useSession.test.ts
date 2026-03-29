@@ -369,6 +369,30 @@ describe('Gemini callbacks', () => {
     });
     expect(result.current.status).toBe(ConnectionStatus.ERROR);
   });
+
+  it('does not attempt to close session after onerror (session ref nulled immediately)', async () => {
+    const { result, callbacks } = await startAndGetCallbacks();
+    await act(async () => {
+      callbacks.onerror?.(new Error('Connection error'));
+    });
+    // stopSession should not call session.close() since ref was already nulled by onerror
+    await act(async () => { await result.current.stopSession(); });
+    expect(mockLiveSession.close).not.toHaveBeenCalled();
+  });
+
+  it('sets status to ERROR on unexpected onclose (no prior user stop)', async () => {
+    const { result, callbacks } = await startAndGetCallbacks();
+    await act(async () => { callbacks.onclose?.(); });
+    expect(result.current.status).toBe(ConnectionStatus.ERROR);
+  });
+
+  it('does not set ERROR on onclose after clean stopSession', async () => {
+    const { result, callbacks } = await startAndGetCallbacks();
+    await act(async () => { await result.current.stopSession(); });
+    // onclose fires after stopSession clears the ref — should not re-set ERROR
+    await act(async () => { callbacks.onclose?.(); });
+    expect(result.current.status).toBe(ConnectionStatus.DISCONNECTED);
+  });
 });
 
 // ---------------------------------------------------------------------------
