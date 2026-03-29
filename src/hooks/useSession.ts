@@ -519,7 +519,10 @@ export function useSession({
         const channelData = new Float32Array(e.data.channelData);
         const pcmBlob = createPCMData(channelData);
         sessionPromise
-          .then((session) => session.sendRealtimeInput({ media: pcmBlob }))
+          .then((session) => {
+            if (!sessionRef.current) return; // session may have closed during the await
+            session.sendRealtimeInput({ audio: pcmBlob });
+          })
           .catch((err) => console.error('[PCM] Send error:', err));
       };
 
