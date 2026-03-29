@@ -149,7 +149,7 @@ const App: React.FC = () => {
       `;
 
       const sessionPromise = ai.live.connect({
-        model: 'gemini-3.1-flash-live-preview',
+        model: 'gemini-2.5-flash-native-audio-preview-12-2025',
         callbacks: {
           onopen: () => {
             setStatus(ConnectionStatus.CONNECTED);

@@ -5,7 +5,7 @@ LegacyBot is built as a modern React SPA utilizing the Google Gemini Live API fo
 
 ### 1.1 Core Components
 - **Frontend**: React 19+, TypeScript, Tailwind CSS, Vite.
-- **AI Core**: `@google/genai` (Gemini 3.1 Flash Live, model ID: `gemini-3.1-flash-live-preview`).
+- **AI Core**: `@google/genai` (Gemini 2.5 Flash Native Audio, model ID: `gemini-2.5-flash-native-audio-preview-12-2025`).
 - **Auth**: Firebase Authentication (Google and Email/Password sign-in).
 - **Persistence**:
   - **Firestore**: Stores Dossiers, session metadata, question states, and live transcript chunks.
