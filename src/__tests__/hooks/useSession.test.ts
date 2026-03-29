@@ -291,18 +291,18 @@ describe('startSession', () => {
     expect(result.current.status).toBe(ConnectionStatus.ERROR);
   });
 
-  it('sets ERROR status (not CONNECTED) when Gemini connect() rejects — known orphaned session bug', async () => {
+  it('finalizes session as interrupted when Gemini connect() rejects (fixes #69)', async () => {
     // mixer succeeds → createSession() is called → then Gemini fails
-    // This creates an orphaned Firestore session doc (design.md §5.5 issue #5)
     mockLiveConnect.mockRejectedValueOnce(new Error('Gemini connection failed'));
 
     const { result } = renderSession();
     await act(async () => { await result.current.startSession(); });
 
-    // Session doc was created (the bug: it's never finalized as interrupted)
+    // Session doc was created then finalized as 'interrupted' (not left orphaned)
     expect(storageSpies.createSession).toHaveBeenCalledTimes(1);
-    // finalizeSession is NOT called — session is orphaned
-    expect(storageSpies.finalizeSession).not.toHaveBeenCalled();
+    expect(storageSpies.finalizeSession).toHaveBeenCalledWith(
+      'family-1', 'dossier-1', 'session-123', 'interrupted', 0,
+    );
     expect(result.current.status).toBe(ConnectionStatus.ERROR);
   });
 });
@@ -515,7 +515,8 @@ describe('function call handlers', () => {
 
   it('calls onShowPhoto on showPhoto tool call', async () => {
     const onShowPhoto = vi.fn();
-    const { result } = renderSession({ onShowPhoto });
+    const promptPhotos = [{ id: 'photo-abc', caption: 'Old farmhouse', url: 'https://example.com/photo.jpg', storagePath: 'path/photo.jpg', uploadedAt: { seconds: 0, nanoseconds: 0, toDate: () => new Date() } as any }];
+    const { result } = renderSession({ onShowPhoto, promptPhotos } as any);
 
     await act(async () => { await result.current.startSession(); });
 

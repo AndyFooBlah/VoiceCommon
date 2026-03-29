@@ -53,7 +53,7 @@ export async function decodeAudioData(
   numChannels: number,
 ): Promise<AudioBuffer> {
   if (!data || data.length === 0) {
-    return ctx.createBuffer(numChannels, 1, sampleRate);
+    return ctx.createBuffer(numChannels, 0, sampleRate);
   }
   const dataInt16 = new Int16Array(data.buffer);
   const frameCount = dataInt16.length / numChannels;
