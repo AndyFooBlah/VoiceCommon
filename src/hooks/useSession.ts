@@ -350,8 +350,14 @@ export function useSession({
             }
 
             // --- Handle Transcriptions ---
+            // Strip ASCII control characters (except tab/newline) that Gemini
+            // occasionally emits — they corrupt the transcript display and can
+            // cause the model to go silent after the affected turn.
+            const sanitize = (text: string) =>
+              text.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+
             if (message.serverContent?.inputTranscription) {
-              currentInputRef.current += message.serverContent.inputTranscription.text;
+              currentInputRef.current += sanitize(message.serverContent.inputTranscription.text);
             }
             if (message.serverContent?.outputTranscription) {
               // When the bot starts speaking, flush any accumulated user input first
@@ -359,16 +365,16 @@ export function useSession({
                 addMessage('user', currentInputRef.current);
                 currentInputRef.current = '';
               }
-              currentOutputRef.current += message.serverContent.outputTranscription.text;
+              currentOutputRef.current += sanitize(message.serverContent.outputTranscription.text);
             }
 
             // When a turn is complete, commit any remaining accumulated text
             if (message.serverContent?.turnComplete) {
-              if (currentInputRef.current) {
+              if (currentInputRef.current.trim()) {
                 addMessage('user', currentInputRef.current);
                 currentInputRef.current = '';
               }
-              if (currentOutputRef.current) {
+              if (currentOutputRef.current.trim()) {
                 addMessage('bot', currentOutputRef.current);
                 currentOutputRef.current = '';
               }
