@@ -354,7 +354,7 @@ export function useSession({
           const familyEvents = events.map((e) => ({
             familyId,
             title: e.title,
-            date: e.date ?? undefined,
+            ...(e.date != null && { date: e.date }),
             description: e.description,
             storytellerUids: [storytellerUid],
             sessionIds: [sid],
