@@ -133,6 +133,8 @@ service cloud.firestore {
       match /events/{eventId} {
         allow read: if isFamilyMember(familyId);
         allow create, update, delete: if isFamilyAdmin(familyId);
+        // Storytellers can create family events via post-session analysis
+        allow create: if isFamilyStoryteller(familyId);
       }
     }
 
