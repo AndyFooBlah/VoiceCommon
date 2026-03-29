@@ -148,7 +148,9 @@ export function useAudioMixer(): AudioMixerHandle {
    */
   const flush = useCallback((): Blob | null => {
     if (audioChunksRef.current.length === 0) return null;
-    return new Blob(audioChunksRef.current, { type: 'audio/webm' });
+    const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+    audioChunksRef.current = [];
+    return blob;
   }, []);
 
   return {

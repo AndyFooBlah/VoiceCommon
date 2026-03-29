@@ -94,7 +94,7 @@ export function useSession({
   const createPCMData = useCallback((data: Float32Array) => {
     const int16 = new Int16Array(data.length);
     for (let i = 0; i < data.length; i++) {
-      int16[i] = data[i] * 32768;
+      int16[i] = Math.max(-32768, Math.min(32767, Math.round(data[i] * 32767)));
     }
     return { data: encode(new Uint8Array(int16.buffer)), mimeType: 'audio/pcm;rate=16000' };
   }, []);
@@ -281,9 +281,9 @@ export function useSession({
             scriptProcessor.onaudioprocess = (e) => {
               const inputData = e.inputBuffer.getChannelData(0);
               const pcmBlob = createPCMData(inputData);
-              sessionPromise.then((session) =>
-                session.sendRealtimeInput({ media: pcmBlob }),
-              );
+              sessionPromise
+                .then((session) => session.sendRealtimeInput({ media: pcmBlob }))
+                .catch((err) => console.error('[PCM] Send error:', err));
             };
             source.connect(scriptProcessor);
             scriptProcessor.connect(inputCtx.destination);
@@ -314,11 +314,13 @@ export function useSession({
                   );
                 } else if (fc.name === 'showPhoto') {
                   const { photoId } = fc.args as any;
-                  if (onShowPhoto) onShowPhoto(photoId);
-                  // Log the photo display in the transcript for linking
+                  // Validate photo exists before invoking the UI callback
                   const photo = promptPhotos?.find((p) => p.id === photoId);
                   if (photo) {
+                    if (onShowPhoto) onShowPhoto(photoId);
                     addMessage('bot', `[Showed photo: ${photo.caption}]`);
+                  } else {
+                    console.warn(`[Session] showPhoto: unknown photoId "${photoId}"`);
                   }
                 } else if (fc.name === 'reportEmotionalObservation') {
                   const { mood, confidence, trigger, recommendation } = fc.args as any;
@@ -432,6 +434,18 @@ export function useSession({
       if (err.name === 'NoMicrophoneError' || err.name === 'NotFoundError' || err.name === 'NotAllowedError' || err.message?.includes('microphone')) {
         setDeviceError(err.message);
       }
+
+      // Clean up the Firestore session doc if it was created before the failure
+      const orphanedSid = sessionIdRef.current;
+      if (orphanedSid) {
+        finalizeSession(familyId, dossierId, orphanedSid, 'interrupted', 0).catch(() => {});
+        sessionIdRef.current = null;
+        setSessionId(null);
+      }
+
+      // Stop the audio mixer if it was started before the failure
+      mixer.stop().catch(() => {});
+
       setStatus(ConnectionStatus.ERROR);
     }
   }, [familyId, dossierId, storytellerUid, dossier, questions, promptPhotos, mixer, addMessage, createPCMData, handleInterruption, onQuestionUpdate, onShowPhoto, status]);

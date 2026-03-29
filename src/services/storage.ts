@@ -619,9 +619,8 @@ export async function deleteMedia(
   dossierId: string,
   mediaId: string,
 ): Promise<void> {
-  const { deleteDoc: firestoreDeleteDoc } = await import('firebase/firestore');
   const docRef = doc(db, 'families', familyId, 'dossiers', dossierId, 'media', mediaId);
-  await firestoreDeleteDoc(docRef);
+  await deleteDoc(docRef);
 }
 
 // ---------------------------------------------------------------------------
@@ -674,9 +673,8 @@ export async function deleteAudioClip(
   dossierId: string,
   clipId: string,
 ): Promise<void> {
-  const { deleteDoc: firestoreDeleteDoc } = await import('firebase/firestore');
   const docRef = doc(db, 'families', familyId, 'dossiers', dossierId, 'clips', clipId);
-  await firestoreDeleteDoc(docRef);
+  await deleteDoc(docRef);
 }
 
 // ---------------------------------------------------------------------------
@@ -732,7 +730,6 @@ export async function deletePromptPhoto(
   dossierId: string,
   photoId: string,
 ): Promise<void> {
-  const { deleteDoc: firestoreDeleteDoc } = await import('firebase/firestore');
   const docRef = doc(db, 'families', familyId, 'dossiers', dossierId, 'promptPhotos', photoId);
-  await firestoreDeleteDoc(docRef);
+  await deleteDoc(docRef);
 }
