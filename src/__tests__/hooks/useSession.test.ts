@@ -33,8 +33,21 @@ const {
   mockMixerStop,
   mockMixerFlush,
   storageSpies,
+  mockInputContext,
+  mockWorkletNode,
 } = vi.hoisted(() => {
   const capturedCallbacks: { current: Record<string, Function> } = { current: {} };
+
+  const mockWorkletNode = {
+    port: { onmessage: null as any },
+    connect: vi.fn(),
+  };
+
+  const mockInputContext = {
+    destination: {},
+    createMediaStreamSource: vi.fn().mockReturnValue({ connect: vi.fn() }),
+    audioWorklet: { addModule: vi.fn().mockResolvedValue(undefined) },
+  };
 
   const mockLiveSession = {
     close: vi.fn(),
@@ -77,6 +90,8 @@ const {
     mockMixerStop,
     mockMixerFlush,
     storageSpies,
+    mockInputContext,
+    mockWorkletNode,
   };
 });
 
@@ -98,13 +113,23 @@ vi.mock('../../hooks/useAudioMixer', () => ({
   useAudioMixer: () => ({
     stream: { getTracks: () => [], getAudioTracks: () => [] },
     playbackContext: new AudioContext(),
-    inputContext: new AudioContext(),
+    inputContext: mockInputContext,
     mixedDest: { stream: { getTracks: () => [] } },
     start: mockMixerStart,
     stop: mockMixerStop,
     flush: mockMixerFlush,
   }),
 }));
+
+// AudioWorkletNode is not available in jsdom — stub it globally.
+// Must use a regular function (not arrow) so it can be called with `new`.
+vi.stubGlobal(
+  'AudioWorkletNode',
+  vi.fn().mockImplementation(function (this: any) {
+    this.port = mockWorkletNode.port;
+    this.connect = mockWorkletNode.connect;
+  }),
+);
 
 vi.mock('../../services/storage', () => storageSpies);
 
@@ -185,6 +210,10 @@ beforeEach(() => {
   mockMixerStart.mockResolvedValue(undefined);
   mockMixerStop.mockResolvedValue(new Blob(['audio'], { type: 'audio/webm' }));
   mockMixerFlush.mockReturnValue(new Blob(['partial'], { type: 'audio/webm' }));
+  mockInputContext.audioWorklet.addModule.mockResolvedValue(undefined);
+  mockInputContext.createMediaStreamSource.mockReturnValue({ connect: vi.fn() });
+  mockWorkletNode.connect.mockReset();
+  mockWorkletNode.port.onmessage = null;
   mockLiveConnect.mockImplementation(async ({ callbacks }: any) => {
     capturedCallbacks.current = callbacks;
     return mockLiveSession;
@@ -234,6 +263,16 @@ describe('startSession', () => {
 
     expect(storageSpies.createSession).toHaveBeenCalledWith('family-1', 'dossier-1', 'storyteller-uid');
     expect(result.current.sessionId).toBe('session-123');
+  });
+
+  it('registers the PCM AudioWorklet module before connecting to Gemini (#76)', async () => {
+    const { result } = renderSession();
+    await act(async () => { await result.current.startSession(); });
+    expect(mockInputContext.audioWorklet.addModule).toHaveBeenCalledWith('/pcm-processor.js');
+    // addModule must be called before ai.live.connect
+    const addModuleOrder = mockInputContext.audioWorklet.addModule.mock.invocationCallOrder[0];
+    const connectOrder = mockLiveConnect.mock.invocationCallOrder[0];
+    expect(addModuleOrder).toBeLessThan(connectOrder);
   });
 
   it('connects to Gemini Live API', async () => {

@@ -14,7 +14,7 @@
  * Audio pipeline (see useAudioMixer for details):
  *   User mic → PCM → Gemini API → PCM → AudioBuffer → speakers + mixed archive
  *
- * References: design.md §3.2, §3.3, §3.6 | GitHub Issues #9, #10, #11, #12, #17
+ * References: design.md §3.2, §3.3, §3.6 | GitHub Issues #9, #10, #11, #12, #17, #76
  */
 
 import { useState, useRef, useCallback } from 'react';
@@ -192,6 +192,9 @@ export function useSession({
       sessionIdRef.current = sId;
       sessionStartTimeRef.current = Date.now();
 
+      // 3. Register PCM audio worklet for mic processing (replaces deprecated ScriptProcessorNode)
+      await mixer.inputContext!.audioWorklet.addModule('/pcm-processor.js');
+
       // 4. Set up Gemini function-calling tools
       const updateQuestionStatusTool: FunctionDeclaration = {
         name: 'updateQuestionStatus',
@@ -278,20 +281,22 @@ export function useSession({
           onopen: () => {
             setStatus(ConnectionStatus.CONNECTED);
 
-            // Wire mic audio to Gemini input (PCM at 16kHz)
+            // Wire mic audio to Gemini input via AudioWorkletNode (PCM at 16kHz).
+            // The worklet runs on the audio thread and posts Float32 frames to
+            // the main thread, which converts them to Int16 PCM for Gemini.
             const inputCtx = mixer.inputContext!;
             const source = inputCtx.createMediaStreamSource(mixer.stream!);
-            const scriptProcessor = inputCtx.createScriptProcessor(4096, 1, 1);
-            scriptProcessor.onaudioprocess = (e) => {
+            const workletNode = new AudioWorkletNode(inputCtx, 'pcm-processor');
+            workletNode.port.onmessage = (e: MessageEvent) => {
               if (!sessionRef.current) return; // Session closed — stop sending
-              const inputData = e.inputBuffer.getChannelData(0);
-              const pcmBlob = createPCMData(inputData);
+              const channelData = new Float32Array(e.data.channelData);
+              const pcmBlob = createPCMData(channelData);
               sessionPromise
                 .then((session) => session.sendRealtimeInput({ media: pcmBlob }))
                 .catch((err) => console.error('[PCM] Send error:', err));
             };
-            source.connect(scriptProcessor);
-            scriptProcessor.connect(inputCtx.destination);
+            source.connect(workletNode);
+            workletNode.connect(inputCtx.destination);
 
             // Send a text prompt to trigger the bot's first greeting immediately
             const greetingTrigger = completedSessionCount === 0

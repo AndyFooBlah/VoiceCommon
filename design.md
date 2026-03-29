@@ -102,6 +102,8 @@ To satisfy the "capture both sides" requirement, the app uses an internal audio 
 4. **MediaRecorder**: Records the mixed stream as WebM/Opus at 128 kbps. On `stop()`, the blob is uploaded to GCS.
 5. **Partial Recovery**: The `MediaRecorder` uses `timeslice` to emit data chunks periodically (~10s intervals). Chunks are buffered locally and flushed to GCS on stop or on connection error, ensuring partial sessions are never lost.
 
+**Mic → PCM pipeline**: Microphone audio is processed using an `AudioWorkletNode` (`pcm-processor.js` registered at session start). The worklet runs on the dedicated audio thread, capturing Float32 frames and posting them to the main thread via `MessagePort`. The main thread converts each frame to Int16 PCM (16kHz) and streams it to the Gemini Live API. This replaces the deprecated `ScriptProcessorNode` (removed in issue #76).
+
 ### 3.4 Real-time Transcript Sync
 Transcripts are appended to a Firestore document array in real-time. This ensures that even if a tab crashes, the conversation up to that second is preserved. Each entry includes a role label and timestamp for later review.
 
