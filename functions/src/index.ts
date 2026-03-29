@@ -467,12 +467,14 @@ async function sendDigestForDossier(
   }
   if (!storytellerEmail) return false;
 
-  // Gather topics: up to 2 high-priority gap questions, then fill from Story Queue
+  // Gather topics: up to 2 gap questions (prefer high, fall back to medium), then fill from Story Queue
   const gapAnalysis = await getGapAnalysis(familyId, dossierId);
-  const gapTopics: string[] = (gapAnalysis?.questions ?? [])
-    .filter((q) => q.priority === 'high')
-    .slice(0, 2)
-    .map((q) => q.text);
+  const gapQuestions = gapAnalysis?.questions ?? [];
+  const highPriorityGap = gapQuestions.filter((q) => q.priority === 'high');
+  const gapTopics: string[] = (highPriorityGap.length > 0
+    ? highPriorityGap
+    : gapQuestions.filter((q) => q.priority === 'medium')
+  ).slice(0, 2).map((q) => q.text);
 
   const questionsSnap = await db
     .collection('families').doc(familyId)
@@ -610,7 +612,7 @@ export const sendDailyDigest = functions
  * Useful for testing and for admins who want to send a nudge.
  */
 export const triggerDigestForDossier = functions
-  .runWith({ secrets: [smtpPass] })
+  .runWith({ secrets: [smtpPass, geminiApiKey], timeoutSeconds: 300 })
   .https.onCall(async (data, context) => {
     const { familyId, dossierId } = data as { familyId: string; dossierId: string };
     if (!familyId || !dossierId) {
@@ -622,6 +624,40 @@ export const triggerDigestForDossier = functions
     const transporter = createTransporter();
     if (!transporter) {
       throw new functions.https.HttpsError('internal', 'SMTP is not configured on this server.');
+    }
+
+    // If no gap analysis exists yet, run it now before sending so the email has topics.
+    const existingGap = await getGapAnalysis(familyId, dossierId);
+    if (!existingGap) {
+      const apiKey = geminiApiKey.value();
+      if (apiKey) {
+        try {
+          functions.logger.info(`[triggerDigest] No gap analysis found — running now for dossier ${dossierId}`);
+          const dossierDoc = await db
+            .collection('families').doc(familyId)
+            .collection('dossiers').doc(dossierId)
+            .get();
+          const dossierData = dossierDoc.data() ?? {};
+          const result = await runGapAnalysis(
+            familyId,
+            dossierId,
+            'manual-trigger',
+            {
+              storytellerName: dossierData.storytellerName ?? '',
+              preferredName: dossierData.preferredName,
+              storytellerContext: dossierData.storytellerContext,
+              historicalContext: dossierData.historicalContext,
+            },
+            apiKey,
+          );
+          await saveGapAnalysis(familyId, dossierId, result);
+          functions.logger.info(
+            `[triggerDigest] Gap analysis complete: ${result.questions.length} questions generated`,
+          );
+        } catch (err) {
+          functions.logger.warn('[triggerDigest] Gap analysis failed — will send without topics:', err);
+        }
+      }
     }
 
     const sent = await sendDigestForDossier(familyId, dossierId, transporter, { force: true });
