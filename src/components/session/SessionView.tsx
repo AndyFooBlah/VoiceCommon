@@ -214,12 +214,20 @@ export const SessionView: React.FC = () => {
             <p className="text-xl font-bold text-slate-800">
               {status === ConnectionStatus.CONNECTED
                 ? `Tell your story, ${dossier.storytellerName}...`
-                : `Ready to begin, ${dossier.storytellerName}?`}
+                : status === ConnectionStatus.CONNECTING
+                  ? messages.length > 0
+                    ? 'Back in just a moment…'
+                    : `One moment, ${dossier.storytellerName}…`
+                  : `Ready to begin, ${dossier.storytellerName}?`}
             </p>
             <p className="text-sm text-slate-400">
               {status === ConnectionStatus.CONNECTED
                 ? 'Every word and sound is being preserved.'
-                : 'Press the button above to start your oral history session.'}
+                : status === ConnectionStatus.CONNECTING
+                  ? messages.length > 0
+                    ? 'Restoring the connection — please hold on.'
+                    : 'Your interview will begin in just a moment.'
+                  : 'Press the button above to start your oral history session.'}
             </p>
           </div>
         </div>

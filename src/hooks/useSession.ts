@@ -584,14 +584,25 @@ export function useSession({
       await mixer.inputContext!.audioWorklet.addModule('/pcm-processor.js');
       console.log(`[Session] Audio pipeline restarted for reconnect`);
 
-      // Build a brief context summary from recent transcript for Gemini
+      // Build context for Gemini: recent transcript + instruction to acknowledge the
+      // interruption briefly before recapping, so the conversation sounds natural.
       const recentEntries = transcriptEntriesRef.current.slice(-20);
       const recentContext = recentEntries
         .map((e) => `${e.role === 'user' ? dossier.storytellerName : 'Interviewer'}: ${e.text}`)
         .join('\n');
       const resumePrompt = recentContext
-        ? `[The session experienced a brief technical interruption and has now resumed. Here is the recent conversation for context:\n${recentContext}\n\nContinue the interview naturally from where you left off. Do not mention the interruption.]`
-        : `[The session experienced a brief technical interruption and has now resumed. Continue the interview naturally.]`;
+        ? `[Technical note for the AI: a brief network interruption just occurred and the connection has been restored.
+
+IMPORTANT — do the following in your very next spoken response:
+1. Briefly and warmly acknowledge the glitch in one short, casual sentence (e.g. "Oops — looks like we had a little connection hiccup there!" or "Oh, pardon the brief interruption!").
+2. Immediately recap the specific topic or moment you were discussing just before it cut out, so ${dossier.storytellerName} knows you're right back where you left off (e.g. "We were just talking about…").
+3. Then continue the interview naturally.
+
+Keep the acknowledgement light — do not dwell on it.
+
+Here is the conversation just before the interruption for context:
+${recentContext}]`
+        : `[Technical note for the AI: a brief network interruption occurred and the connection has been restored. Briefly and warmly acknowledge the glitch in one casual sentence, then invite ${dossier.storytellerName} to continue sharing their story.]`;
 
       const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
       const systemInstruction = buildSystemInstruction({ dossier, questions, familyTree, promptPhotos });
