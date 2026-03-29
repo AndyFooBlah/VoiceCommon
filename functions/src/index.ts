@@ -452,7 +452,7 @@ async function sendDigestForDossier(
     } catch {
       // user doc not found
     }
-    if (!storytellerTimezone) return false; // no timezone on file — skip rather than wrong-time send
+    if (!storytellerTimezone) storytellerTimezone = 'America/Los_Angeles'; // default: US/Pacific
     const localHour = getLocalHour(storytellerTimezone);
     if (localHour !== 7) return false;
   }
