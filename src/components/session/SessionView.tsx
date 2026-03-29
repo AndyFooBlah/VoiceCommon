@@ -68,6 +68,10 @@ export const SessionView: React.FC = () => {
     [updateQuestion],
   );
 
+  // Auto-reconnect on the first unexpected disconnect without asking the user.
+  // If the auto-reconnect itself fails, fall through to the manual modal.
+  const [autoReconnectDone, setAutoReconnectDone] = useState(false);
+
   const {
     status,
     messages,
@@ -91,6 +95,22 @@ export const SessionView: React.FC = () => {
     onQuestionUpdate: handleQuestionUpdate,
     onShowPhoto: handleShowPhoto,
   });
+
+  useEffect(() => {
+    if (status === ConnectionStatus.ERROR && !deviceError && !autoReconnectDone) {
+      // Unexpected disconnect — flush partial data and reconnect automatically.
+      // A short delay gives the browser a moment to settle (e.g. network re-up).
+      const timer = setTimeout(async () => {
+        setAutoReconnectDone(true);
+        await flushPartialSession();
+        startSession();
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+    if (status === ConnectionStatus.CONNECTED) {
+      setAutoReconnectDone(false); // Reset so the next disconnect auto-reconnects too
+    }
+  }, [status, deviceError, autoReconnectDone, flushPartialSession, startSession]);
 
   if (dossierLoading || !dossier) {
     return (
@@ -256,19 +276,27 @@ export const SessionView: React.FC = () => {
               <button
                 onClick={() => navigate(isAdmin
                   ? `/family/${familyId}/dossier/${dossierId}`
-                  : `/family/${familyId}/dossier/${dossierId}/history`
+                  : `/family/${familyId}`
                 )}
                 className="w-full py-3 text-slate-500 font-medium hover:text-slate-700 transition-colors"
               >
-                {isAdmin ? 'Back to Dossier' : 'View Past Sessions'}
+                {isAdmin ? 'Back to Dossier' : 'Back to Home'}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Connection error dialog (non-device errors) */}
-      {status === ConnectionStatus.ERROR && !deviceError && (
+      {/* Reconnecting banner — auto-reconnect in progress (brief, no user action needed) */}
+      {status === ConnectionStatus.ERROR && !deviceError && !autoReconnectDone && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[100] bg-slate-800 text-white px-6 py-3 rounded-2xl shadow-xl flex items-center gap-3">
+          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white shrink-0" />
+          <span className="text-sm font-medium">Reconnecting…</span>
+        </div>
+      )}
+
+      {/* Connection error dialog — shown only when auto-reconnect has already been attempted */}
+      {status === ConnectionStatus.ERROR && !deviceError && autoReconnectDone && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/80 backdrop-blur-sm p-4 text-center">
           <div className="bg-white p-8 rounded-[2rem] shadow-2xl max-w-md space-y-6">
             <h2 className="text-2xl font-bold text-slate-800">
@@ -276,7 +304,7 @@ export const SessionView: React.FC = () => {
             </h2>
             <p className="text-slate-500">
               Don&apos;t worry — everything you&apos;ve shared so far has been
-              saved. You can reconnect to continue your session.
+              saved. You can try reconnecting or end the session.
             </p>
             <div className="flex flex-col gap-3">
               <button
@@ -286,14 +314,14 @@ export const SessionView: React.FC = () => {
                 }}
                 className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-colors"
               >
-                Reconnect
+                Try Again
               </button>
               <button
                 onClick={async () => {
                   await flushPartialSession();
                   navigate(isAdmin
                     ? `/family/${familyId}/dossier/${dossierId}`
-                    : `/family/${familyId}/dossier/${dossierId}/history`
+                    : `/family/${familyId}`
                   );
                 }}
                 className="w-full py-3 text-slate-500 font-medium hover:text-slate-700 transition-colors"

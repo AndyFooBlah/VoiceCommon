@@ -3,8 +3,8 @@
  * Now uses familyId from route params.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 import { ConnectionStatus } from '../../../types';
 
 // --- Mocks ---
@@ -156,7 +156,7 @@ describe('SessionView — connected state', () => {
   it('calls stopSession when stop button is clicked', () => {
     render(<SessionView />);
     const buttons = screen.getAllByRole('button');
-    const stopBtn = buttons.find((b) => !b.textContent?.includes('View Past') && !b.textContent?.includes('Back'));
+    const stopBtn = buttons.find((b) => !b.textContent?.includes('Back'));
     fireEvent.click(stopBtn!);
     expect(mockStopSession).toHaveBeenCalledTimes(1);
   });
@@ -164,36 +164,42 @@ describe('SessionView — connected state', () => {
 
 describe('SessionView — error state', () => {
   beforeEach(() => {
+    vi.useFakeTimers();
     mockStatus = ConnectionStatus.ERROR;
   });
 
-  it('shows the error dialog', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('shows reconnecting banner immediately (no modal yet)', () => {
     render(<SessionView />);
+    expect(screen.getByText(/Reconnecting/)).toBeInTheDocument();
+    expect(screen.queryByText('Connection Interrupted')).not.toBeInTheDocument();
+  });
+
+  it('auto-reconnects (calls flushPartialSession + startSession) after delay', async () => {
+    render(<SessionView />);
+    await act(async () => { vi.advanceTimersByTime(600); });
+    expect(mockFlushPartialSession).toHaveBeenCalledTimes(1);
+    expect(mockStartSession).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows error modal after auto-reconnect attempt fails', async () => {
+    // mockStartSession is a no-op so status stays ERROR — simulating reconnect failure
+    render(<SessionView />);
+    await act(async () => { vi.advanceTimersByTime(600); });
     expect(screen.getByText('Connection Interrupted')).toBeInTheDocument();
-  });
-
-  it('shows reassuring message', () => {
-    render(<SessionView />);
     expect(screen.getByText(/everything you've shared so far has been saved/)).toBeInTheDocument();
-  });
-
-  it('shows Reconnect and End Session buttons', () => {
-    render(<SessionView />);
-    expect(screen.getByText('Reconnect')).toBeInTheDocument();
+    expect(screen.getByText('Try Again')).toBeInTheDocument();
     expect(screen.getByText('End Session')).toBeInTheDocument();
   });
 
-  it('flushes and reconnects on Reconnect click', async () => {
+  it('flushes and navigates to home on End Session click', async () => {
     render(<SessionView />);
-    fireEvent.click(screen.getByText('Reconnect'));
-
-    expect(mockFlushPartialSession).toHaveBeenCalledTimes(1);
-  });
-
-  it('flushes and navigates on End Session click', async () => {
-    render(<SessionView />);
-    fireEvent.click(screen.getByText('End Session'));
-
-    expect(mockFlushPartialSession).toHaveBeenCalledTimes(1);
+    await act(async () => { vi.advanceTimersByTime(600); });
+    await act(async () => { fireEvent.click(screen.getByText('End Session')); });
+    expect(mockFlushPartialSession).toHaveBeenCalled();
+    expect(mockNavigate).toHaveBeenCalledWith('/family/family-1');
   });
 });
