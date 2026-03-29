@@ -283,6 +283,7 @@ export function useSession({
             const source = inputCtx.createMediaStreamSource(mixer.stream!);
             const scriptProcessor = inputCtx.createScriptProcessor(4096, 1, 1);
             scriptProcessor.onaudioprocess = (e) => {
+              if (!sessionRef.current) return; // Session closed — stop sending
               const inputData = e.inputBuffer.getChannelData(0);
               const pcmBlob = createPCMData(inputData);
               sessionPromise
@@ -335,15 +336,16 @@ export function useSession({
                 }
 
                 // Respond to the tool call so the model can continue
+                // Note: functionResponses must be an array
                 sessionPromise.then((s) =>
                   s.sendToolResponse({
-                    functionResponses: {
+                    functionResponses: [{
                       id: fc.id,
                       name: fc.name,
                       response: { result: 'ok' },
-                    },
+                    }],
                   }),
-                );
+                ).catch((err) => console.error('[Gemini] Tool response error:', err));
               }
             }
 
@@ -406,8 +408,9 @@ export function useSession({
           },
 
           onclose: () => {
-            // If we didn't explicitly stop, this is an unexpected disconnect
-            if (status !== ConnectionStatus.DISCONNECTED) {
+            // sessionRef is nulled by stopSession — if it's still set here,
+            // this is an unexpected disconnect (not triggered by the user)
+            if (sessionRef.current !== null) {
               setStatus(ConnectionStatus.ERROR);
             }
           },
