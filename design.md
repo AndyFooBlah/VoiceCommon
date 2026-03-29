@@ -129,6 +129,44 @@ Transcripts are appended to a Firestore document array in real-time. This ensure
   7. **AI-initiated end**: The AI can call `endSession()` when the storyteller signals they are done, rather than waiting for a button press.
 - **Connectivity check**: Before starting a session, the app performs a lightweight connectivity probe and warns the Archivist if latency is high.
 
+### 3.7 Post-Session Analysis Pipeline
+
+Two tiers of AI analysis run after each session:
+
+**Tier 1 — Client-side (immediate, current session only)**
+Runs in `useSession.ts` as a background async block when `stopSession` is called. Uses the Gemini text API to:
+- Extract discrete life events from the new transcript → `dossiers/{id}/events`
+- Assess storyteller engagement and comfort → `sessions/{id}/analysis/engagement`
+- Suggest 3–5 new Story Queue questions → `sessions/{id}/analysis/suggestions`
+
+**Tier 2 — Server-side Cloud Functions (holistic, all sessions)**
+
+*`onSessionCompleted` (Firestore trigger)* — fires when a session status → `completed`. Runs two tasks in parallel:
+1. Admin notification email (opted-in admins only, existing behavior).
+2. **Deep gap analysis** (`functions/src/analysis.ts`): reads all transcripts, all events, and all questions across every session for the dossier. Asks Gemini 2.5 Flash to identify:
+   - **Timeline gaps**: decades or life periods with few/no events
+   - **Theme gaps**: underrepresented life themes (career, travel, hardship, etc.)
+   - **Implied but unexplored**: people/places/times mentioned in passing but never followed up
+   Writes 3–5 targeted question suggestions + a structured gap summary to `dossiers/{id}/analysis/gapAnalysis`.
+
+*`sendDailyDigest` (scheduled, 9 AM UTC)* — for each dossier where it has been 2–7 days since the last session and the storyteller has a linked account with an email address (and no digest was sent in the last 2 days), sends a warm re-engagement email. Content is drawn from the Story Queue (`Unasked` questions) and the latest gap analysis. Records `lastDigestSentAt` on the dossier to prevent repeat sends.
+
+**Firestore paths for Tier 2:**
+```
+families/{familyId}/dossiers/{dossierId}/analysis/gapAnalysis
+  questions[]       — suggested questions with priority (high/medium/low)
+  gaps.timeline[]   — e.g. ["years 1975–1985", "early childhood"]
+  gaps.themes[]     — e.g. ["career", "travel"]
+  gaps.implied[]    — e.g. ["brother Sam — mentioned twice, never explored"]
+  narrativeSummary  — 2–3 sentence plain-English summary for email
+  analyzedAt        — timestamp
+  sessionId         — session that triggered this analysis
+```
+
+**Required Cloud Function secrets:**
+- `SMTP_PASS` — existing (email)
+- `GEMINI_API_KEY` — new; server-side key for gap analysis Gemini calls
+
 ## 4. App Structure (Proposed)
 
 ```
