@@ -483,8 +483,7 @@ export const DossierEditor: React.FC = () => {
         </section>
 
         {/* Nudge email — manual re-engagement trigger for admins */}
-        {dossier.storytellerUid && (
-          <section className="space-y-2 pt-2 border-t border-slate-100">
+        <section className="space-y-2 pt-2 border-t border-slate-100">
             <h3 className="font-bold text-slate-700">Re-engagement</h3>
             <p className="text-xs text-slate-500">
               Send {dossier.preferredName ?? dossier.storytellerName} an email previewing upcoming
@@ -508,7 +507,6 @@ export const DossierEditor: React.FC = () => {
               )}
             </div>
           </section>
-        )}
       </div>
     </div>
   );
