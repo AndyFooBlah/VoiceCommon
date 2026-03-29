@@ -124,6 +124,7 @@ export interface Dossier {
   id?: string; // Firestore document ID (set on read, not stored in doc)
   storytellerUid: string | null; // linked family member uid, or null if unlinked
   storytellerName: string; // Required — the bot greets them by name
+  preferredName?: string; // How the storyteller prefers to be addressed (set by AI during first session)
   adminName: string; // Name of the admin/archivist conducting the interview
   storytellerContext: string; // Free-text bio, background, etc.
   historicalContext: string;

@@ -42,6 +42,8 @@ export interface BuildInstructionOptions {
   previousSessionSummary?: string;
   /** Start date of the most recent completed session, for "it's been X days" greeting. */
   lastSessionDate?: Date;
+  /** The name the storyteller prefers to be addressed by, if already known. */
+  preferredName?: string;
 }
 
 /**
@@ -64,9 +66,10 @@ function formatTimeAgo(date: Date): string {
 }
 
 export function buildSystemInstruction(options: BuildInstructionOptions): string {
-  const { dossier, questions, familyTree, promptPhotos, completedSessionCount, previousSessionSummary, lastSessionDate } = options;
+  const { dossier, questions, familyTree, promptPhotos, completedSessionCount, previousSessionSummary, lastSessionDate, preferredName } = options;
   const isFirstSession = completedSessionCount === 0;
-  const name = dossier.storytellerName;
+  // Use the storyteller's preferred name if known; fall back to their full name.
+  const name = preferredName ?? dossier.storytellerName;
   const adminName = dossier.adminName || 'your family';
   const timeAgo = lastSessionDate ? formatTimeAgo(lastSessionDate) : undefined;
 
@@ -128,6 +131,13 @@ EMOTIONAL AWARENESS:
 - If you sense fatigue (shorter responses, slower pace), suggest wrapping up: "We've covered a lot today — shall we save the rest for next time?"
 - Use the 'reportEmotionalObservation' tool to log significant emotional shifts you notice.
 - Match the storyteller's energy: if they are animated and laughing, be warm and expressive. If they are reflective and quiet, be calm and gentle.
+
+PREFERRED NAME:
+${preferredName
+  ? `- The storyteller has told you they prefer to be called "${preferredName}". Always address them as "${preferredName}" throughout this session.`
+  : `- You do not yet know what name the storyteller prefers. Early in this first session (after your initial greeting and warm-up), ask naturally: "Before we dive in — what would you like me to call you?" or "What name do you prefer I use when speaking with you?"
+- As soon as they tell you, call the 'setPreferredName' tool to record it, then use that name for the rest of the conversation.
+- If they say something like "Oh, just call me Bob" or "Mr. Smith is fine" — that is their answer. Record it immediately.`}
 
 ENDING THE SESSION:
 - If the storyteller clearly signals they are done (e.g. "I'm done", "that's all for today", "I'm getting tired", "let's stop here", "I need to rest"), do NOT wait for them to press a button.

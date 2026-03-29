@@ -41,6 +41,7 @@ export const SessionView: React.FC = () => {
     questions,
     loading: dossierLoading,
     updateQuestion,
+    updateDossier,
   } = useDossier(familyId, dossierId);
 
   // Prompt photos
@@ -66,6 +67,14 @@ export const SessionView: React.FC = () => {
       updateQuestion(questionId, { status: status as any, findings });
     },
     [updateQuestion],
+  );
+
+  /** Handler for when the AI records the storyteller's preferred name. */
+  const handlePreferredNameUpdate = useCallback(
+    (name: string) => {
+      updateDossier({ preferredName: name });
+    },
+    [updateDossier],
   );
 
   // Auto-reconnect on the first unexpected disconnect without asking the user.
@@ -95,6 +104,7 @@ export const SessionView: React.FC = () => {
     promptPhotos,
     onQuestionUpdate: handleQuestionUpdate,
     onShowPhoto: handleShowPhoto,
+    onPreferredNameUpdate: handlePreferredNameUpdate,
   });
 
   useEffect(() => {

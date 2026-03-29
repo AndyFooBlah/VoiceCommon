@@ -62,6 +62,8 @@ interface UseSessionOptions {
   onQuestionUpdate: (questionId: string, status: string, findings: string) => void;
   /** Called when the bot shows a prompt photo to the storyteller. */
   onShowPhoto?: (photoId: string) => void;
+  /** Called when the bot records the storyteller's preferred name. */
+  onPreferredNameUpdate?: (name: string) => void;
 }
 
 export function useSession({
@@ -74,6 +76,7 @@ export function useSession({
   promptPhotos,
   onQuestionUpdate,
   onShowPhoto,
+  onPreferredNameUpdate,
 }: UseSessionOptions) {
   const [status, setStatus] = useState<ConnectionStatus>(ConnectionStatus.DISCONNECTED);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -230,6 +233,22 @@ export function useSession({
       },
     };
 
+    const setPreferredNameTool: FunctionDeclaration = {
+      name: 'setPreferredName',
+      parameters: {
+        type: Type.OBJECT,
+        description:
+          'Record the name the storyteller prefers to be called. Call this as soon as the storyteller tells you their preferred name.',
+        properties: {
+          name: {
+            type: Type.STRING,
+            description: 'The name the storyteller wants to be addressed by (e.g. "Bob", "Mr. Smith", "Grandma Rose").',
+          },
+        },
+        required: ['name'],
+      },
+    };
+
     const endSessionTool: FunctionDeclaration = {
       name: 'endSession',
       parameters: {
@@ -246,6 +265,7 @@ export function useSession({
     return [
       updateQuestionStatusTool,
       reportEmotionalObservationTool,
+      setPreferredNameTool,
       endSessionTool,
       ...(promptPhotos && promptPhotos.length > 0 ? [showPhotoTool] : []),
     ];
@@ -395,6 +415,10 @@ export function useSession({
               } else {
                 console.warn(`[Session] showPhoto: unknown photoId "${photoId}"`);
               }
+            } else if (fc.name === 'setPreferredName') {
+              const { name } = fc.args as any;
+              console.log(`[Session] AI recorded preferred name: "${name}"`);
+              if (onPreferredNameUpdate) onPreferredNameUpdate(name);
             } else if (fc.name === 'reportEmotionalObservation') {
               const { mood, confidence, trigger, recommendation } = fc.args as any;
               const currentSid = sessionIdRef.current;
@@ -491,7 +515,7 @@ export function useSession({
         // --- Handle Interruption ---
         if (message.serverContent?.interrupted) handleInterruption();
       },
-    [familyId, dossierId, promptPhotos, mixer, addMessage, handleInterruption, onQuestionUpdate, onShowPhoto, stopSession],
+    [familyId, dossierId, promptPhotos, mixer, addMessage, handleInterruption, onQuestionUpdate, onShowPhoto, onPreferredNameUpdate, stopSession],
   );
 
   /**
@@ -601,6 +625,7 @@ export function useSession({
         completedSessionCount,
         previousSessionSummary,
         lastSessionDate,
+        preferredName: dossier.preferredName,
       });
 
       const greetingTrigger = completedSessionCount === 0
@@ -750,6 +775,7 @@ ${recentContext}]`
         familyTree,
         promptPhotos,
         completedSessionCount: 0, // Not fetching history on reconnect — transcript context is provided instead
+        preferredName: dossier.preferredName,
       });
 
       const sessionPromise = ai.live.connect({
