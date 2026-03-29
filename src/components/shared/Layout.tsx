@@ -6,7 +6,7 @@
  *   - Hidden during live sessions for distraction-free experience
  */
 
-import React from 'react';
+import React, { useRef, useEffect } from 'react';
 import { Outlet, useNavigate, useLocation, useParams } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { useCurrentRoles } from '../../hooks/useFamily';
@@ -17,6 +17,23 @@ export const Layout: React.FC = () => {
   const { user, loading, signInWithGoogle, signInWithEmail, signUpWithEmail, signOut } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+
+  // Redirect to / on sign-in so FamilySelector always handles post-login routing.
+  // Without this, a user who opens a bookmarked URL (e.g. a session page) would land
+  // directly on that page after login instead of the role-appropriate home screen.
+  const showedLoginRef = useRef(false);
+  useEffect(() => {
+    if (!loading && !user) showedLoginRef.current = true;
+  }, [loading, user]);
+  useEffect(() => {
+    if (!loading && user && showedLoginRef.current) {
+      showedLoginRef.current = false;
+      // Preserve the invite flow so invite links survive the login step.
+      if (!location.pathname.startsWith('/invite')) {
+        navigate('/', { replace: true });
+      }
+    }
+  }, [loading, user, navigate, location.pathname]);
 
   // Extract familyId from URL if present
   const familyIdMatch = location.pathname.match(/^\/family\/([^/]+)/);

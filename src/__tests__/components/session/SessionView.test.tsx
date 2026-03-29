@@ -107,20 +107,20 @@ describe('SessionView — disconnected state', () => {
   it('calls startSession when start button is clicked', () => {
     render(<SessionView />);
     const buttons = screen.getAllByRole('button');
-    const startBtn = buttons.find((b) => !b.textContent?.includes('View Past') && !b.textContent?.includes('Back'));
+    const startBtn = buttons.find((b) => !b.textContent?.includes('Back'));
     fireEvent.click(startBtn!);
     expect(mockStartSession).toHaveBeenCalledTimes(1);
   });
 
-  it('shows the View Past Sessions link for storytellers', () => {
+  it('shows the Back to Home link for storytellers', () => {
     render(<SessionView />);
-    expect(screen.getByText(/View Past Sessions/)).toBeInTheDocument();
+    expect(screen.getByText(/Back to Home/)).toBeInTheDocument();
   });
 
-  it('navigates to history on Back link click for storytellers', () => {
+  it('navigates to family home on Back link click for storytellers', () => {
     render(<SessionView />);
-    fireEvent.click(screen.getByText(/View Past Sessions/));
-    expect(mockNavigate).toHaveBeenCalledWith('/family/family-1/dossier/dossier-1/history');
+    fireEvent.click(screen.getByText(/Back to Home/));
+    expect(mockNavigate).toHaveBeenCalledWith('/family/family-1');
   });
 });
 

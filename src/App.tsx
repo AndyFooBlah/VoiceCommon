@@ -5,7 +5,7 @@
  *   /                                        → FamilySelector (create family or enter invite)
  *   /create-family                           → CreateFamily
  *   /invite?token=...                        → AcceptInvite
- *   /family/:familyId                        → Admin: FamilyPage | Storyteller: auto-redirect to session
+ *   /family/:familyId                        → Admin: FamilyPage | Storyteller: StorytellerDashboard
  *   /family/:familyId/dossier/:dossierId     → Admin: DossierEditor
  *   /family/:familyId/dossier/:dossierId/session    → SessionView (both roles)
  *   /family/:familyId/dossier/:dossierId/history    → SessionList

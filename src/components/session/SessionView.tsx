@@ -106,11 +106,11 @@ export const SessionView: React.FC = () => {
       <button
         onClick={() => navigate(isAdmin
           ? `/family/${familyId}/dossier/${dossierId}`
-          : `/family/${familyId}/dossier/${dossierId}/history`
+          : `/family/${familyId}`
         )}
         className="absolute top-4 left-4 text-sm text-slate-400 hover:text-slate-600 transition-colors"
       >
-        &larr; {isAdmin ? 'Back to Dossier' : 'View Past Sessions'}
+        &larr; {isAdmin ? 'Back to Dossier' : 'Back to Home'}
       </button>
 
       {/* Header */}
