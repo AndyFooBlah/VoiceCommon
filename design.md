@@ -5,7 +5,7 @@ LegacyBot is built as a modern React SPA utilizing the Google Gemini Live API fo
 
 ### 1.1 Core Components
 - **Frontend**: React 19+, TypeScript, Tailwind CSS, Vite.
-- **AI Core**: `@google/genai` (Gemini 2.5 Flash Native Audio, model ID: `gemini-2.5-flash-native-audio-preview-12-2025`).
+- **AI Core**: `@google/genai` (Gemini 3.1 Flash Live Preview, model ID: `gemini-3.1-flash-live-preview`).
 - **Auth**: Firebase Authentication (Google and Email/Password sign-in).
 - **Persistence**:
   - **Firestore**: Stores Dossiers, session metadata, question states, and live transcript chunks.
@@ -89,10 +89,15 @@ match /users/{uid}/{document=**} {
 5. All Firestore/GCS operations are scoped to the authenticated `uid`.
 
 ### 3.2 The Interviewer Engine (Function Calling)
-The AI is given a specialized tool: `updateQuestionStatus(id, status, findings)`.
-- As the storyteller speaks, the model periodically calls this function to update the local and remote state of the Dossier.
-- This creates a closed-loop system where the bot "knows" what it has already learned and what it still needs to ask.
-- The system instruction includes the Storyteller's name so the bot can address them personally during the warm-up and throughout the session.
+The AI is given several tools:
+- **`updateQuestionStatus(id, status, findings)`** — updates question progress in Firestore as the storyteller speaks, creating a closed-loop system where the bot tracks what it has learned and what still needs asking.
+- **`reportEmotionalObservation(observation)`** — logs significant emotional moments (e.g., distress, laughter) to the session for later review.
+- **`showPhoto(photoId)`** — displays a prompt photo to the storyteller during the session to spark memories.
+- **`endSession()`** — ends the session programmatically. Called by the AI when the storyteller signals they are done (e.g., "I'm tired", "let's stop"). The AI is instructed to speak closing remarks out loud before calling this tool; `useSession` polls for audio drain before invoking `stopSession()`.
+
+The system instruction includes the Storyteller's name so the bot can address them personally during the warm-up and throughout the session.
+
+**API note (Gemini 3.1 migration)**: In-session text messages use `sendRealtimeInput({ text })` (not `sendClientContent`, which is restricted to initial history). `serverContent` messages may contain multiple parts; the audio playback loop iterates all parts.
 
 ### 3.3 Audio Archiving Mixer
 To satisfy the "capture both sides" requirement, the app uses an internal audio destination:
@@ -119,7 +124,9 @@ Transcripts are appended to a Firestore document array in real-time. This ensure
   2. Syncs the latest transcript state to Firestore.
   3. Updates the session status to `'interrupted'`.
   4. Displays a reassuring, non-technical message to the Storyteller.
-  5. Offers a "Reconnect" button that starts a new Gemini session but continues appending to the same Firestore session document.
+  5. Attempts an automatic reconnect (one attempt, 500ms delay). If that fails, shows a dialog offering manual "Try Again" or "End Session".
+  6. **Reconnect** (`reconnectSession`): reuses the existing Firestore session ID and transcript. Stops/restarts the audio mixer, opens a new Gemini WebSocket, and injects the last 20 transcript entries as a resume prompt so the conversation continues naturally. The AI is instructed to briefly acknowledge the interruption before resuming.
+  7. **AI-initiated end**: The AI can call `endSession()` when the storyteller signals they are done, rather than waiting for a button press.
 - **Connectivity check**: Before starting a session, the app performs a lightweight connectivity probe and warns the Archivist if latency is high.
 
 ## 4. App Structure (Proposed)
