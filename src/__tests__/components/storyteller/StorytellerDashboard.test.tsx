@@ -25,6 +25,21 @@ vi.mock('../../../hooks/useDossier', () => ({
   }),
 }));
 
+// Mock Firestore so DossierSessions' onSnapshot call is a no-op
+vi.mock('firebase/firestore', () => ({
+  collection: vi.fn(),
+  query: vi.fn(),
+  orderBy: vi.fn(),
+  onSnapshot: vi.fn((_q, cb) => {
+    cb({ docs: [] });
+    return () => {};
+  }),
+}));
+
+vi.mock('../../../services/firebase', () => ({
+  db: {},
+}));
+
 import { StorytellerDashboard } from '../../../components/storyteller/StorytellerDashboard';
 
 beforeEach(() => {
@@ -66,25 +81,19 @@ describe('StorytellerDashboard — with dossiers', () => {
     expect(screen.queryByText('Born in 1935')).not.toBeInTheDocument();
   });
 
-  it('shows Start Interview Session button', () => {
+  it('shows Start New Interview button', () => {
     render(<StorytellerDashboard />);
-    expect(screen.getByText('Start Interview Session')).toBeInTheDocument();
+    expect(screen.getByText('Start New Interview')).toBeInTheDocument();
   });
 
-  it('shows View Past Sessions button', () => {
+  it('shows Past Sessions section heading', () => {
     render(<StorytellerDashboard />);
-    expect(screen.getByText('View Past Sessions')).toBeInTheDocument();
+    expect(screen.getByText('Past Sessions')).toBeInTheDocument();
   });
 
-  it('navigates to session on Start Interview Session click', () => {
+  it('navigates to session on Start New Interview click', () => {
     render(<StorytellerDashboard />);
-    fireEvent.click(screen.getByText('Start Interview Session'));
+    fireEvent.click(screen.getByText('Start New Interview'));
     expect(mockNavigate).toHaveBeenCalledWith('/family/family-1/dossier/d1/session');
-  });
-
-  it('navigates to history on View Past Sessions click', () => {
-    render(<StorytellerDashboard />);
-    fireEvent.click(screen.getByText('View Past Sessions'));
-    expect(mockNavigate).toHaveBeenCalledWith('/family/family-1/dossier/d1/history');
   });
 });

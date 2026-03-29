@@ -227,6 +227,22 @@ export async function getPreviousSessionSummary(
   return summary;
 }
 
+/**
+ * Returns the start date of the most recent completed session, or undefined
+ * if there are no completed sessions. Used to calculate "it's been X days"
+ * in the returning-session greeting.
+ */
+export async function getLastSessionDate(
+  familyId: string,
+  dossierId: string,
+): Promise<Date | undefined> {
+  const colRef = collection(db, 'families', familyId, 'dossiers', dossierId, 'sessions');
+  const q = query(colRef, where('status', '==', 'completed'), orderBy('startTime', 'desc'), firestoreLimit(1));
+  const snapshot = await getDocs(q);
+  if (snapshot.empty) return undefined;
+  return snapshot.docs[0].data().startTime?.toDate?.() ?? undefined;
+}
+
 // ---------------------------------------------------------------------------
 // Emotional observation logging
 // ---------------------------------------------------------------------------

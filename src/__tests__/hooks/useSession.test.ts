@@ -60,6 +60,7 @@ const {
     updateQuestionStateInFirestore: vi.fn().mockResolvedValue(undefined),
     getCompletedSessionCount: vi.fn().mockResolvedValue(0),
     getPreviousSessionSummary: vi.fn().mockResolvedValue(undefined),
+    getLastSessionDate: vi.fn().mockResolvedValue(undefined),
     logEmotionalObservation: vi.fn().mockResolvedValue(undefined),
     saveExtractedEvents: vi.fn().mockResolvedValue([]),
     saveFamilyEvents: vi.fn().mockResolvedValue(undefined),
@@ -174,6 +175,7 @@ beforeEach(() => {
   storageSpies.updateQuestionStateInFirestore.mockResolvedValue(undefined);
   storageSpies.getCompletedSessionCount.mockResolvedValue(0);
   storageSpies.getPreviousSessionSummary.mockResolvedValue(undefined);
+  storageSpies.getLastSessionDate.mockResolvedValue(undefined);
   storageSpies.getEvents.mockResolvedValue([]);
   storageSpies.saveExtractedEvents.mockResolvedValue([]);
   storageSpies.saveFamilyEvents.mockResolvedValue(undefined);

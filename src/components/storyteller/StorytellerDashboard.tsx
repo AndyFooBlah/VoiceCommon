@@ -1,12 +1,101 @@
 /**
- * StorytellerDashboard — simplified view for storytellers.
- * Shows a welcome message with direct actions to start a session or view history.
+ * StorytellerDashboard — landing page for storytellers.
+ *
+ * Shows a "Start Interview Session" button and the full session history
+ * inline so the storyteller can browse past recordings/transcripts
+ * without navigating away.
  */
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { collection, query, orderBy, onSnapshot } from 'firebase/firestore';
+import { db } from '../../services/firebase';
 import { useAuth } from '../../hooks/useAuth';
 import { useDossierList } from '../../hooks/useDossier';
+import { SessionMetadata } from '../../types';
+
+function formatDuration(seconds: number): string {
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  if (mins === 0) return `${secs}s`;
+  return `${mins}m ${secs}s`;
+}
+
+interface DossierSessionsProps {
+  familyId: string;
+  dossierId: string;
+}
+
+/** Inline session list for one dossier. */
+const DossierSessions: React.FC<DossierSessionsProps> = ({ familyId, dossierId }) => {
+  const navigate = useNavigate();
+  const [sessions, setSessions] = useState<SessionMetadata[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const colRef = collection(db, 'families', familyId, 'dossiers', dossierId, 'sessions');
+    const q = query(colRef, orderBy('startTime', 'desc'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      setSessions(snapshot.docs.map((doc) => ({ ...doc.data(), id: doc.id }) as SessionMetadata));
+      setLoading(false);
+    }, () => setLoading(false));
+    return unsubscribe;
+  }, [familyId, dossierId]);
+
+  if (loading) {
+    return <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-indigo-600 mx-auto my-4" />;
+  }
+
+  if (sessions.length === 0) {
+    return (
+      <p className="text-center text-slate-400 py-6 text-sm">
+        No sessions yet — start your first interview above.
+      </p>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      {sessions.map((session) => (
+        <div
+          key={session.id}
+          onClick={() => navigate(`/family/${familyId}/dossier/${dossierId}/history/${session.id}`)}
+          className="bg-slate-50 hover:bg-white border border-slate-200 rounded-xl p-4 cursor-pointer transition-colors flex items-center justify-between"
+        >
+          <div className="space-y-0.5">
+            <p className="font-medium text-slate-800 text-sm">
+              {session.startTime?.toDate?.()
+                ? session.startTime.toDate().toLocaleDateString(undefined, {
+                    weekday: 'long',
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric',
+                  })
+                : 'Unknown date'}
+            </p>
+            <p className="text-xs text-slate-400">
+              {session.startTime?.toDate?.()
+                ? session.startTime.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                : ''}{' '}
+              &middot; {formatDuration(session.durationSeconds)}
+            </p>
+          </div>
+          <span
+            className={`text-xs font-bold px-3 py-1 rounded-full uppercase ${
+              session.status === 'completed'
+                ? 'bg-green-100 text-green-600'
+                : session.status === 'interrupted'
+                  ? 'bg-amber-100 text-amber-600'
+                  : 'bg-blue-100 text-blue-600'
+            }`}
+          >
+            {session.status}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+};
 
 export const StorytellerDashboard: React.FC = () => {
   const { familyId } = useParams<{ familyId: string }>();
@@ -27,69 +116,55 @@ export const StorytellerDashboard: React.FC = () => {
       <div className="max-w-md mx-auto p-8 mt-20 text-center space-y-4">
         <h2 className="text-2xl font-bold text-slate-800">Welcome!</h2>
         <p className="text-slate-400">
-          Your family admin hasn't set things up for you yet.
+          Your family admin hasn&apos;t set things up for you yet.
           Check back soon!
         </p>
       </div>
     );
   }
 
-  // Storytellers typically have one dossier — show it prominently
   const dossier = dossiers[0];
 
   return (
     <div className="max-w-lg mx-auto p-8 mt-8 space-y-8">
-      <div className="text-center space-y-3">
+      <div className="text-center space-y-2">
         <h2 className="text-3xl font-bold text-slate-800 tracking-tight">
           Welcome, {dossier.storytellerName}
         </h2>
-        <p className="text-slate-400">
-          Ready to share more of your story?
-        </p>
+        <p className="text-slate-400">Ready to share more of your story?</p>
       </div>
 
-      <div className="bg-white rounded-3xl border border-slate-200 p-8 shadow-sm space-y-6">
-        <button
-          onClick={() => navigate(`/family/${familyId}/dossier/${dossier.id}/session`)}
-          className="w-full py-5 bg-indigo-600 text-white rounded-2xl font-bold text-lg hover:bg-indigo-700 transition-colors shadow-lg"
-        >
-          Start Interview Session
-        </button>
+      <button
+        onClick={() => navigate(`/family/${familyId}/dossier/${dossier.id}/session`)}
+        className="w-full py-5 bg-indigo-600 text-white rounded-2xl font-bold text-lg hover:bg-indigo-700 transition-colors shadow-lg"
+      >
+        Start New Interview
+      </button>
 
-        <button
-          onClick={() => navigate(`/family/${familyId}/dossier/${dossier.id}/history`)}
-          className="w-full py-4 bg-white border border-slate-200 text-slate-600 rounded-2xl font-semibold hover:bg-slate-50 transition-colors"
-        >
-          View Past Sessions
-        </button>
+      {/* Inline session history */}
+      <div className="space-y-3">
+        <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider">
+          Past Sessions
+        </h3>
+        <DossierSessions familyId={familyId!} dossierId={dossier.id} />
       </div>
 
-      {/* Show additional dossiers if there are more than one */}
+      {/* Additional dossiers if the storyteller has more than one */}
       {dossiers.length > 1 && (
-        <div className="space-y-3">
+        <div className="space-y-4">
           <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">
             Other Profiles
           </p>
           {dossiers.slice(1).map((d) => (
-            <div
-              key={d.id}
-              className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm"
-            >
-              <h3 className="font-semibold text-slate-800 mb-3">{d.storytellerName}</h3>
-              <div className="flex gap-3">
-                <button
-                  onClick={() => navigate(`/family/${familyId}/dossier/${d.id}/session`)}
-                  className="flex-1 py-3 bg-indigo-600 text-white rounded-xl font-semibold hover:bg-indigo-700 transition-colors"
-                >
-                  Start Session
-                </button>
-                <button
-                  onClick={() => navigate(`/family/${familyId}/dossier/${d.id}/history`)}
-                  className="px-5 py-3 bg-white border border-slate-200 text-slate-600 rounded-xl font-semibold hover:bg-slate-50 transition-colors"
-                >
-                  History
-                </button>
-              </div>
+            <div key={d.id} className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-4">
+              <h3 className="font-semibold text-slate-800">{d.storytellerName}</h3>
+              <button
+                onClick={() => navigate(`/family/${familyId}/dossier/${d.id}/session`)}
+                className="w-full py-3 bg-indigo-600 text-white rounded-xl font-semibold hover:bg-indigo-700 transition-colors"
+              >
+                Start Session
+              </button>
+              <DossierSessions familyId={familyId!} dossierId={d.id} />
             </div>
           ))}
         </div>

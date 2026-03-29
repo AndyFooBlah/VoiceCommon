@@ -40,6 +40,8 @@ export interface BuildInstructionOptions {
   completedSessionCount: number;
   /** Summary of topics covered in recent sessions (from Story Queue findings). */
   previousSessionSummary?: string;
+  /** Start date of the most recent completed session, for "it's been X days" greeting. */
+  lastSessionDate?: Date;
 }
 
 /**
@@ -49,11 +51,24 @@ export interface BuildInstructionOptions {
  * first session or a returning visit, and includes admin-provided interviewer
  * notes for custom guidance.
  */
+/** Format a Date into a human-readable "time ago" string for the greeting. */
+function formatTimeAgo(date: Date): string {
+  const days = Math.floor((Date.now() - date.getTime()) / (1000 * 60 * 60 * 24));
+  if (days === 0) return 'earlier today';
+  if (days === 1) return 'yesterday';
+  if (days < 7) return `${days} days ago`;
+  if (days < 14) return 'about a week ago';
+  if (days < 30) return `${Math.floor(days / 7)} weeks ago`;
+  if (days < 60) return 'about a month ago';
+  return `${Math.floor(days / 30)} months ago`;
+}
+
 export function buildSystemInstruction(options: BuildInstructionOptions): string {
-  const { dossier, questions, familyTree, promptPhotos, completedSessionCount, previousSessionSummary } = options;
+  const { dossier, questions, familyTree, promptPhotos, completedSessionCount, previousSessionSummary, lastSessionDate } = options;
   const isFirstSession = completedSessionCount === 0;
   const name = dossier.storytellerName;
   const adminName = dossier.adminName || 'your family';
+  const timeAgo = lastSessionDate ? formatTimeAgo(lastSessionDate) : undefined;
 
   // Build the greeting section based on session history
   let greetingSection: string;
@@ -76,8 +91,8 @@ You must speak first. This is your first conversation with ${name}. You should:
     }
 
     greetingSection = `MANDATORY START (RETURNING SESSION — session #${completedSessionCount + 1}):
-You must speak first. ${name} has spoken with you ${completedSessionCount} time${completedSessionCount > 1 ? 's' : ''} before. You should:
-1. Welcome them back warmly by name.
+You must speak first. ${name} has spoken with you ${completedSessionCount} time${completedSessionCount > 1 ? 's' : ''} before${timeAgo ? `, most recently ${timeAgo}` : ''}. You should:
+1. Welcome them back warmly by name${timeAgo ? ` and note it's been ${timeAgo} since you last spoke` : ''}.
 2. Briefly reference something specific from a previous conversation to show continuity and that you remember them.${recapLines.length > 0 ? `\n3. Recent topics discussed:\n${recapLines.join('\n')}` : ''}
 ${previousSessionSummary ? `4. Previous session context: ${previousSessionSummary}` : ''}
 Then transition naturally to the next Unasked topic from the Story Queue, or continue exploring an InProgress topic.`;

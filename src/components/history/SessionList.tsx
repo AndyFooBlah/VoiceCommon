@@ -70,10 +70,10 @@ export const SessionList: React.FC = () => {
     <div className="max-w-3xl mx-auto p-8 space-y-6">
       <div>
         <button
-          onClick={() => navigate(isAdmin ? `/family/${familyId}/dossier/${dossierId}` : `/family/${familyId}/dossier/${dossierId}/session`)}
+          onClick={() => navigate(isAdmin ? `/family/${familyId}/dossier/${dossierId}` : `/family/${familyId}`)}
           className="text-sm text-indigo-600 font-medium hover:underline mb-1"
         >
-          &larr; {isAdmin ? 'Back to Dossier' : 'Back to Recording Session'}
+          &larr; {isAdmin ? 'Back to Dossier' : 'Back to Home'}
         </button>
         <h2 className="text-2xl font-bold text-slate-800">Session History</h2>
       </div>

@@ -32,6 +32,7 @@ import {
   updateQuestionStateInFirestore,
   getCompletedSessionCount,
   getPreviousSessionSummary,
+  getLastSessionDate,
   logEmotionalObservation,
   saveExtractedEvents,
   saveFamilyEvents,
@@ -159,14 +160,16 @@ export function useSession({
       // 0. Connectivity check + session history fetch (combined to avoid duplicate call)
       let completedSessionCount = 0;
       let previousSessionSummary: string | undefined;
+      let lastSessionDate: Date | undefined;
       try {
         const start = Date.now();
-        [completedSessionCount, previousSessionSummary] = await Promise.all([
+        [completedSessionCount, previousSessionSummary, lastSessionDate] = await Promise.all([
           Promise.race([
             getCompletedSessionCount(familyId, dossierId),
             new Promise<number>((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000)),
           ]).catch(() => 0),
           getPreviousSessionSummary(familyId, dossierId).catch(() => undefined),
+          getLastSessionDate(familyId, dossierId).catch(() => undefined),
         ]);
         const latency = Date.now() - start;
         if (latency > 500) {
@@ -266,6 +269,7 @@ export function useSession({
         promptPhotos,
         completedSessionCount,
         previousSessionSummary,
+        lastSessionDate,
       });
 
       const sessionPromise = ai.live.connect({
@@ -289,14 +293,12 @@ export function useSession({
             scriptProcessor.connect(inputCtx.destination);
 
             // Send a text prompt to trigger the bot's first greeting immediately
+            const greetingTrigger = completedSessionCount === 0
+              ? `[First session with ${dossier.storytellerName}. Introduce yourself and begin the interview as instructed.]`
+              : `[Returning session #${completedSessionCount + 1} with ${dossier.storytellerName}. Welcome them back as instructed and continue the interview.]`;
             sessionPromise.then((session) =>
               session.sendClientContent({
-                turns: [
-                  {
-                    role: 'user',
-                    parts: [{ text: `[Session started. Greet ${dossier.storytellerName} now.]` }],
-                  },
-                ],
+                turns: [{ role: 'user', parts: [{ text: greetingTrigger }] }],
                 turnComplete: true,
               }),
             );
