@@ -361,10 +361,10 @@ export function useSession({
             const sanitize = (text: string) =>
               text.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
 
-            if (message.serverContent?.inputTranscription) {
+            if (message.serverContent?.inputTranscription?.text) {
               currentInputRef.current += sanitize(message.serverContent.inputTranscription.text);
             }
-            if (message.serverContent?.outputTranscription) {
+            if (message.serverContent?.outputTranscription?.text) {
               // When the bot starts speaking, flush any accumulated user input first
               if (currentInputRef.current) {
                 addMessage('user', currentInputRef.current);

@@ -98,10 +98,15 @@ const DossierSessions: React.FC<DossierSessionsProps> = ({ familyId, dossierId }
 };
 
 export const StorytellerDashboard: React.FC = () => {
-  const { familyId } = useParams<{ familyId: string }>();
+  const { familyId: rawFamilyId } = useParams<{ familyId: string }>();
   const { user } = useAuth();
   const navigate = useNavigate();
-  const { dossiers, loading } = useDossierList(familyId, user?.uid);
+  const { dossiers, loading } = useDossierList(rawFamilyId, user?.uid);
+
+  if (!rawFamilyId) return null;
+  // Re-bind as a separate const so TypeScript knows the type is string (not string|undefined)
+  // even inside closures (onClick lambdas, .map callbacks) that capture this variable.
+  const familyId: string = rawFamilyId;
 
   if (loading) {
     return (
@@ -146,7 +151,7 @@ export const StorytellerDashboard: React.FC = () => {
         <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider">
           Past Sessions
         </h3>
-        <DossierSessions familyId={familyId!} dossierId={dossier.id} />
+        <DossierSessions familyId={familyId} dossierId={dossier.id!} />
       </div>
 
       {/* Additional dossiers if the storyteller has more than one */}
@@ -164,7 +169,7 @@ export const StorytellerDashboard: React.FC = () => {
               >
                 Start Session
               </button>
-              <DossierSessions familyId={familyId!} dossierId={d.id} />
+              <DossierSessions familyId={familyId} dossierId={d.id!} />
             </div>
           ))}
         </div>
