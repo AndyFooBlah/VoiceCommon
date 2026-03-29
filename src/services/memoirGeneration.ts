@@ -58,7 +58,8 @@ export async function generateOutline(
     .join('\n');
 
   const response = await ai.models.generateContent({
-    model: 'gemini-2.5-flash',
+    model: 'gemini-3.1-pro-preview',
+    config: { thinkingConfig: { thinkingLevel: 'high' } },
     contents: `You are an expert biographer creating a memoir outline for ${dossier.storytellerName}.
 
 Based on the interview transcripts, extracted events, and topic findings below, create a chapter outline for a third-person biography.
@@ -123,7 +124,8 @@ export async function generateChapter(
   ).join('\n');
 
   const response = await ai.models.generateContent({
-    model: 'gemini-2.5-flash',
+    model: 'gemini-3.1-pro-preview',
+    config: { thinkingConfig: { thinkingLevel: 'high' } },
     contents: `You are writing a chapter of a third-person biography about ${dossier.storytellerName}.
 
 CHAPTER: "${chapterTitle}"

@@ -56,7 +56,8 @@ export async function extractEvents(
     : '';
 
   const response = await ai.models.generateContent({
-    model: 'gemini-2.5-flash',
+    model: 'gemini-3.1-pro-preview',
+    config: { thinkingConfig: { thinkingLevel: 'high' } },
     contents: `You are an expert oral historian analyzing an interview transcript.
 Extract discrete life events mentioned in this conversation. Each event should be a specific moment, period, or experience — not a vague topic.
 
@@ -140,7 +141,8 @@ export async function assessEngagement(
     : '';
 
   const response = await ai.models.generateContent({
-    model: 'gemini-2.5-flash',
+    model: 'gemini-3.1-pro-preview',
+    config: { thinkingConfig: { thinkingLevel: 'high' } },
     contents: `You are an expert at analyzing interview dynamics. Assess the storyteller's engagement and emotional comfort in this interview transcript.
 
 Provide your assessment as JSON with these fields:
@@ -205,7 +207,8 @@ export async function suggestQuestions(
   const transcript = formatTranscript(entries);
 
   const response = await ai.models.generateContent({
-    model: 'gemini-2.5-flash',
+    model: 'gemini-3.1-pro-preview',
+    config: { thinkingConfig: { thinkingLevel: 'high' } },
     contents: `You are an expert oral historian helping plan the next interview session. Based on this transcript, suggest 3-5 new questions for the Story Queue.
 
 Look for:

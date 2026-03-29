@@ -672,6 +672,7 @@ export function useSession({
         },
         config: {
           responseModalities: [Modality.AUDIO],
+          thinkingConfig: { thinkingLevel: 'minimal' },
           systemInstruction,
           speechConfig: {
             voiceConfig: {
@@ -820,6 +821,7 @@ ${recentContext}]`
         },
         config: {
           responseModalities: [Modality.AUDIO],
+          thinkingConfig: { thinkingLevel: 'minimal' },
           systemInstruction,
           speechConfig: {
             voiceConfig: {

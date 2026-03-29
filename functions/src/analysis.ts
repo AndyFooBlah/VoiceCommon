@@ -11,7 +11,7 @@
  */
 
 import * as admin from 'firebase-admin';
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, ThinkingLevel } from '@google/genai';
 
 // Lazy getter so we don't call admin.firestore() before initializeApp()
 const db = () => admin.firestore();
@@ -206,8 +206,9 @@ Respond with a single JSON object matching this exact structure:
 }`;
 
   const response = await ai.models.generateContent({
-    model: 'gemini-2.5-flash',
+    model: 'gemini-3.1-pro-preview',
     contents: prompt,
+    config: { thinkingConfig: { thinkingLevel: ThinkingLevel.HIGH } },
   });
 
   const text = response.text ?? '{}';

@@ -5,7 +5,9 @@ LegacyBot is built as a modern React SPA utilizing the Google Gemini Live API fo
 
 ### 1.1 Core Components
 - **Frontend**: React 19+, TypeScript, Tailwind CSS, Vite.
-- **AI Core**: `@google/genai` (Gemini 3.1 Flash Live Preview, model ID: `gemini-3.1-flash-live-preview`).
+- **AI Core**: `@google/genai`. All models are Gemini 3.1 or newer — no earlier models are used anywhere in the app.
+  - Live session: `gemini-3.1-flash-live-preview` (real-time voice, `thinkingLevel: MINIMAL` for lowest latency)
+  - Batch analysis (post-session, gap analysis, memoir): `gemini-3.1-pro-preview` (`thinkingLevel: HIGH` for maximum reasoning depth)
 - **Auth**: Firebase Authentication (Google and Email/Password sign-in).
 - **Persistence**:
   - **Firestore**: Stores Dossiers, session metadata, question states, and live transcript chunks.
@@ -149,7 +151,9 @@ Runs in `useSession.ts` as a background async block when `stopSession` is called
    - **Implied but unexplored**: people/places/times mentioned in passing but never followed up
    Writes 3–5 targeted question suggestions + a structured gap summary to `dossiers/{id}/analysis/gapAnalysis`.
 
-*`sendDailyDigest` (scheduled, 9 AM UTC)* — for each dossier where it has been 2–7 days since the last session and the storyteller has a linked account with an email address (and no digest was sent in the last 2 days), sends a warm re-engagement email. Content is drawn from the Story Queue (`Unasked` questions) and the latest gap analysis. Records `lastDigestSentAt` on the dossier to prevent repeat sends.
+*`sendDailyDigest` (scheduled, every hour)* — runs hourly. For each dossier, checks whether it is currently 7am in the storyteller's local timezone (stored as an IANA string in `users/{uid}.timezone`, written on every login via `Intl.DateTimeFormat().resolvedOptions().timeZone`). If so, and if the day-range gate (2–7 days since last session) and the idempotency gate (`lastDigestSentAt` 2-day window) pass, sends a warm re-engagement email. Content is drawn from the Story Queue (`Unasked` questions) and high-priority gap analysis suggestions. Records `lastDigestSentAt` on the dossier after each send.
+
+*`triggerDigestForDossier` (HTTPS callable)* — admin-only callable that sends the digest email immediately for a specific dossier, bypassing timing gates. Invoked by the "Send nudge email" button in `DossierEditor`. Updates `lastDigestSentAt` after sending so the scheduled function does not re-send within 2 days.
 
 **Firestore paths for Tier 2:**
 ```

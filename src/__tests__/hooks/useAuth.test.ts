@@ -97,7 +97,12 @@ describe('useAuth — signInWithGoogle', () => {
   });
 
   it('does not overwrite existing user profile', async () => {
-    mockFirestore.getDoc.mockResolvedValueOnce({ exists: () => true, data: () => ({}) });
+    // Return a profile whose timezone already matches the browser's — no merge needed.
+    const browserTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    mockFirestore.getDoc.mockResolvedValueOnce({
+      exists: () => true,
+      data: () => ({ timezone: browserTimezone }),
+    });
 
     const { result } = renderHook(() => useAuth());
     await act(async () => {

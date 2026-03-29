@@ -37,6 +37,7 @@ const googleProvider = new GoogleAuthProvider();
 async function ensureUserProfile(user: User): Promise<void> {
   const userRef = doc(db, 'users', user.uid);
   const snapshot = await getDoc(userRef);
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   if (!snapshot.exists()) {
     const profile: UserProfile = {
       email: user.email ?? '',
@@ -44,7 +45,13 @@ async function ensureUserProfile(user: User): Promise<void> {
       createdAt: Timestamp.now(),
       familyIds: [],
     };
-    await setDoc(userRef, profile);
+    await setDoc(userRef, { ...profile, timezone });
+  } else {
+    // Keep timezone current in case the user has travelled or changed system settings.
+    const existing = snapshot.data();
+    if (existing.timezone !== timezone) {
+      await setDoc(userRef, { timezone }, { merge: true });
+    }
   }
 }
 

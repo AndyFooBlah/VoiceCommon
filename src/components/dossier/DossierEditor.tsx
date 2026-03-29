@@ -26,6 +26,7 @@ import { useFamilyInvitations } from '../../hooks/useInvitations';
 import { StorytellerProfile } from './StorytellerProfile';
 import { uploadPromptPhoto, getPromptPhotos, deletePromptPhoto } from '../../services/storage';
 import { PersonalityMode, VoicePreset, PromptPhoto } from '../../types';
+import { getFunctions, httpsCallable } from 'firebase/functions';
 
 export const DossierEditor: React.FC = () => {
   const { familyId, dossierId } = useParams<{ familyId: string; dossierId: string }>();
@@ -48,6 +49,10 @@ export const DossierEditor: React.FC = () => {
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteLink, setInviteLink] = useState<string | null>(null);
   const [inviting, setInviting] = useState(false);
+
+  // Nudge email state
+  const [sendingNudge, setSendingNudge] = useState(false);
+  const [nudgeResult, setNudgeResult] = useState<'sent' | 'error' | null>(null);
 
   // Prompt photos state
   const [promptPhotos, setPromptPhotos] = useState<PromptPhoto[]>([]);
@@ -72,6 +77,22 @@ export const DossierEditor: React.FC = () => {
       alert(err.message || 'Failed to create invitation');
     } finally {
       setInviting(false);
+    }
+  }
+
+  async function handleSendNudge() {
+    if (!familyId || !dossierId) return;
+    setSendingNudge(true);
+    setNudgeResult(null);
+    try {
+      const fn = httpsCallable(getFunctions(), 'triggerDigestForDossier');
+      await fn({ familyId, dossierId });
+      setNudgeResult('sent');
+    } catch {
+      setNudgeResult('error');
+    } finally {
+      setSendingNudge(false);
+      setTimeout(() => setNudgeResult(null), 4000);
     }
   }
 
@@ -460,6 +481,34 @@ export const DossierEditor: React.FC = () => {
             className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:ring-1 focus:ring-indigo-500 resize-none"
           />
         </section>
+
+        {/* Nudge email — manual re-engagement trigger for admins */}
+        {dossier.storytellerUid && (
+          <section className="space-y-2 pt-2 border-t border-slate-100">
+            <h3 className="font-bold text-slate-700">Re-engagement</h3>
+            <p className="text-xs text-slate-500">
+              Send {dossier.preferredName ?? dossier.storytellerName} an email previewing upcoming
+              topics to encourage their next recording session.
+            </p>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={handleSendNudge}
+                disabled={sendingNudge}
+                className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50"
+              >
+                {sendingNudge ? 'Sending…' : 'Send nudge email'}
+              </button>
+              {nudgeResult === 'sent' && (
+                <span className="text-sm text-emerald-600 font-medium">Email sent!</span>
+              )}
+              {nudgeResult === 'error' && (
+                <span className="text-sm text-rose-600 font-medium">
+                  Could not send — storyteller may have no email or no upcoming topics.
+                </span>
+              )}
+            </div>
+          </section>
+        )}
       </div>
     </div>
   );

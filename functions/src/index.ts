@@ -365,23 +365,204 @@ export const onSessionCompleted = functions
   });
 
 // ---------------------------------------------------------------------------
-// Nightly Storyteller Digest Email (#82)
+// Digest email helpers (#82, #83, #84)
+// ---------------------------------------------------------------------------
+
+/** Return the local hour (0–23) for a given IANA timezone string. */
+function getLocalHour(timezone: string): number {
+  try {
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      hour: 'numeric',
+      hour12: false,
+    });
+    return parseInt(formatter.format(new Date()), 10);
+  } catch {
+    return -1; // invalid timezone — caller should skip
+  }
+}
+
+interface DigestOptions {
+  /** When true, bypass day-range and lastDigestSentAt timing checks (manual trigger). */
+  force?: boolean;
+}
+
+/**
+ * Build and send a digest email for a single dossier.
+ * Returns true if an email was sent, false if skipped.
+ *
+ * Timing gates (skipped when force=true):
+ *   - Last session must be 2–7 days ago
+ *   - No digest sent in the last 2 days (lastDigestSentAt)
+ *   - Current local hour in the storyteller's timezone must be 7
+ */
+async function sendDigestForDossier(
+  familyId: string,
+  dossierId: string,
+  transporter: nodemailer.Transporter,
+  options: DigestOptions = {},
+): Promise<boolean> {
+  const { force = false } = options;
+  const now = Date.now();
+  const TWO_DAYS_MS = 2 * 24 * 60 * 60 * 1000;
+
+  const dossierDoc = await db
+    .collection('families').doc(familyId)
+    .collection('dossiers').doc(dossierId)
+    .get();
+
+  if (!dossierDoc.exists) return false;
+  const dossierData = dossierDoc.data()!;
+
+  const storytellerUid: string | null = dossierData.storytellerUid ?? null;
+  const preferredName: string = dossierData.preferredName ?? dossierData.storytellerName ?? 'there';
+
+  if (!storytellerUid) return false;
+
+  if (!force) {
+    // Skip if digest was sent within the last 2 days
+    const lastDigestMs: number = dossierData.lastDigestSentAt?.toMillis?.() ?? 0;
+    if (now - lastDigestMs < TWO_DAYS_MS) return false;
+  }
+
+  // Find the most recent completed session
+  const recentSessionSnap = await db
+    .collection('families').doc(familyId)
+    .collection('dossiers').doc(dossierId)
+    .collection('sessions')
+    .where('status', '==', 'completed')
+    .orderBy('startTime', 'desc')
+    .limit(1)
+    .get();
+
+  if (recentSessionSnap.empty) return false;
+
+  const lastSessionMs: number =
+    recentSessionSnap.docs[0].data().startTime?.toMillis?.() ?? 0;
+  const daysSince = (now - lastSessionMs) / (24 * 60 * 60 * 1000);
+
+  if (!force) {
+    if (daysSince < 2 || daysSince > 7) return false;
+
+    // Check timezone: only send at 7am local time (#83)
+    let storytellerTimezone: string | undefined;
+    try {
+      const userDoc = await db.collection('users').doc(storytellerUid).get();
+      storytellerTimezone = userDoc.data()?.timezone;
+    } catch {
+      // user doc not found
+    }
+    if (!storytellerTimezone) return false; // no timezone on file — skip rather than wrong-time send
+    const localHour = getLocalHour(storytellerTimezone);
+    if (localHour !== 7) return false;
+  }
+
+  // Look up storyteller's email via Firebase Auth
+  let storytellerEmail: string | undefined;
+  try {
+    const userRecord = await admin.auth().getUser(storytellerUid);
+    storytellerEmail = userRecord.email;
+  } catch {
+    // user deleted or no email
+  }
+  if (!storytellerEmail) return false;
+
+  // Gather topics: up to 2 high-priority gap questions, then fill from Story Queue
+  const gapAnalysis = await getGapAnalysis(familyId, dossierId);
+  const gapTopics: string[] = (gapAnalysis?.questions ?? [])
+    .filter((q) => q.priority === 'high')
+    .slice(0, 2)
+    .map((q) => q.text);
+
+  const questionsSnap = await db
+    .collection('families').doc(familyId)
+    .collection('dossiers').doc(dossierId)
+    .collection('questions')
+    .where('status', '==', 'Unasked')
+    .orderBy('order', 'asc')
+    .limit(3)
+    .get();
+
+  const storyQueueTopics: string[] = questionsSnap.docs.map((d) => d.data().text as string);
+  const allTopics = [...new Set([...gapTopics, ...storyQueueTopics])].slice(0, 4);
+
+  if (allTopics.length === 0) return false;
+
+  const daysText =
+    daysSince < 3 ? 'a couple of days' :
+    daysSince < 5 ? 'a few days' :
+    'about a week';
+
+  const narrativeHint = gapAnalysis?.narrativeSummary
+    ? `<p style="color: #64748b; line-height: 1.6; font-style: italic;">${gapAnalysis.narrativeSummary}</p>`
+    : '';
+
+  const topicListHtml = allTopics
+    .map((t) => `<li style="margin-bottom: 8px; color: #475569; line-height: 1.5;">${t}</li>`)
+    .join('');
+
+  const sessionUrl = `${appUrl.value()}/family/${familyId}`;
+
+  await transporter.sendMail({
+    from: `"LegacyBot" <${smtpUser.value()}>`,
+    to: storytellerEmail,
+    subject: `I've been thinking about what to ask you next, ${preferredName}`,
+    html: `
+      <div style="font-family: system-ui, sans-serif; max-width: 520px; margin: 0 auto; padding: 32px;">
+        <h1 style="font-size: 22px; color: #1e293b; margin-bottom: 8px;">
+          Ready when you are, ${preferredName}
+        </h1>
+        <p style="color: #64748b; line-height: 1.6;">
+          It's been ${daysText} since we last spoke, and I've been looking forward
+          to our next conversation. There are some wonderful threads from your life
+          I'd love to explore with you:
+        </p>
+        <ul style="padding-left: 20px; margin: 16px 0;">
+          ${topicListHtml}
+        </ul>
+        ${narrativeHint}
+        <a href="${sessionUrl}"
+           style="display: inline-block; margin-top: 20px; padding: 14px 28px;
+                  background: #4f46e5; color: white; text-decoration: none;
+                  border-radius: 12px; font-weight: bold; font-size: 16px;">
+          Continue My Story
+        </a>
+        <p style="margin-top: 28px; font-size: 12px; color: #94a3b8; line-height: 1.5;">
+          You're receiving this because you have an active story archive on LegacyBot.
+          There's no obligation to record — whenever you're ready, I'll be here.
+        </p>
+      </div>
+    `,
+  });
+
+  // Record send time to prevent repeat emails within 2 days
+  await db
+    .collection('families').doc(familyId)
+    .collection('dossiers').doc(dossierId)
+    .update({ lastDigestSentAt: admin.firestore.Timestamp.now() });
+
+  functions.logger.info(
+    `[Digest] Sent to ${storytellerEmail} for dossier ${dossierId}` +
+    ` (${allTopics.length} topics, ${daysText} since last session, force=${force})`,
+  );
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// Hourly digest sweep — sends at 7am in each storyteller's local timezone (#82, #83)
 // ---------------------------------------------------------------------------
 
 /**
- * Runs daily at 9 AM UTC.
+ * Runs every hour. For each dossier, checks if it is currently 7am in the
+ * storyteller's timezone (stored in users/{uid}.timezone on login) and sends
+ * a re-engagement email if the timing and day-range gates pass.
  *
- * For each dossier where:
- *   - It has been 2–7 days since the last completed session
- *   - The storyteller has a linked account with an email address
- *   - We have not already sent a digest within the last 2 days
- *
- * Sends a warm re-engagement email previewing upcoming topics drawn from
- * the Story Queue (Unasked questions) and the latest gap analysis.
+ * The lastDigestSentAt 2-day gate on the dossier is the idempotency lock —
+ * even if a function run overlaps an hour boundary, the second run is a no-op.
  */
 export const sendDailyDigest = functions
   .runWith({ secrets: [smtpPass], timeoutSeconds: 540 })
-  .pubsub.schedule('0 9 * * *')
+  .pubsub.schedule('0 * * * *') // every hour
   .timeZone('UTC')
   .onRun(async () => {
     const transporter = createTransporter();
@@ -390,158 +571,65 @@ export const sendDailyDigest = functions
       return;
     }
 
-    const now = Date.now();
-    const TWO_DAYS_MS = 2 * 24 * 60 * 60 * 1000;
-
-    // Iterate all families
     const familiesSnap = await db.collection('families').get();
+    let sent = 0;
 
     for (const familyDoc of familiesSnap.docs) {
       const familyId = familyDoc.id;
-
-      // Iterate all dossiers in this family
       const dossiersSnap = await db
         .collection('families').doc(familyId)
         .collection('dossiers')
         .get();
 
       for (const dossierDoc of dossiersSnap.docs) {
-        const dossierId = dossierDoc.id;
-        const dossierData = dossierDoc.data();
-        const storytellerUid: string | null = dossierData.storytellerUid ?? null;
-        const preferredName: string = dossierData.preferredName ?? dossierData.storytellerName ?? 'there';
-
-        // Skip if no linked storyteller account
-        if (!storytellerUid) continue;
-
-        // Skip if digest was sent within the last 2 days
-        const lastDigestMs: number =
-          dossierData.lastDigestSentAt?.toMillis?.() ?? 0;
-        if (now - lastDigestMs < TWO_DAYS_MS) continue;
-
-        // Find the most recent completed session
-        const recentSessionSnap = await db
-          .collection('families').doc(familyId)
-          .collection('dossiers').doc(dossierId)
-          .collection('sessions')
-          .where('status', '==', 'completed')
-          .orderBy('startTime', 'desc')
-          .limit(1)
-          .get();
-
-        if (recentSessionSnap.empty) continue;
-
-        const lastSessionMs: number =
-          recentSessionSnap.docs[0].data().startTime?.toMillis?.() ?? 0;
-        const daysSince = (now - lastSessionMs) / (24 * 60 * 60 * 1000);
-
-        // Only send if 2–7 days since last session
-        if (daysSince < 2 || daysSince > 7) continue;
-
-        // Look up storyteller's email via Firebase Auth
-        let storytellerEmail: string | undefined;
         try {
-          const userRecord = await admin.auth().getUser(storytellerUid);
-          storytellerEmail = userRecord.email;
-        } catch {
-          // User may have been deleted or have no email
-        }
-        if (!storytellerEmail) continue;
-
-        // Gather topics: up to 3 Unasked Story Queue questions
-        const questionsSnap = await db
-          .collection('families').doc(familyId)
-          .collection('dossiers').doc(dossierId)
-          .collection('questions')
-          .where('status', '==', 'Unasked')
-          .orderBy('order', 'asc')
-          .limit(3)
-          .get();
-
-        const storyQueueTopics: string[] = questionsSnap.docs.map(
-          (d) => d.data().text as string,
-        );
-
-        // Gather up to 2 high-priority gap analysis suggestions
-        const gapAnalysis = await getGapAnalysis(familyId, dossierId);
-        const gapTopics: string[] = (gapAnalysis?.questions ?? [])
-          .filter((q) => q.priority === 'high')
-          .slice(0, 2)
-          .map((q) => q.text);
-
-        // Combine topics, deduplicating, max 4
-        const allTopics = [...new Set([...gapTopics, ...storyQueueTopics])].slice(0, 4);
-
-        // Skip if there's nothing to say
-        if (allTopics.length === 0) continue;
-
-        const daysText =
-          daysSince < 3 ? 'a couple of days' :
-          daysSince < 5 ? 'a few days' :
-          'about a week';
-
-        const narrativeHint = gapAnalysis?.narrativeSummary
-          ? `<p style="color: #64748b; line-height: 1.6; font-style: italic;">
-               ${gapAnalysis.narrativeSummary}
-             </p>`
-          : '';
-
-        const topicListHtml = allTopics
-          .map(
-            (t) =>
-              `<li style="margin-bottom: 8px; color: #475569; line-height: 1.5;">${t}</li>`,
-          )
-          .join('');
-
-        const sessionUrl = `${appUrl.value()}/family/${familyId}`;
-
-        try {
-          await transporter.sendMail({
-            from: `"LegacyBot" <${smtpUser.value()}>`,
-            to: storytellerEmail,
-            subject: `I've been thinking about what to ask you next, ${preferredName}`,
-            html: `
-              <div style="font-family: system-ui, sans-serif; max-width: 520px; margin: 0 auto; padding: 32px;">
-                <h1 style="font-size: 22px; color: #1e293b; margin-bottom: 8px;">
-                  Ready when you are, ${preferredName}
-                </h1>
-                <p style="color: #64748b; line-height: 1.6;">
-                  It's been ${daysText} since we last spoke, and I've been looking forward
-                  to our next conversation. There are some wonderful threads from your life
-                  I'd love to explore with you:
-                </p>
-                <ul style="padding-left: 20px; margin: 16px 0;">
-                  ${topicListHtml}
-                </ul>
-                ${narrativeHint}
-                <a href="${sessionUrl}"
-                   style="display: inline-block; margin-top: 20px; padding: 14px 28px;
-                          background: #4f46e5; color: white; text-decoration: none;
-                          border-radius: 12px; font-weight: bold; font-size: 16px;">
-                  Continue My Story
-                </a>
-                <p style="margin-top: 28px; font-size: 12px; color: #94a3b8; line-height: 1.5;">
-                  You're receiving this because you have an active story archive on LegacyBot.
-                  There's no obligation to record — whenever you're ready, I'll be here.
-                </p>
-              </div>
-            `,
-          });
-          functions.logger.info(
-            `[Digest] Sent to ${storytellerEmail} for dossier ${dossierId} ` +
-            `(${allTopics.length} topics, ${daysText} since last session)`,
+          const didSend = await sendDigestForDossier(
+            familyId, dossierDoc.id, transporter,
           );
-
-          // Record send time to prevent repeat emails
-          await db
-            .collection('families').doc(familyId)
-            .collection('dossiers').doc(dossierId)
-            .update({ lastDigestSentAt: admin.firestore.Timestamp.now() });
+          if (didSend) sent++;
         } catch (err) {
           functions.logger.error(
-            `[Digest] Failed to send to ${storytellerEmail}:`, err,
+            `[Digest] Error for dossier ${dossierDoc.id}:`, err,
           );
         }
       }
     }
+
+    functions.logger.info(`[Digest] Run complete — ${sent} email(s) sent`);
+  });
+
+// ---------------------------------------------------------------------------
+// Manual digest trigger — admin callable (#84)
+// ---------------------------------------------------------------------------
+
+/**
+ * Callable function: send a digest email for a specific dossier immediately,
+ * bypassing day-range and timezone timing gates.
+ *
+ * Requires the caller to be a family admin.
+ * Useful for testing and for admins who want to send a nudge.
+ */
+export const triggerDigestForDossier = functions
+  .runWith({ secrets: [smtpPass] })
+  .https.onCall(async (data, context) => {
+    const { familyId, dossierId } = data as { familyId: string; dossierId: string };
+    if (!familyId || !dossierId) {
+      throw new functions.https.HttpsError('invalid-argument', 'familyId and dossierId are required.');
+    }
+
+    await verifyFamilyAdmin(context, familyId);
+
+    const transporter = createTransporter();
+    if (!transporter) {
+      throw new functions.https.HttpsError('internal', 'SMTP is not configured on this server.');
+    }
+
+    const sent = await sendDigestForDossier(familyId, dossierId, transporter, { force: true });
+    if (!sent) {
+      throw new functions.https.HttpsError(
+        'failed-precondition',
+        'Could not send digest — storyteller may have no linked email or no upcoming topics.',
+      );
+    }
+    return { sent: true };
   });
