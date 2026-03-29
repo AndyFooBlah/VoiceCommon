@@ -605,6 +605,70 @@ describe('function call handlers', () => {
 });
 
 // ---------------------------------------------------------------------------
+describe('reconnectSession', () => {
+  it('does NOT create a new Firestore session (reuses existing sessionId)', async () => {
+    const { result } = renderSession();
+    await act(async () => { await result.current.startSession(); });
+    expect(result.current.sessionId).toBe('session-123');
+
+    // Simulate unexpected disconnect
+    await act(async () => { capturedCallbacks.current.onclose?.(); });
+
+    storageSpies.createSession.mockClear();
+    await act(async () => { await result.current.reconnectSession(); });
+
+    // createSession must NOT be called on reconnect
+    expect(storageSpies.createSession).not.toHaveBeenCalled();
+  });
+
+  it('preserves the in-memory messages on reconnect', async () => {
+    const { result } = renderSession();
+    await act(async () => { await result.current.startSession(); });
+
+    // Add a message via onmessage
+    await act(async () => {
+      capturedCallbacks.current.onmessage?.({
+        serverContent: { outputTranscription: { text: 'Hello, tell me about your childhood.' }, turnComplete: false },
+      });
+      capturedCallbacks.current.onmessage?.({ serverContent: { turnComplete: true } });
+    });
+    expect(result.current.messages.length).toBe(1);
+
+    // Simulate disconnect and reconnect
+    await act(async () => { capturedCallbacks.current.onclose?.(); });
+    await act(async () => { await result.current.reconnectSession(); });
+
+    // Messages must still be present (not reset)
+    expect(result.current.messages.length).toBe(1);
+  });
+
+  it('reconnects to Gemini and transitions to CONNECTING then CONNECTED', async () => {
+    const { result } = renderSession();
+    await act(async () => { await result.current.startSession(); });
+    await act(async () => { capturedCallbacks.current.onclose?.(); });
+
+    expect(result.current.status).toBe(ConnectionStatus.ERROR);
+    await act(async () => { await result.current.reconnectSession(); });
+
+    // After reconnect resolves (onopen fires in mockLiveConnect), status is CONNECTED
+    await act(async () => { capturedCallbacks.current.onopen?.(); });
+    expect(result.current.status).toBe(ConnectionStatus.CONNECTED);
+  });
+
+  it('restarts the audio mixer (stop + start) on reconnect', async () => {
+    const { result } = renderSession();
+    await act(async () => { await result.current.startSession(); });
+    mockMixerStop.mockClear();
+    mockMixerStart.mockClear();
+
+    await act(async () => { await result.current.reconnectSession(); });
+
+    expect(mockMixerStop).toHaveBeenCalledTimes(1);
+    expect(mockMixerStart).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
 describe('clearDeviceError / dismissConnectivityWarning', () => {
   it('clears device error', async () => {
     const err = new Error('microphone access denied');

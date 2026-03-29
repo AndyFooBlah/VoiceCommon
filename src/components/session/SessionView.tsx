@@ -82,6 +82,7 @@ export const SessionView: React.FC = () => {
     clearDeviceError,
     dismissConnectivityWarning,
     startSession,
+    reconnectSession,
     stopSession,
     flushPartialSession,
   } = useSession({
@@ -98,19 +99,20 @@ export const SessionView: React.FC = () => {
 
   useEffect(() => {
     if (status === ConnectionStatus.ERROR && !deviceError && !autoReconnectDone) {
-      // Unexpected disconnect — flush partial data and reconnect automatically.
+      // Unexpected disconnect — reconnect without starting a new session.
+      // reconnectSession() keeps the existing session ID and transcript so
+      // the conversation continues naturally after the brief interruption.
       // A short delay gives the browser a moment to settle (e.g. network re-up).
       const timer = setTimeout(async () => {
         setAutoReconnectDone(true);
-        await flushPartialSession();
-        startSession();
+        await reconnectSession();
       }, 500);
       return () => clearTimeout(timer);
     }
     if (status === ConnectionStatus.CONNECTED) {
       setAutoReconnectDone(false); // Reset so the next disconnect auto-reconnects too
     }
-  }, [status, deviceError, autoReconnectDone, flushPartialSession, startSession]);
+  }, [status, deviceError, autoReconnectDone, reconnectSession]);
 
   if (dossierLoading || !dossier) {
     return (
@@ -309,8 +311,8 @@ export const SessionView: React.FC = () => {
             <div className="flex flex-col gap-3">
               <button
                 onClick={async () => {
-                  await flushPartialSession();
-                  startSession();
+                  setAutoReconnectDone(false);
+                  await reconnectSession();
                 }}
                 className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-colors"
               >

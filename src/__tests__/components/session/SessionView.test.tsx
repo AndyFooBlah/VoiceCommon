@@ -44,6 +44,7 @@ vi.mock('../../../hooks/useDossier', () => ({
 
 const mockStartSession = vi.fn();
 const mockStopSession = vi.fn();
+const mockReconnectSession = vi.fn().mockResolvedValue(undefined);
 const mockFlushPartialSession = vi.fn().mockResolvedValue(undefined);
 let mockStatus = ConnectionStatus.DISCONNECTED;
 let mockMessages: any[] = [];
@@ -56,6 +57,7 @@ vi.mock('../../../hooks/useSession', () => ({
     isBotSpeaking: false,
     sessionId: mockSessionId,
     startSession: mockStartSession,
+    reconnectSession: mockReconnectSession,
     stopSession: mockStopSession,
     flushPartialSession: mockFlushPartialSession,
   }),
@@ -72,6 +74,7 @@ beforeEach(() => {
   mockNavigate.mockClear();
   mockStartSession.mockClear();
   mockStopSession.mockClear();
+  mockReconnectSession.mockClear();
   mockFlushPartialSession.mockClear();
   mockDossier = { storytellerName: 'Margaret', adminName: 'Andy', personality: 'empathetic', selectedVoice: 'Zephyr' };
   mockDossierLoading = false;
@@ -178,21 +181,31 @@ describe('SessionView — error state', () => {
     expect(screen.queryByText('Connection Interrupted')).not.toBeInTheDocument();
   });
 
-  it('auto-reconnects (calls flushPartialSession + startSession) after delay', async () => {
+  it('auto-reconnects (calls reconnectSession) after delay without starting a new session', async () => {
     render(<SessionView />);
     await act(async () => { vi.advanceTimersByTime(600); });
-    expect(mockFlushPartialSession).toHaveBeenCalledTimes(1);
-    expect(mockStartSession).toHaveBeenCalledTimes(1);
+    expect(mockReconnectSession).toHaveBeenCalledTimes(1);
+    expect(mockStartSession).not.toHaveBeenCalled();
+    expect(mockFlushPartialSession).not.toHaveBeenCalled();
   });
 
   it('shows error modal after auto-reconnect attempt fails', async () => {
-    // mockStartSession is a no-op so status stays ERROR — simulating reconnect failure
+    // mockReconnectSession is a no-op so status stays ERROR — simulating reconnect failure
     render(<SessionView />);
     await act(async () => { vi.advanceTimersByTime(600); });
     expect(screen.getByText('Connection Interrupted')).toBeInTheDocument();
     expect(screen.getByText(/everything you've shared so far has been saved/)).toBeInTheDocument();
     expect(screen.getByText('Try Again')).toBeInTheDocument();
     expect(screen.getByText('End Session')).toBeInTheDocument();
+  });
+
+  it('calls reconnectSession (not startSession) when Try Again is clicked', async () => {
+    render(<SessionView />);
+    await act(async () => { vi.advanceTimersByTime(600); });
+    mockReconnectSession.mockClear();
+    await act(async () => { fireEvent.click(screen.getByText('Try Again')); });
+    expect(mockReconnectSession).toHaveBeenCalledTimes(1);
+    expect(mockStartSession).not.toHaveBeenCalled();
   });
 
   it('flushes and navigates to home on End Session click', async () => {
