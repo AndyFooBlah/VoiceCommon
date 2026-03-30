@@ -238,6 +238,13 @@ Respond with a single JSON object matching this exact structure:
 
 /**
  * Write gap analysis results to Firestore.
+ *
+ * Two things happen:
+ *   1. Gap metadata (gaps, narrative summary) saved to analysis/gapAnalysis.
+ *   2. Suggested questions added to the dossier's questions subcollection so
+ *      they appear in the Story Queue UI. Any previously-generated gap analysis
+ *      questions that are still Unasked are replaced with the fresh batch.
+ *
  * Path: families/{familyId}/dossiers/{dossierId}/analysis/gapAnalysis
  */
 export async function saveGapAnalysis(
@@ -245,11 +252,42 @@ export async function saveGapAnalysis(
   dossierId: string,
   result: GapAnalysisResult,
 ): Promise<void> {
-  await db()
+  const dossierRef = db()
     .collection('families').doc(familyId)
-    .collection('dossiers').doc(dossierId)
-    .collection('analysis').doc('gapAnalysis')
-    .set(result);
+    .collection('dossiers').doc(dossierId);
+
+  // 1. Save the gap metadata doc
+  await dossierRef.collection('analysis').doc('gapAnalysis').set(result);
+
+  // 2. Sync questions into the Story Queue
+  const questionsRef = dossierRef.collection('questions');
+
+  // Find the current highest order value
+  const topSnap = await questionsRef.orderBy('order', 'desc').limit(1).get();
+  const maxOrder: number = topSnap.empty ? 0 : (topSnap.docs[0].data().order ?? 0);
+
+  // Remove previously-generated gap questions that are still Unasked (stale suggestions)
+  const prevSnap = await questionsRef.where('source', '==', 'gapAnalysis').get();
+  const batch = db().batch();
+  prevSnap.docs
+    .filter((d) => d.data().status === 'Unasked')
+    .forEach((d) => batch.delete(d.ref));
+
+  // Add the fresh suggestions
+  result.questions.forEach((q, i) => {
+    batch.set(questionsRef.doc(), {
+      text: q.text,
+      status: 'Unasked',
+      findings: '',
+      order: maxOrder + i + 1,
+      source: 'gapAnalysis',
+      priority: q.priority,
+      rationale: q.rationale,
+      createdAt: admin.firestore.Timestamp.now(),
+    });
+  });
+
+  await batch.commit();
 }
 
 /**
