@@ -137,12 +137,12 @@ export function useSession({
       pcmLogTimerRef.current = null;
     }
     if (workletNodeRef.current) {
-      try { workletNodeRef.current.port.onmessage = null; } catch (_) {}
-      try { workletNodeRef.current.disconnect(); } catch (_) {}
+      try { workletNodeRef.current.port.onmessage = null; } catch { /* node may already be GC'd */ }
+      try { workletNodeRef.current.disconnect(); } catch { /* ignore disconnect errors on cleanup */ }
       workletNodeRef.current = null;
     }
     if (workletSourceRef.current) {
-      try { workletSourceRef.current.disconnect(); } catch (_) {}
+      try { workletSourceRef.current.disconnect(); } catch { /* ignore disconnect errors on cleanup */ }
       workletSourceRef.current = null;
     }
   }, []);
@@ -461,8 +461,9 @@ export function useSession({
         // --- Handle Transcriptions ---
         // Strip ASCII control characters (except tab/newline) that Gemini occasionally
         // emits — they corrupt the transcript display.
+        // Strip ASCII control chars that Gemini occasionally emits (corrupts transcript display)
         const sanitize = (text: string) =>
-          text.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+          text.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, ''); // eslint-disable-line no-control-regex
 
         if (message.serverContent?.inputTranscription?.text) {
           currentInputRef.current += sanitize(message.serverContent.inputTranscription.text);

@@ -36,7 +36,7 @@ const {
   mockInputContext,
   mockWorkletNode,
 } = vi.hoisted(() => {
-  const capturedCallbacks: { current: Record<string, Function> } = { current: {} };
+  const capturedCallbacks: { current: Record<string, (...args: unknown[]) => unknown> } = { current: {} };
 
   const mockWorkletNode = {
     port: { onmessage: null as any },

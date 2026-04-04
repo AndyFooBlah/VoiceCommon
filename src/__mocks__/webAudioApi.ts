@@ -37,7 +37,7 @@ class MockAudioBuffer {
 
 class MockAudioBufferSourceNode {
   buffer: MockAudioBuffer | null = null;
-  private listeners: Record<string, Function[]> = {};
+  private listeners: Record<string, ((...args: unknown[]) => void)[]> = {};
 
   connect(_dest: any) { return _dest; }
   start(_when?: number) {
@@ -45,7 +45,7 @@ class MockAudioBufferSourceNode {
     setTimeout(() => this.dispatchEvent('ended'), 10);
   }
   stop() {}
-  addEventListener(event: string, fn: Function) {
+  addEventListener(event: string, fn: (...args: unknown[]) => void) {
     (this.listeners[event] ??= []).push(fn);
   }
   private dispatchEvent(event: string) {

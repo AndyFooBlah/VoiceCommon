@@ -70,6 +70,13 @@ vi.mock('../../../components/session/Visualizer', () => ({
 
 import { SessionView } from '../../../components/session/SessionView';
 
+// Helper: render and flush all pending effects
+async function renderView() {
+  let result!: ReturnType<typeof render>;
+  await act(async () => { result = render(<SessionView />); });
+  return result;
+}
+
 beforeEach(() => {
   mockNavigate.mockClear();
   mockStartSession.mockClear();
@@ -84,53 +91,53 @@ beforeEach(() => {
 });
 
 describe('SessionView — loading state', () => {
-  it('shows spinner when dossier is loading', () => {
+  it('shows spinner when dossier is loading', async () => {
     mockDossierLoading = true;
-    const { container } = render(<SessionView />);
+    const { container } = await renderView();
     expect(container.querySelector('.animate-spin')).not.toBeNull();
   });
 });
 
 describe('SessionView — disconnected state', () => {
-  it('shows the storyteller name', () => {
-    render(<SessionView />);
+  it('shows the storyteller name', async () => {
+    await renderView();
     expect(screen.getByText(/Session with Margaret/)).toBeInTheDocument();
   });
 
-  it('shows the ready prompt', () => {
-    render(<SessionView />);
+  it('shows the ready prompt', async () => {
+    await renderView();
     expect(screen.getByText(/Ready to begin, Margaret/)).toBeInTheDocument();
   });
 
-  it('shows the start button instructions', () => {
-    render(<SessionView />);
+  it('shows the start button instructions', async () => {
+    await renderView();
     expect(screen.getByText(/Press the button above to start/)).toBeInTheDocument();
   });
 
-  it('calls startSession when start button is clicked', () => {
-    render(<SessionView />);
+  it('calls startSession when start button is clicked', async () => {
+    await renderView();
     const buttons = screen.getAllByRole('button');
     const startBtn = buttons.find((b) => !b.textContent?.includes('Back'));
     fireEvent.click(startBtn!);
     expect(mockStartSession).toHaveBeenCalledTimes(1);
   });
 
-  it('shows the Back to Home link for storytellers', () => {
-    render(<SessionView />);
+  it('shows the Back to Home link for storytellers', async () => {
+    await renderView();
     expect(screen.getByText(/Back to Home/)).toBeInTheDocument();
   });
 
-  it('navigates to family home on Back link click for storytellers', () => {
-    render(<SessionView />);
+  it('navigates to family home on Back link click for storytellers', async () => {
+    await renderView();
     fireEvent.click(screen.getByText(/Back to Home/));
     expect(mockNavigate).toHaveBeenCalledWith('/family/family-1');
   });
 });
 
 describe('SessionView — connecting state', () => {
-  it('disables the start button while connecting', () => {
+  it('disables the start button while connecting', async () => {
     mockStatus = ConnectionStatus.CONNECTING;
-    const { container } = render(<SessionView />);
+    const { container } = await renderView();
     const spinner = container.querySelector('.animate-spin');
     expect(spinner).not.toBeNull();
   });
@@ -141,23 +148,23 @@ describe('SessionView — connected state', () => {
     mockStatus = ConnectionStatus.CONNECTED;
   });
 
-  it('shows the active recording indicator', () => {
-    render(<SessionView />);
+  it('shows the active recording indicator', async () => {
+    await renderView();
     expect(screen.getByText(/Live Archival Vault Active/)).toBeInTheDocument();
   });
 
-  it('shows the storytelling prompt', () => {
-    render(<SessionView />);
+  it('shows the storytelling prompt', async () => {
+    await renderView();
     expect(screen.getByText(/Tell your story, Margaret/)).toBeInTheDocument();
   });
 
-  it('shows the preservation message', () => {
-    render(<SessionView />);
+  it('shows the preservation message', async () => {
+    await renderView();
     expect(screen.getByText(/Every word and sound is being preserved/)).toBeInTheDocument();
   });
 
-  it('calls stopSession when stop button is clicked', () => {
-    render(<SessionView />);
+  it('calls stopSession when stop button is clicked', async () => {
+    await renderView();
     const buttons = screen.getAllByRole('button');
     const stopBtn = buttons.find((b) => !b.textContent?.includes('Back'));
     fireEvent.click(stopBtn!);
@@ -175,14 +182,14 @@ describe('SessionView — error state', () => {
     vi.useRealTimers();
   });
 
-  it('shows reconnecting banner immediately (no modal yet)', () => {
-    render(<SessionView />);
+  it('shows reconnecting banner immediately (no modal yet)', async () => {
+    await renderView();
     expect(screen.getByText(/Reconnecting/)).toBeInTheDocument();
     expect(screen.queryByText('Connection Interrupted')).not.toBeInTheDocument();
   });
 
   it('auto-reconnects (calls reconnectSession) after delay without starting a new session', async () => {
-    render(<SessionView />);
+    await renderView();
     await act(async () => { vi.advanceTimersByTime(600); });
     expect(mockReconnectSession).toHaveBeenCalledTimes(1);
     expect(mockStartSession).not.toHaveBeenCalled();
@@ -191,7 +198,7 @@ describe('SessionView — error state', () => {
 
   it('shows error modal after auto-reconnect attempt fails', async () => {
     // mockReconnectSession is a no-op so status stays ERROR — simulating reconnect failure
-    render(<SessionView />);
+    await renderView();
     await act(async () => { vi.advanceTimersByTime(600); });
     expect(screen.getByText('Connection Interrupted')).toBeInTheDocument();
     expect(screen.getByText(/everything you've shared so far has been saved/)).toBeInTheDocument();
@@ -200,7 +207,7 @@ describe('SessionView — error state', () => {
   });
 
   it('calls reconnectSession (not startSession) when Try Again is clicked', async () => {
-    render(<SessionView />);
+    await renderView();
     await act(async () => { vi.advanceTimersByTime(600); });
     mockReconnectSession.mockClear();
     await act(async () => { fireEvent.click(screen.getByText('Try Again')); });
@@ -209,7 +216,7 @@ describe('SessionView — error state', () => {
   });
 
   it('flushes and navigates to home on End Session click', async () => {
-    render(<SessionView />);
+    await renderView();
     await act(async () => { vi.advanceTimersByTime(600); });
     await act(async () => { fireEvent.click(screen.getByText('End Session')); });
     expect(mockFlushPartialSession).toHaveBeenCalled();
