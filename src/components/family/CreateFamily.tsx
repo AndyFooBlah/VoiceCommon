@@ -26,6 +26,9 @@ export const CreateFamily: React.FC = () => {
         user.email ?? '',
         user.displayName ?? user.email ?? 'Anonymous',
       );
+      // Refresh the ID token so the new familyIds custom claim is included.
+      // onMemberWritten sets the claim server-side; getIdToken(true) fetches it.
+      await user.getIdToken(true);
       navigate(`/family/${familyId}`, { replace: true });
     } catch (err) {
       console.error('[CreateFamily] Error:', err);

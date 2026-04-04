@@ -29,6 +29,9 @@ export const AcceptInvite: React.FC = () => {
         user.displayName ?? user.email ?? 'Anonymous',
         user.email ?? '',
       );
+      // Refresh the ID token so the new familyIds custom claim is included.
+      // onMemberWritten sets the claim server-side; getIdToken(true) fetches it.
+      await user.getIdToken(true);
       navigate(`/family/${invitation.familyId}`, { replace: true });
     } catch (err) {
       console.error('[AcceptInvite] Error:', err);

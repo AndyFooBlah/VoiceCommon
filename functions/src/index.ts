@@ -130,6 +130,43 @@ export const onInvitationCreated = functions
   });
 
 // ---------------------------------------------------------------------------
+// Custom claims sync — keeps Firebase Auth token in sync with Firestore membership
+// so Cloud Storage rules can check familyIds without a Firestore lookup (#87)
+// ---------------------------------------------------------------------------
+
+/**
+ * Triggered whenever a member document is created, updated, or deleted.
+ * Reads all the user's current family memberships from Firestore and writes
+ * them as a `familyIds` custom claim on their Firebase Auth token.
+ *
+ * Storage rules check `request.auth.token.familyIds` to gate file access.
+ * The client must call `user.getIdToken(true)` to get a token with fresh claims
+ * after joining or leaving a family.
+ */
+export const onMemberWritten = functions
+  .firestore.document('families/{familyId}/members/{memberId}')
+  .onWrite(async (_change, context) => {
+    const uid = context.params.memberId;
+
+    try {
+      // users/{uid}.familyIds is the authoritative list — kept in sync by
+      // createFamily() and acceptInvitation() on the client.
+      const userProfileDoc = await db.collection('users').doc(uid).get();
+      const familyIds: string[] = userProfileDoc.data()?.familyIds ?? [];
+
+      const userRecord = await admin.auth().getUser(uid);
+      await admin.auth().setCustomUserClaims(uid, {
+        ...userRecord.customClaims,
+        familyIds,
+      });
+
+      functions.logger.info(`[Claims] Updated familyIds for ${uid}: [${familyIds.join(', ')}]`);
+    } catch (err) {
+      functions.logger.error(`[Claims] Failed to update claims for ${uid}:`, err);
+    }
+  });
+
+// ---------------------------------------------------------------------------
 // Admin User Management
 // ---------------------------------------------------------------------------
 

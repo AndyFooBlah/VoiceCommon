@@ -2,19 +2,27 @@
  * Cloud Storage Security Rules for LegacyBot.
  *
  * Paths:
- *   Audio:        {familyId}/{dossierId}/{sessionId}.webm
- *   Media:        {familyId}/{dossierId}/media/{fileId}
- *   Clips:        {familyId}/{dossierId}/clips/{clipId}.webm
+ *   Audio:         {familyId}/{dossierId}/{sessionId}.webm
+ *   Media:         {familyId}/{dossierId}/media/{fileId}
+ *   Clips:         {familyId}/{dossierId}/clips/{clipId}.webm
  *   Prompt photos: {familyId}/{dossierId}/promptPhotos/{photoId}
+ *   Memoirs:       {familyId}/{dossierId}/memoirs/{filename}
  *
- * Access is restricted to authenticated users. Fine-grained family membership
- * checks are enforced at the Firestore level.
+ * Access requires:
+ *   1. The user is authenticated.
+ *   2. The user's Firebase Auth token contains the target familyId in its
+ *      `familyIds` custom claim — set by the onMemberWritten Cloud Function
+ *      whenever a user joins or leaves a family.
+ *
+ * The client must call `user.getIdToken(true)` after joining a family to
+ * receive a token with the updated claim before accessing storage.
  */
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
     match /{familyId}/{dossierId}/{allPaths=**} {
-      allow read, write: if request.auth != null;
+      allow read, write: if request.auth != null
+        && familyId in request.auth.token.get('familyIds', []);
     }
   }
 }
