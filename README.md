@@ -241,4 +241,4 @@ LegacyBot was developed collaboratively with several AI coding assistants across
 
 ## License
 
-Private repository. All rights reserved.
+MIT — see [LICENSE](LICENSE) for details.
