@@ -36,7 +36,7 @@
  */
 
 import { useState, useRef, useCallback } from 'react';
-import { GoogleGenAI, LiveServerMessage, Modality, Type, FunctionDeclaration } from '@google/genai';
+import { GoogleGenAI, LiveServerMessage, Modality, Type, FunctionDeclaration, ThinkingLevel } from '@google/genai';
 import { Timestamp } from 'firebase/firestore';
 import { Message, Dossier, InterviewQuestion, FamilyMember, PromptPhoto, ConnectionStatus, TranscriptEntry } from '../types';
 import { useAudioMixer } from './useAudioMixer';
@@ -687,7 +687,7 @@ export function useSession({
         },
         config: {
           responseModalities: [Modality.AUDIO],
-          thinkingConfig: { thinkingLevel: 'minimal' },
+          thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL },
           systemInstruction,
           speechConfig: {
             voiceConfig: {
@@ -836,7 +836,7 @@ ${recentContext}]`
         },
         config: {
           responseModalities: [Modality.AUDIO],
-          thinkingConfig: { thinkingLevel: 'minimal' },
+          thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL },
           systemInstruction,
           speechConfig: {
             voiceConfig: {

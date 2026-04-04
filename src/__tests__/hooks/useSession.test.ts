@@ -121,6 +121,7 @@ vi.mock('@google/genai', () => ({
   Type: { OBJECT: 'object', STRING: 'string', NUMBER: 'number' },
   FunctionDeclaration: {},
   LiveServerMessage: {},
+  ThinkingLevel: { MINIMAL: 'MINIMAL', LOW: 'LOW', MEDIUM: 'MEDIUM', HIGH: 'HIGH', NONE: 'NONE' },
 }));
 
 vi.mock('../../hooks/useAudioMixer', () => ({

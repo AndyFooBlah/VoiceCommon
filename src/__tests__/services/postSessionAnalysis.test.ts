@@ -48,6 +48,7 @@ vi.mock('@google/genai', () => ({
   GoogleGenAI: vi.fn(function () {
     return { models: { generateContent: mockGenerateContent } };
   }),
+  ThinkingLevel: { MINIMAL: 'MINIMAL', LOW: 'LOW', MEDIUM: 'MEDIUM', HIGH: 'HIGH', NONE: 'NONE' },
 }));
 
 // ---------------------------------------------------------------------------
