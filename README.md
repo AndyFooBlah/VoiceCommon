@@ -49,7 +49,7 @@ src/
 │   ├── shared/        # Layout, ErrorBoundary, Logo
 │   └── storyteller/   # StorytellerDashboard
 ├── hooks/             # useAuth, useFamily, useDossier, useSession, useAudioMixer, useEvents, useInvitations
-├── services/          # firebase, gemini, storage, audioUtils, memoirGeneration, memoirExport, postSessionAnalysis, gedcomParser, invitations, adminActions
+├── services/          # firebase, gemini, storage, audioUtils, memoirExport, postSessionAnalysis, gedcomParser, invitations, adminActions
 ├── types.ts           # TypeScript interfaces
 └── App.tsx            # Router setup (11 routes)
 ```
@@ -107,6 +107,44 @@ src/
    npm run dev
    ```
 
+### Cloud Functions setup (email features)
+
+Invitation emails, session-complete notifications, and re-engagement digest emails are sent by Firebase Cloud Functions. The frontend works without this, but invitations and email nudges will be silent no-ops until it's configured.
+
+#### 1. Set SMTP environment variables
+
+Copy the example file and fill in your provider's details:
+
+```bash
+cp functions/.env.example functions/.env
+# edit functions/.env with your SMTP_HOST, SMTP_PORT, SMTP_USER, and APP_URL
+```
+
+Three providers are supported out of the box — pick one:
+
+| Provider | `SMTP_HOST` | `SMTP_PORT` | `SMTP_USER` | Notes |
+|----------|------------|------------|------------|-------|
+| **Gmail** | `smtp.gmail.com` | `587` | `you@gmail.com` | Requires an [App Password](https://myaccount.google.com/apppasswords) (2-Step Verification must be on) |
+| **Resend** *(recommended)* | `smtp.resend.com` | `587` | `resend` | Free tier covers most solo/team use; verify your sending domain at resend.com |
+| **iCloud Mail** | `smtp.mail.me.com` | `587` | `you@icloud.com` | Requires an [app-specific password](https://appleid.apple.com) |
+
+#### 2. Store the password as a Firebase secret
+
+`SMTP_PASS` must be stored as a Firebase secret, **not** in `functions/.env`:
+
+```bash
+firebase functions:secrets:set SMTP_PASS
+# paste your App Password / API key / app-specific password when prompted
+```
+
+#### 3. Deploy the functions
+
+```bash
+firebase deploy --only functions
+```
+
+> **Development note:** If SMTP is not configured, functions that send email log a warning and return without error — no crash, no data loss. You can develop and test locally without email configured.
+
 ### Running Tests
 
 ```bash
@@ -124,7 +162,7 @@ GitHub Actions runs automatically on every push to `main` and on every pull requ
 |------|---------|---------|
 | Install | `npm ci` | Clean install from lockfile |
 | Type check | `npx tsc --noEmit` | Catch type errors without emitting files |
-| Tests | `npm test` | Run all 327 unit and integration tests |
+| Tests | `npm test` | Run all 334 unit and integration tests |
 
 CI uses Node 20 on Ubuntu with npm caching enabled for fast installs. A concurrency group ensures that only one run per branch is active at a time — pushing again cancels the previous in-progress run.
 
