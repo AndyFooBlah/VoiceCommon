@@ -1,29 +1,39 @@
 # Technical Design Document: LegacyBot
 
 ## 1. System Architecture
-LegacyBot is built as a modern React SPA utilizing the Google Gemini Live API for real-time multimodal interaction. It uses Firebase for authentication and persistence, with Google Cloud Storage for audio archival.
+
+LegacyBot is a React SPA using the Google Gemini Live API for real-time voice interaction and Firebase for auth, persistence, and backend functions.
 
 ### 1.1 Core Components
-- **Frontend**: React 19+, TypeScript, Tailwind CSS, Vite.
-- **AI Core**: `@google/genai`. All models are Gemini 3.1 or newer — no earlier models are used anywhere in the app.
-  - Live session: `gemini-3.1-flash-live-preview` (real-time voice, `thinkingLevel: MINIMAL` for lowest latency)
-  - Batch analysis (post-session, gap analysis, memoir): `gemini-3.1-pro-preview` (`thinkingLevel: HIGH` for maximum reasoning depth)
-- **Auth**: Firebase Authentication (Google and Email/Password sign-in).
+
+- **Frontend**: React 19, TypeScript, Tailwind CSS v4, Vite 6, React Router v7
+- **AI Core**: `@google/genai`. All models are Gemini 3.1 or newer — no earlier models are used anywhere.
+  - Live session: `gemini-3.1-flash-live-preview` (`thinkingLevel: MINIMAL` for lowest latency)
+  - Batch analysis (post-session, gap analysis, memoir): `gemini-3.1-pro-preview` (`thinkingLevel: HIGH`)
+- **Auth**: Firebase Authentication (Google and Email/Password sign-in)
 - **Persistence**:
-  - **Firestore**: Stores Dossiers, session metadata, question states, and live transcript chunks.
-  - **GCS**: Stores archived session audio (WebM/Opus at 128 kbps).
-- **Audio Pipeline**: Browser `AudioContext` handles PCM streaming to the Gemini API and mixes bot/user audio into a `MediaRecorder` stream for archival.
+  - **Firestore**: Families, dossiers, session metadata, transcripts, questions, events, memoirs, media, invitations
+  - **Cloud Storage**: Session audio (WebM/Opus 128 kbps), media uploads, memoir exports
+- **Backend**: Firebase Cloud Functions v1 (Node.js 20) — Firestore triggers, HTTPS callables, Pub/Sub schedule
+- **Audio Pipeline**: `AudioWorkletNode` (`pcm-processor.js`) captures PCM for streaming; `AudioContext` + `MediaRecorder` mix bot/user audio for archival
+- **Email**: Nodemailer via Gmail SMTP (`SMTP_PASS` Cloud Function secret)
+- **License**: Apache 2.0 — Copyright 2026 Andrew Brook
 
 ### 1.2 High-Level Data Flow
+
 ```
-Archivist (Auth) → Select Dossier → Start Session → Gemini Live API
-                                                        ↕
-                                          Storyteller ←→ Voice I/O
-                                                        ↓
-                                          Mixed Audio → GCS (WebM/Opus 128kbps)
-                                          Transcripts → Firestore (real-time)
-                                          Question State → Firestore (via function calling)
+Archivist (Auth) → Select Family → Select Dossier → Start Session → Gemini Live API
+                                                                          ↕
+                                                        Storyteller ←→ Voice I/O
+                                                                          ↓
+                                            Mixed Audio → Cloud Storage (WebM/Opus 128kbps)
+                                            Transcripts → Firestore (real-time)
+                                        Question State → Firestore (via function calling)
+                                                Events → Firestore (post-session, client)
+                                             Analysis → Firestore (Cloud Functions, server)
 ```
+
+---
 
 ## 2. Data Model (Firestore)
 
@@ -33,297 +43,381 @@ Archivist (Auth) → Select Dossier → Start Session → Gemini Live API
 users/{uid}
   - email: string
   - displayName: string
+  - familyIds: string[]          # denormalized for client queries
+  - timezone: string             # IANA e.g. "America/Los_Angeles", written on every login
   - createdAt: timestamp
 
-users/{uid}/dossiers/{dossierId}
-  - storytellerName: string (required)
-  - storytellerContext: string (free-text bio/background)
+families/{familyId}
+  - name: string
+  - createdAt: timestamp
+  - createdBy: uid
+
+families/{familyId}/members/{uid}
+  - uid: string
+  - email: string
+  - displayName: string
+  - roles: ('admin' | 'storyteller')[]
+  - dossierId: string | null     # for storyteller role: their linked dossier
+  - joinedAt: timestamp
+
+families/{familyId}/dossiers/{dossierId}
+  - storytellerName: string
+  - storytellerContext: string
   - historicalContext: string
   - familyTree: FamilyMember[]
   - selectedVoice: string
-  - personality: PersonalityMode
+  - personality: 'empathetic' | 'investigative' | 'casual'
+  - interviewerNotes: string
+  - lastSessionAt: timestamp | null
+  - lastDigestSentAt: timestamp | null
   - createdAt: timestamp
   - updatedAt: timestamp
 
-users/{uid}/dossiers/{dossierId}/questions/{questionId}
+families/{familyId}/dossiers/{dossierId}/questions/{questionId}
   - text: string
   - status: 'Unasked' | 'InProgress' | 'Completed'
   - findings: string
   - order: number
+  - source: 'manual' | 'gapAnalysis'   # origin of the question
+  - priority: 'high' | 'medium' | 'low' | null
+  - rationale: string | null            # AI explanation for why this gap exists
   - createdAt: timestamp
   - updatedAt: timestamp
 
-users/{uid}/dossiers/{dossierId}/sessions/{sessionId}
+families/{familyId}/dossiers/{dossierId}/sessions/{sessionId}
   - startTime: timestamp
   - endTime: timestamp | null
-  - audioUrl: string (GCS path)
+  - audioUrl: string             # Cloud Storage path
   - status: 'active' | 'completed' | 'interrupted'
   - durationSeconds: number
 
-users/{uid}/dossiers/{dossierId}/sessions/{sessionId}/transcript
-  - (single document with array of entries, appended in real-time)
-  - entries: { role: 'user' | 'bot', text: string, timestamp: timestamp }[]
+families/{familyId}/dossiers/{dossierId}/sessions/{sessionId}/transcriptEntries/{entryId}
+  - role: 'user' | 'model'
+  - text: string
+  - originalText: string | null  # set if user edits; original preserved
+  - editHistory: { text, editedAt, editedBy }[]
+  - timestamp: timestamp
+  - order: number
+
+families/{familyId}/dossiers/{dossierId}/sessions/{sessionId}/analysis/engagement
+  - engagementLevel: 'high' | 'medium' | 'low'
+  - comfortLevel: 'comfortable' | 'neutral' | 'uncomfortable'
+  - notableThemes: string[]
+  - suggestedFollowUps: { text, rationale }[]
+  - analyzedAt: timestamp
+
+families/{familyId}/dossiers/{dossierId}/analysis/gapAnalysis
+  - questions: { text, priority, rationale }[]
+  - gaps: { timeline: string[], themes: string[], implied: string[] }
+  - narrativeSummary: string     # used as email intro paragraph
+  - analyzedAt: timestamp
+  - sessionId: string            # session that triggered this analysis
+
+families/{familyId}/dossiers/{dossierId}/events/{eventId}
+  - title: string
+  - date: string                 # ISO or partial e.g. "1952" or "1952-06"
+  - description: string
+  - sourceSessionId: string
+  - sourceEntryIds: string[]
+  - createdAt: timestamp
+
+families/{familyId}/dossiers/{dossierId}/memoirs/{memoirId}
+  - title: string
+  - content: string              # Markdown
+  - storageUrl: string | null    # Cloud Storage path if exported
+  - createdAt: timestamp
+  - updatedAt: timestamp
+
+families/{familyId}/dossiers/{dossierId}/media/{fileId}
+  - filename: string
+  - mimeType: string
+  - storageUrl: string
+  - uploadedAt: timestamp
+
+families/{familyId}/invitations/{invitationId}
+  - email: string
+  - roles: ('admin' | 'storyteller')[]
+  - dossierId: string | null
+  - status: 'pending' | 'accepted'
+  - token: string                # UUID, included in invite link
+  - createdAt: timestamp
+  - acceptedAt: timestamp | null
 ```
 
-### 2.2 GCS Structure
+### 2.2 Cloud Storage Structure
+
 ```
-gs://legacybot-archives/{uid}/{dossierId}/{sessionId}.webm
+{familyId}/{dossierId}/{sessionId}.webm          # session audio (mixed)
+{familyId}/{dossierId}/media/{fileId}             # uploaded photos/documents
+{familyId}/{dossierId}/clips/{clipId}.webm        # user-created audio clips
+{familyId}/{dossierId}/promptPhotos/{photoId}     # photos shown during session
+{familyId}/{dossierId}/memoirs/{filename}         # exported memoir files
 ```
 
-### 2.3 Security Rules
-```
-// Firestore
-match /users/{uid}/{document=**} {
-  allow read, write: if request.auth != null && request.auth.uid == uid;
-}
+### 2.3 Security Model
 
-// GCS — enforced via IAM + Firebase Storage Security Rules
-// Only the owning uid can read/write their archive path.
+#### Firestore Rules
+
+Access requires the requesting user to be a member of the family. Firestore rules enforce family membership via the `familyIds` array on the user's profile doc. Cloud Functions use the Admin SDK and are not subject to client-facing rules.
+
+Key principles:
+- `families/{familyId}` and subcollections: read/write requires the user's `familyIds` array to contain `familyId`
+- `users/{uid}` docs: readable/writable only by the owning user (Cloud Functions use Admin SDK)
+- `invitations/{id}`: readable by the invitee email or family admins; not publicly enumerable
+
+#### Storage Rules
+
+Storage rules cannot query Firestore, so family membership is propagated into the Firebase Auth token as a custom claim (`familyIds: string[]`). The rule checks:
 ```
+familyId in request.auth.token.get('familyIds', [])
+```
+
+#### Custom Claims Sync (`onMemberWritten`)
+
+The `onMemberWritten` Cloud Function (Firestore trigger on `families/{familyId}/members/{memberId}`) fires on every member write. It reads `users/{uid}.familyIds` and calls `admin.auth().setCustomUserClaims()` to sync the array into the Auth token. Clients must call `user.getIdToken(true)` after joining a family to pick up the new claim before accessing Cloud Storage.
+
+---
 
 ## 3. Implementation Details
 
-### 3.1 Authentication Flow
-1. User lands on login screen (Google sign-in button + email/password form).
-2. On successful auth, Firebase SDK provides `uid`.
-3. App loads the user's Dossier list from `users/{uid}/dossiers`.
-4. User selects or creates a Dossier, then proceeds to the session view.
-5. All Firestore/GCS operations are scoped to the authenticated `uid`.
+### 3.1 Authentication and Family Flow
 
-### 3.2 The Interviewer Engine (Function Calling)
-The AI is given several tools:
-- **`updateQuestionStatus(id, status, findings)`** — updates question progress in Firestore as the storyteller speaks, creating a closed-loop system where the bot tracks what it has learned and what still needs asking.
-- **`reportEmotionalObservation(observation)`** — logs significant emotional moments (e.g., distress, laughter) to the session for later review.
-- **`showPhoto(photoId)`** — displays a prompt photo to the storyteller during the session to spark memories.
-- **`endSession()`** — ends the session programmatically. Called by the AI when the storyteller signals they are done (e.g., "I'm tired", "let's stop"). The AI is instructed to speak closing remarks out loud before calling this tool; `useSession` polls for audio drain before invoking `stopSession()`.
+1. User lands on `LoginScreen` (Google sign-in or email/password form).
+2. On first login, a `users/{uid}` profile is created if it does not exist.
+3. App reads `users/{uid}.familyIds`. If empty → `FamilyHome` prompts to create or join a family.
+4. If one family → auto-navigate to `FamilyPage`. If multiple → `FamilySelector`.
+5. On `FamilyPage`, role is checked from `families/{familyId}/members/{uid}.roles`:
+   - **admin** → `DossierList` (full management interface)
+   - **storyteller** → `SessionView` (record-only interface, redirected immediately)
+6. Dual-role users (both admin and storyteller) are treated as admin.
 
-The system instruction includes the Storyteller's name so the bot can address them personally during the warm-up and throughout the session.
+### 3.2 Invitation Workflow
 
-**API note (Gemini 3.1 migration)**: In-session text messages use `sendRealtimeInput({ text })` (not `sendClientContent`, which is restricted to initial history). `serverContent` messages may contain multiple parts; the audio playback loop iterates all parts.
+1. Admin opens `InviteMember`, fills in email, role(s), and optionally a dossier link.
+2. Client writes `families/{familyId}/invitations/{id}` with a UUID token.
+3. `onInvitationCreated` Cloud Function (Firestore trigger) sends an email with `https://app/accept-invite?token={uuid}`.
+4. Invitee opens link → `AcceptInvite` reads invitation details (public token lookup).
+5. Invitee signs in or creates an account, clicks Accept.
+6. `acceptInvitation` callable: validates token, creates member doc, updates `users/{uid}.familyIds`, marks invitation accepted.
+7. Client calls `user.getIdToken(true)` to force-refresh the token with the new `familyIds` claim, then navigates to the family.
 
-### 3.3 Audio Archiving Mixer
-To satisfy the "capture both sides" requirement, the app uses an internal audio destination:
-1. **User Node**: Created from `getUserMedia`.
-2. **Bot Node**: Created from the API's decoded `AudioBuffer`.
-3. **Mixed Destination**: Both nodes connect to a `MediaStreamDestination`.
-4. **MediaRecorder**: Records the mixed stream as WebM/Opus at 128 kbps. On `stop()`, the blob is uploaded to GCS.
-5. **Partial Recovery**: The `MediaRecorder` uses `timeslice` to emit data chunks periodically (~10s intervals). Chunks are buffered locally and flushed to GCS on stop or on connection error, ensuring partial sessions are never lost.
+### 3.3 The Interviewer Engine (Function Calling)
 
-**Mic → PCM pipeline**: Microphone audio is processed using an `AudioWorkletNode` (`pcm-processor.js` registered at session start). The worklet runs on the dedicated audio thread, capturing Float32 frames and posting them to the main thread via `MessagePort`. The main thread converts each frame to Int16 PCM (16kHz) and streams it to the Gemini Live API. This replaces the deprecated `ScriptProcessorNode` (removed in issue #76).
+The AI is given tools via `buildSystemInstruction()` in `src/services/gemini.ts`:
 
-### 3.4 Real-time Transcript Sync
-Transcripts are appended to a Firestore document array in real-time. This ensures that even if a tab crashes, the conversation up to that second is preserved. Each entry includes a role label and timestamp for later review.
+- **`updateQuestionStatus(id, status, findings)`** — updates question progress in Firestore as the storyteller speaks.
+- **`reportEmotionalObservation(observation)`** — logs significant emotional moments to the session.
+- **`showPhoto(photoId)`** — displays a prompt photo to the storyteller mid-session.
+- **`endSession()`** — ends the session programmatically. The AI speaks closing remarks before calling this; `useSession` polls for audio drain before invoking `stopSession()`.
 
-### 3.5 Session History & Review
-- **Session List View**: Queries `users/{uid}/dossiers/{dossierId}/sessions` ordered by `startTime` descending.
-- **Transcript Viewer**: Renders the transcript entries with speaker labels, styled as a conversation view (similar to the live transcript but read-only).
-- **Audio Player**: Streams the session's WebM file from GCS via a signed URL or Firebase Storage download URL. Uses a standard HTML5 `<audio>` element with playback controls.
-- **Question Dashboard**: Aggregates question states from the Dossier's questions subcollection, showing progress across all sessions.
+The system instruction includes the storyteller's name, story queue, family tree, historical context, and personality. In-session text messages use `sendRealtimeInput({ text })`. `serverContent` messages may contain multiple parts; the audio playback loop iterates all parts.
 
-### 3.6 Error Recovery & Reconnection
-- On Gemini API disconnect (`onclose`/`onerror`), the app:
-  1. Flushes all buffered audio chunks to GCS (partial session archive).
-  2. Syncs the latest transcript state to Firestore.
-  3. Updates the session status to `'interrupted'`.
-  4. Displays a reassuring, non-technical message to the Storyteller.
-  5. Attempts an automatic reconnect (one attempt, 500ms delay). If that fails, shows a dialog offering manual "Try Again" or "End Session".
-  6. **Reconnect** (`reconnectSession`): reuses the existing Firestore session ID and transcript. Stops/restarts the audio mixer, opens a new Gemini WebSocket, and injects the last 20 transcript entries as a resume prompt so the conversation continues naturally. The AI is instructed to briefly acknowledge the interruption before resuming.
-  7. **AI-initiated end**: The AI can call `endSession()` when the storyteller signals they are done, rather than waiting for a button press.
-- **Connectivity check**: Before starting a session, the app performs a lightweight connectivity probe and warns the Archivist if latency is high.
+**Personality modes:**
+- `empathetic`: warm, attentive biographer — brief responses, one question at a time, gentle encouragement
+- `investigative`: oral historian — precise, focused on dates and facts
+- `casual`: informal grandchild — enthusiastic and conversational
+
+### 3.4 Audio Pipeline
+
+**Recording and streaming:**
+1. `getUserMedia` provides the microphone stream.
+2. `AudioWorkletNode` (`pcm-processor.js`) runs on the audio thread, capturing Float32 frames and posting them to the main thread via `MessagePort`. This replaced the deprecated `ScriptProcessorNode`.
+3. Main thread converts each frame to Int16 PCM (16 kHz) and streams to Gemini Live API.
+4. Bot audio (decoded `AudioBuffer`) is played back via `AudioContext`.
+
+**Mixed archival:**
+1. User mic node and bot audio node both connect to a `MediaStreamDestination`.
+2. `MediaRecorder` records the mixed stream as WebM/Opus at 128 kbps.
+3. `timeslice` emits chunks every ~10s. Chunks are buffered locally and flushed to Cloud Storage on stop or on connection error (partial session recovery).
+
+### 3.5 Transcript Editing
+
+Both admins and storytellers can edit transcript entries. Each edit stores new text in `text`, moves the previous text to `originalText`, and appends a record to `editHistory[]`. The original content is never deleted.
+
+### 3.6 Error Recovery and Reconnection
+
+On Gemini API disconnect (`onclose`/`onerror`):
+1. Flushes buffered audio chunks to Cloud Storage.
+2. Syncs latest transcript state to Firestore.
+3. Updates session status to `'interrupted'`.
+4. Displays a reassuring, non-technical message to the storyteller.
+5. Attempts one automatic reconnect (500ms delay). On failure, shows "Try Again" / "End Session" dialog.
+
+**Reconnect** (`reconnectSession`): reuses the existing Firestore session doc and transcript. Stops/restarts the audio mixer, opens a new Gemini WebSocket, injects the last 20 transcript entries as a resume prompt.
+
+**Connectivity check**: before starting a session, a lightweight latency probe warns the archivist if round-trip time exceeds 500ms.
 
 ### 3.7 Post-Session Analysis Pipeline
 
 Two tiers of AI analysis run after each session:
 
 **Tier 1 — Client-side (immediate, current session only)**
-Runs in `useSession.ts` as a background async block when `stopSession` is called. Uses the Gemini text API to:
-- Extract discrete life events from the new transcript → `dossiers/{id}/events`
+
+Runs in `useSession.ts` as a background async block after `stopSession`. Uses the Gemini text API to:
+- Extract discrete life events → `dossiers/{id}/events`
 - Assess storyteller engagement and comfort → `sessions/{id}/analysis/engagement`
 - Suggest 3–5 new Story Queue questions → `sessions/{id}/analysis/suggestions`
 
 **Tier 2 — Server-side Cloud Functions (holistic, all sessions)**
 
-*`onSessionCompleted` (Firestore trigger)* — fires when a session status → `completed`. Runs two tasks in parallel:
-1. Admin notification email (opted-in admins only, existing behavior).
-2. **Deep gap analysis** (`functions/src/analysis.ts`): reads all transcripts, all events, and all questions across every session for the dossier. Asks Gemini 2.5 Flash to identify:
-   - **Timeline gaps**: decades or life periods with few/no events
-   - **Theme gaps**: underrepresented life themes (career, travel, hardship, etc.)
-   - **Implied but unexplored**: people/places/times mentioned in passing but never followed up
-   Writes 3–5 targeted question suggestions + a structured gap summary to `dossiers/{id}/analysis/gapAnalysis`.
+*`onSessionCompleted` (Firestore trigger)* — fires when `sessions/{id}.status` → `completed`. Runs in parallel:
+1. Admin notification email (opted-in admins).
+2. **Deep gap analysis** (`functions/src/analysis.ts`): reads all transcripts, events, and questions across every session for the dossier. Identifies timeline gaps, theme gaps, and implied-but-unexplored threads. Writes results to `dossiers/{id}/analysis/gapAnalysis`.
 
-*`sendDailyDigest` (scheduled, every hour)* — runs hourly. For each dossier, checks whether it is currently 7am in the storyteller's local timezone (stored as an IANA string in `users/{uid}.timezone`, written on every login via `Intl.DateTimeFormat().resolvedOptions().timeZone`). If so, and if the day-range gate (2–7 days since last session) and the idempotency gate (`lastDigestSentAt` 2-day window) pass, sends a warm re-engagement email. Content is drawn from the Story Queue (`Unasked` questions) and high-priority gap analysis suggestions. Records `lastDigestSentAt` on the dossier after each send.
+**`saveGapAnalysis()` — Story Queue sync**: gap analysis questions are written directly into the `questions` subcollection (with `source: 'gapAnalysis'`). Before writing, stale Unasked gap questions are deleted to prevent accumulation. This makes the Story Queue the single source of truth for what to ask next.
 
-*`triggerDigestForDossier` (HTTPS callable)* — admin-only callable that sends the digest email immediately for a specific dossier, bypassing timing gates. Invoked by the "Send nudge email" button in `DossierEditor`. Updates `lastDigestSentAt` after sending so the scheduled function does not re-send within 2 days.
+*`sendDailyDigest` (scheduled hourly)* — checks per dossier whether it is currently 7am in the storyteller's timezone (IANA string stored in `users/{uid}.timezone`, written on every login). If so, and if the day-range gate (2–7 days since last session) and idempotency gate (`lastDigestSentAt` 2-day window) pass, sends a warm re-engagement email. Uses `narrativeSummary` from gapAnalysis as the intro paragraph, followed by Story Queue topics. Runs gap analysis on-the-fly if no gapAnalysis doc exists and there are no Unasked questions.
 
-**Firestore paths for Tier 2:**
-```
-families/{familyId}/dossiers/{dossierId}/analysis/gapAnalysis
-  questions[]       — suggested questions with priority (high/medium/low)
-  gaps.timeline[]   — e.g. ["years 1975–1985", "early childhood"]
-  gaps.themes[]     — e.g. ["career", "travel"]
-  gaps.implied[]    — e.g. ["brother Sam — mentioned twice, never explored"]
-  narrativeSummary  — 2–3 sentence plain-English summary for email
-  analyzedAt        — timestamp
-  sessionId         — session that triggered this analysis
-```
+*`triggerDigestForDossier` (HTTPS callable)* — admin-only. Sends the digest immediately for a specific dossier, bypassing timing gates. Invoked by the "Send nudge email" button in `DossierEditor`.
 
-**Required Cloud Function secrets:**
-- `SMTP_PASS` — existing (email)
-- `GEMINI_API_KEY` — new; server-side key for gap analysis Gemini calls
+**Required Cloud Function secrets** (set via `firebase functions:secrets:set`):
+- `SMTP_PASS` — Gmail app password
+- `GEMINI_API_KEY` — server-side key for gap analysis and memoir Gemini calls
 
-## 4. App Structure (Proposed)
+**Required Cloud Function env strings** (set via `firebase functions:config:set` or `.env`):
+- `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER` — email server config
+- `APP_URL` — base URL for invite links and email links
+
+### 3.8 GEDCOM Import
+
+`src/services/gedcomParser.ts` parses GEDCOM 5.5 files into `FamilyMember[]` for import into the dossier's family tree. Supports name, relationship, birth year, and death year.
+
+### 3.9 Events Timeline
+
+Life events extracted from transcripts by Tier 1 analysis are stored in `dossiers/{id}/events`. `EventsTimeline` renders them chronologically with links back to the source session.
+
+### 3.10 Memoir Generation and Export
+
+`memoirGeneration.ts` uses the Gemini text API to synthesize a readable life-story narrative from all session transcripts. The result is Markdown, stored in `dossiers/{id}/memoirs/{id}`. `memoirExport.ts` handles PDF export (via browser print) and Markdown download.
+
+### 3.11 Audio Clips
+
+Archivists and storytellers can create named audio clips from any session. Clips are stored in Cloud Storage under `{familyId}/{dossierId}/clips/{clipId}.webm`.
+
+---
+
+## 4. App Structure
 
 ```
 src/
 ├── components/
 │   ├── auth/
-│   │   └── LoginScreen.tsx
+│   │   ├── LoginScreen.tsx
+│   │   └── AcceptInvite.tsx
 │   ├── dossier/
-│   │   ├── DossierList.tsx          # Select/create Dossiers
-│   │   ├── DossierEditor.tsx        # Edit Dossier details, family tree, questions
-│   │   └── StorytellerProfile.tsx   # Name + free-text context
+│   │   ├── DossierList.tsx
+│   │   ├── DossierEditor.tsx
+│   │   └── StorytellerProfile.tsx
+│   ├── family/
+│   │   ├── FamilyHome.tsx           # Post-login router: redirects by role
+│   │   ├── FamilyPage.tsx           # Loads member/role, routes admin vs storyteller
+│   │   ├── FamilySelector.tsx       # Multi-family picker
+│   │   ├── FamilyEventDetail.tsx
+│   │   ├── InviteMember.tsx
+│   │   ├── MemberManagement.tsx
+│   │   └── CreateFamily.tsx
 │   ├── session/
-│   │   ├── SessionView.tsx          # Live session (Start button, visualizer, transcript)
-│   │   ├── Visualizer.tsx           # Waveform animation
-│   │   └── TranscriptFeed.tsx       # Real-time message bubbles
+│   │   ├── SessionView.tsx
+│   │   ├── Visualizer.tsx
+│   │   └── TranscriptFeed.tsx
 │   ├── history/
-│   │   ├── SessionList.tsx          # Browse past sessions
-│   │   ├── TranscriptViewer.tsx     # Read-only transcript playback
-│   │   ├── AudioPlayer.tsx          # Audio playback controls
-│   │   └── QuestionDashboard.tsx    # Cross-session question progress
+│   │   ├── SessionList.tsx
+│   │   ├── TranscriptViewer.tsx
+│   │   ├── AudioPlayer.tsx
+│   │   ├── QuestionDashboard.tsx
+│   │   └── EventsTimeline.tsx
+│   ├── media/
+│   │   └── MediaGallery.tsx
+│   ├── memoir/
+│   │   └── MemoirViewer.tsx
+│   ├── storyteller/
+│   │   └── StorytellerDashboard.tsx
 │   └── shared/
-│       ├── Layout.tsx               # App shell, nav, auth guard
-│       └── ErrorBoundary.tsx
-├── services/
-│   ├── firebase.ts                  # Firebase app init, auth, Firestore, Storage
-│   ├── gemini.ts                    # Gemini Live API session management
-│   ├── audioUtils.ts                # PCM encoding/decoding, mixer setup
-│   └── storage.ts                   # GCS upload, Firestore CRUD for sessions/transcripts
+│       ├── Layout.tsx
+│       ├── ErrorBoundary.tsx
+│       └── Logo.tsx
 ├── hooks/
-│   ├── useAuth.ts                   # Auth state, login/logout
-│   ├── useDossier.ts               # Dossier CRUD, question management
-│   ├── useSession.ts               # Live session lifecycle
-│   └── useAudioMixer.ts            # Audio pipeline setup/teardown
+│   ├── useAuth.ts
+│   ├── useFamily.ts
+│   ├── useDossier.ts
+│   ├── useSession.ts               # Live session lifecycle (~600 lines)
+│   ├── useAudioMixer.ts
+│   ├── useEvents.ts
+│   └── useInvitations.ts
+├── services/
+│   ├── firebase.ts
+│   ├── gemini.ts                   # System instructions + Gemini Live session
+│   ├── storage.ts                  # Cloud Storage + Firestore CRUD
+│   ├── audioUtils.ts
+│   ├── invitations.ts
+│   ├── adminActions.ts
+│   ├── postSessionAnalysis.ts      # Tier 1 client-side analysis
+│   ├── gedcomParser.ts
+│   ├── memoirGeneration.ts
+│   └── memoirExport.ts
 ├── types.ts
-├── App.tsx                          # Router + auth guard
+├── App.tsx                         # Router (11 routes)
 └── index.tsx
 ```
 
-## 5. Testing Strategy
+**Cloud Functions (`functions/src/`):**
+
+```
+index.ts       — onInvitationCreated, onSessionCompleted, onMemberWritten,
+                 sendDailyDigest, triggerDigestForDossier, acceptInvitation
+analysis.ts    — runGapAnalysis(), saveGapAnalysis()
+                 (writes to gapAnalysis doc AND questions subcollection)
+```
+
+---
+
+## 5. Testing
 
 ### 5.1 Tooling
-- **Test runner**: Vitest (fast, Vite-native, ESM-compatible)
-- **Component testing**: React Testing Library (`@testing-library/react`)
-- **DOM environment**: jsdom (via `vitest` config)
-- **Browser API mocks**: Custom mocks for `AudioContext`, `MediaRecorder`, `getUserMedia` (see `src/__mocks__/`)
-- **Firebase mocks**: `firebase/firestore`, `firebase/auth`, and `firebase/storage` are mocked at the module level so unit tests never hit a real backend
-- **E2E** (future): Playwright with mock microphone input
 
-### 5.2 Test Structure
+- **Test runner**: Vitest (Vite-native, ESM-compatible)
+- **Component testing**: React Testing Library
+- **DOM environment**: jsdom
+- **Browser API mocks**: `src/__mocks__/webAudioApi.ts`
+- **Firebase mocks**: `src/__mocks__/firebase.ts`
+- **Linting**: ESLint flat config (`eslint.config.js`) with `@typescript-eslint` and `eslint-plugin-react-hooks`
+- **Current test count**: 334 passing
+
+### 5.2 Test Coverage
 
 ```
 src/__tests__/
-├── services/
-│   ├── audioUtils.test.ts         # encode/decode roundtrips, PCM conversion edge cases
-│   ├── gemini.test.ts             # System instruction generation
-│   ├── storage.test.ts            # Firestore/GCS operations (mocked)
-│   └── firebase.test.ts           # Config validation
-├── hooks/
-│   ├── useAuth.test.ts            # Auth state, sign-in flows, profile creation
-│   ├── useDossier.test.ts         # CRUD, debouncing, cleanup
-│   ├── useSession.test.ts         # Session lifecycle, error recovery
-│   └── useAudioMixer.test.ts      # Mixer init, stop, flush, cleanup
-├── components/
-│   ├── auth/LoginScreen.test.tsx
-│   ├── dossier/DossierList.test.tsx
-│   ├── session/SessionView.test.tsx
-│   ├── session/TranscriptFeed.test.tsx
-│   ├── history/QuestionDashboard.test.tsx
-│   └── shared/ErrorBoundary.test.tsx
-└── integration/
-    ├── auth-flow.test.ts          # Login → Dossier list → select → session
-    └── session-lifecycle.test.ts  # Start → record → transcript → stop → review
+├── services/   audioUtils, gemini, storage, postSessionAnalysis
+├── hooks/      useAuth, useDossier, useFamily, useEvents, useInvitations,
+│               useSession, useAudioMixer
+└── components/ AcceptInvite, LoginScreen, DossierList, FamilySelector,
+                MemberManagement, QuestionDashboard, SessionView,
+                TranscriptFeed, ErrorBoundary, StorytellerDashboard
 ```
 
-### 5.3 Test Priorities
+### 5.3 Mocking Strategy
 
-Tests are organized into three priority tiers based on risk and impact:
+- **Firebase**: All Firestore/Auth/Storage imports mocked at module level via `vi.mock()`. Tests use in-memory state.
+- **Browser APIs**: `AudioContext`, `MediaRecorder`, `getUserMedia` mocked in `src/__mocks__/webAudioApi.ts`.
+- **Gemini API**: `@google/genai` mocked to provide controllable `onopen`, `onmessage`, `onerror`, `onclose` callbacks.
 
-**Priority 1 — Core logic and data integrity (must-have for v1)**
+### 5.4 Known Issues
 
-| Area | What to test | Why it matters |
-|------|-------------|----------------|
-| `audioUtils` | encode/decode roundtrips, large arrays, invalid input, PCM-to-Float32 conversion boundaries | Audio corruption is unrecoverable under the "never delete" policy |
-| `gemini.ts` | `buildSystemInstruction` output with various Dossier states (empty name, empty questions, special characters, large question sets) | Malformed instructions break the interview experience |
-| `storage.ts` | `createSession`, `finalizeSession`, `syncTranscriptToFirestore` with mocked Firestore | Data loss is the worst failure mode for an archival app |
-| `useAuth` | Sign-in flows, auto-registration only on `user-not-found` (not wrong password), profile creation, sign-out | Auth bugs can lock users out or create phantom accounts |
-| `useDossier` | Debounce behavior, cleanup on unmount, CRUD operations, question reordering | Dossier data is the Archivist's primary work product |
-| `ErrorBoundary` | Catches render errors, shows friendly message, logs to console | Storytellers must never see a white screen |
+1. **Orphaned sessions on start failure**: If `mixer.start()` succeeds but Gemini connection fails, the Firestore session doc is created but never finalized. Should be marked `interrupted` in cleanup.
+2. **`encode()` RangeError on large buffers**: Byte-to-char loop may hit string length limits on very large audio buffers.
+3. **`syncTranscriptToFirestore` full overwrite**: Uses `setDoc(..., { merge: false })`. Acceptable for v1 but worth monitoring.
 
-**Priority 2 — User flows and component behavior**
+---
 
-| Area | What to test | Why it matters |
-|------|-------------|----------------|
-| `LoginScreen` | Form validation, error display, loading states, both sign-in paths | First thing every user sees |
-| `DossierList` | Empty state, create form, delete confirmation, navigation | Core Archivist workflow |
-| `SessionView` | Start/stop button states, error dialog, reconnect flow | Storyteller-facing; must be bulletproof |
-| `TranscriptFeed` | Message rendering, user vs bot styling, empty state, auto-scroll | Real-time feedback during sessions |
-| `QuestionDashboard` | Progress bar, status counts, findings display, empty state | Archivist reviews progress here |
-| `useAudioMixer` | Start/stop/flush lifecycle, MediaRecorder config, track cleanup | Mic and recording failures lose audio |
+## 6. Composite Firestore Indexes
 
-**Priority 3 — Edge cases and E2E**
+Defined in `firestore.indexes.json`:
 
-| Area | What to test | Why it matters |
-|------|-------------|----------------|
-| `useSession` | Full lifecycle with mocked Gemini, function calling, interruption handling, partial flush, concurrent audio chunks | Most complex hook; hardest to test but highest risk |
-| `SessionList` | Date formatting, status badges, empty state, Firestore ordering | Review experience |
-| `TranscriptViewer` | Transcript loading, speaker labels, audio player integration | Review experience |
-| `Layout` | Auth guard, nav visibility on session routes, sign-out | App shell correctness |
-| E2E (Playwright) | Full flow: login → create dossier → start session → speak → stop → review transcript | Confidence before release |
-
-### 5.4 Mocking Strategy
-
-**Firebase**: All Firestore/Auth/Storage imports are mocked at the module level via Vitest's `vi.mock()`. Tests use in-memory state to simulate reads and writes. This keeps tests fast and avoids needing a Firebase emulator for unit tests.
-
-**Browser APIs**: `AudioContext`, `MediaRecorder`, `getUserMedia`, and `MediaStreamDestination` are mocked in `src/__mocks__/webAudioApi.ts`. The mocks track calls and state changes so tests can verify the audio pipeline without real hardware.
-
-**Gemini API**: `@google/genai` is mocked to provide controllable `onopen`, `onmessage`, `onerror`, and `onclose` callbacks. Tests simulate function calls, audio data, transcription events, and connection drops.
-
-### 5.5 Known Issues Found During Review
-
-The following issues were identified during code review and should be verified by tests:
-
-1. **`useAuth` — wrong-password auto-registration (FIXED)**: `auth/invalid-credential` was incorrectly triggering account creation. Fixed to only auto-register on `auth/user-not-found`.
-
-2. **`useDossier` — debounce timer leak (FIXED)**: Debounce timer was not cleared on component unmount, causing async Firestore writes after the component was gone.
-
-3. **`firebase.ts` — missing config validation (FIXED)**: No validation that required environment variables were present. Now fails fast with a clear error message.
-
-4. **`syncTranscriptToFirestore` — full overwrite on every sync**: Uses `setDoc(..., { merge: false })` which overwrites the entire transcript document on each call. Concurrent syncs could theoretically lose entries. Acceptable for v1 since turns are sequential, but should be monitored.
-
-5. **`useSession` — orphaned sessions on start failure**: If `mixer.start()` succeeds but the Gemini connection fails, a Firestore session document is created but never finalized. A cleanup step should mark it as `interrupted`.
-
-6. **`encode()` — potential RangeError on large arrays**: The byte-to-char loop may hit string length limits on very large audio buffers. Should be tested with realistic buffer sizes.
-
-## 6. Future Roadmap
-
-### 6.1 Pre-session Connectivity Check (Issue #18)
-- Lightweight latency probe before starting a Gemini session
-- Warn the Archivist if round-trip time exceeds 500ms
-- Dismissible — does not block session start
-
-### 6.2 Deployment & CI/CD
-- **Hosting**: Firebase Hosting for global low-latency delivery.
-- **CI/CD**: GitHub Actions to trigger builds on `main` branch.
-- **Environment**: Use GitHub Secrets for `API_KEY` management, but prefer Firebase App Check in production to protect the Gemini endpoint.
-
-### 6.3 Scalability & Search
-- **Vector Search**: Future implementation of **Vertex AI Vector Search** on the stored transcripts. This would allow an Archivist to ask: "Find the part where Grandpa talks about his first boat."
-- **TTS Summarization**: Post-session batch processing to generate a "Chapterized" version of the session for easier navigation.
-
-### 6.4 Sharing & Collaboration
-- Allow an Archivist to invite other family members to view (read-only) a Storyteller's archive.
-- Shared Dossier editing for collaborative question planning.
+| Collection | Fields | Purpose |
+|---|---|---|
+| `sessions` | `status ASC`, `startTime ASC` | Gap analysis `getAllTranscripts` |
+| `sessions` | `status ASC`, `startTime DESC` | Digest `recentSessionSnap` |
+| `questions` | `status ASC`, `order ASC` | Digest Unasked questions query |
 
 ---
 
@@ -331,94 +425,47 @@ The following issues were identified during code review and should be verified b
 
 ### 7.1 Admin User Flow
 
-**Login → FamilySelector → DossierList (Admin Hub)**
+**Login → FamilySelector (if multiple) → DossierList**
 
-1. **DossierList** (`/family/:familyId`)
-   - View all storytellers as cards
-   - Create new storyteller
-   - Click storyteller card to edit their dossier
-
-2. **DossierEditor** (`/family/:familyId/dossier/:dossierId`)
-   - Edit storyteller profile, voice, personality
-   - Manage Story Queue (questions)
-   - Manage Family Tree (shared across all dossiers)
-   - Upload Prompt Photos
-   - Set Interviewer Notes
-   - Navigate to:
-     - Session History → View all sessions
-     - Events → Timeline of extracted events
-     - Memoir → AI-generated life story
-     - Photos → Media gallery
-     - Start Session → Record a session (optional, primarily for storytellers)
-
-3. **MemberManagement** (`/family/:familyId/members`)
-   - Accessible from top nav "Members" link
-   - Invite new members (admins or storytellers)
-   - Edit member emails, reset passwords
-   - Cancel pending invitations
-   - Edit Dossier links for storytellers
-
-4. **SessionList** (`/family/:familyId/dossier/:dossierId/history`)
-   - Browse all sessions for a storyteller
-   - Back: Returns to DossierEditor
-
-5. **TranscriptViewer** (`/family/:familyId/dossier/:dossierId/history/:sessionId`)
-   - Full transcript editing capability
-   - View engagement analysis
-   - See AI-suggested follow-up questions
-   - Create audio clips
-   - Back: Returns to SessionList
-   - "Dossier" link: Returns to DossierEditor
+1. **DossierList** (`/family/:familyId`) — view/create storyteller cards
+2. **DossierEditor** (`/family/:familyId/dossier/:dossierId`) — edit profile, story queue, family tree, prompt photos, notes; navigate to history, events, memoir, media
+3. **MemberManagement** (`/family/:familyId/members`) — invite members, edit roles, cancel invites
+4. **SessionList** → **TranscriptViewer** — full editing, engagement analysis, AI suggestions, audio clips
 
 ### 7.2 Storyteller User Flow
 
-**Login → FamilySelector → SessionView (Storyteller's Primary Interface)**
+**Login → FamilyHome → SessionView (auto-redirect)**
 
-1. **SessionView** (`/family/:familyId/dossier/:dossierId/session`)
-   - Auto-redirected here on login (FamilyHome detects role)
-   - Large Start/Stop recording button
-   - Live waveform visualizer
-   - Real-time transcript feed
-   - Prompt photo display (triggered by AI)
-   - Back: Returns to SessionList (NOT DossierEditor — storytellers cannot access it)
-
-2. **SessionList** (`/family/:familyId/dossier/:dossierId/history`)
-   - View all past recording sessions
-   - Click session to view transcript
-   - Back: Returns to family home (no access to DossierEditor)
-
-3. **TranscriptViewer** (`/family/:familyId/dossier/:dossierId/history/:sessionId`)
-   - Read-only view (no editing capability)
-   - Listen to audio playback
-   - View audio clips
-   - NO access to:
-     - Transcript editing
-     - Engagement analysis
-     - AI suggestions
-     - Dossier link (admin-only)
-   - Back: Returns to SessionList
-
-4. **Memoir/Events/Media** (read-only access)
-   - Can view generated memoirs
-   - Can browse events timeline
-   - Can view media gallery
+1. **SessionView** — start/stop, visualizer, transcript feed
+2. **SessionList** — past sessions (read-only)
+3. **TranscriptViewer** — read-only transcript and audio; no editing tab, no analysis
+4. **Memoir / Events / Media** — read-only access
 
 ### 7.3 Access Control Summary
 
 | Feature | Admin | Storyteller |
-|---------|-------|-------------|
-| DossierList | ✓ Full Access | ✗ Access Denied |
-| DossierEditor | ✓ Full Edit | ✗ Access Denied |
-| SessionView | ✓ Access (optional) | ✓ Primary Interface |
-| SessionList | ✓ Browse All | ✓ Browse Own |
-| TranscriptViewer | ✓ Read + Edit | ✓ Read Only |
-| MemberManagement | ✓ Full | ✗ Not Accessible |
-| Memoir/Events/Media | ✓ Full | ✓ Read Access |
+|---|---|---|
+| DossierList / DossierEditor | Full | Denied |
+| SessionView | Optional | Primary interface |
+| SessionList | All sessions | Own sessions |
+| TranscriptViewer | Read + Edit | Read only |
+| MemberManagement | Full | Denied |
+| Memoir / Events / Media | Full | Read only |
 
 ### 7.4 Navigation Principles
 
-1. **Storytellers never see admin interfaces** — They are auto-redirected from FamilyHome directly to SessionView
-2. **Back buttons are role-aware** — Admin "back" goes to DossierEditor, Storyteller "back" goes to SessionList or family home
-3. **DossierEditor is admin-only** — Hard access check prevents storytellers from accessing it, even via direct URL
-4. **Dual-role users default to admin** — If a user has both admin and storyteller roles, they see the admin interface (DossierList)
-5. **SessionView is the storyteller's hub** — Primary interface for recording, no intermediate dashboard
+1. Storytellers are auto-redirected from FamilyHome to SessionView
+2. Back buttons are role-aware
+3. DossierEditor has a hard access check against direct URL access by storytellers
+4. Dual-role users (admin + storyteller) default to admin interface
+
+---
+
+## 8. Future Roadmap
+
+- **Firebase App Check** — protect callable endpoints from abuse
+- **Firestore security rules audit** — tighten `questions` write scope (Cloud Functions only for `source=gapAnalysis`), `invitations` read scope, storyteller scope (issue #87)
+- **Vector Search** — Vertex AI on transcripts for semantic search
+- **Sharing** — read-only share links for family members outside the app
+- **E2E tests** — Playwright with mock microphone input
+- **Firebase Hosting** — CDN deployment pending
