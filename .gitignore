@@ -15,6 +15,10 @@ dist-ssr
 functions/lib
 functions/.env
 
+# Firebase project config — contains your GCP project ID, do not commit
+# Copy .firebaserc.example to .firebaserc and fill in your project ID
+.firebaserc
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

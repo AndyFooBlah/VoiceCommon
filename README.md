@@ -80,12 +80,13 @@ src/
    npm install
    ```
 
-3. Create your environment file:
+3. Create your environment and Firebase config files:
    ```bash
    cp .env.example .env.local
+   cp .firebaserc.example .firebaserc
    ```
 
-4. Fill in your Firebase and Gemini credentials in `.env.local`:
+4. Fill in your Firebase and Gemini credentials in `.env.local`, and your Firebase project ID in `.firebaserc`:
    ```
    VITE_FIREBASE_API_KEY=...
    VITE_FIREBASE_AUTH_DOMAIN=...

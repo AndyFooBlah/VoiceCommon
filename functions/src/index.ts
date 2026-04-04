@@ -41,7 +41,7 @@ const smtpPort = defineString('SMTP_PORT', { default: '587' });
 const smtpUser = defineString('SMTP_USER', { default: '' });
 const smtpPass = defineSecret('SMTP_PASS');
 const geminiApiKey = defineSecret('GEMINI_API_KEY');
-const appUrl = defineString('APP_URL', { default: 'https://legacybot.web.app' });
+const appUrl = defineString('APP_URL', { default: 'https://your-app.web.app' });
 
 /**
  * Triggered when a new document is created in the invitations collection.

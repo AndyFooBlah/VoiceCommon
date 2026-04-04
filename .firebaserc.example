@@ -1,6 +1,6 @@
 {
   "projects": {
-    "default": "legacybot-4814e"
+    "default": "your-firebase-project-id"
   },
   "targets": {},
   "etags": {}
