@@ -6,7 +6,7 @@ If you discover a security vulnerability in LegacyBot, please report it responsi
 
 **Do not open a public GitHub issue for security vulnerabilities.**
 
-Instead, please email: **security@andrewbrook.com**
+Instead, please email: **andrew.brook@fooblah.org**
 
 Include as much detail as you can:
 - A description of the vulnerability
