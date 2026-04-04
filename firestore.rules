@@ -69,10 +69,21 @@ service cloud.firestore {
           && resource.data.storytellerUid == null
           && request.resource.data.storytellerUid == request.auth.uid;
 
-        // --- Questions ---
+        // --- Questions (Story Queue) ---
+        // Storytellers may read their own queue but not write — questions are
+        // created by admins (manual) or Cloud Functions (gap analysis).
+        // Cloud Functions use the Admin SDK which bypasses these rules.
         match /questions/{questionId} {
           allow read, write: if isFamilyAdmin(familyId);
-          allow read, write: if isFamilyStoryteller(familyId) && isOwnDossier(familyId, dossierId);
+          allow read: if isFamilyStoryteller(familyId) && isOwnDossier(familyId, dossierId);
+        }
+
+        // --- Dossier-level AI analysis (e.g. gap analysis) ---
+        // Written exclusively by Cloud Functions (Admin SDK bypasses rules).
+        // Admins may read/write for tooling; storytellers may read their own.
+        match /analysis/{docId} {
+          allow read, write: if isFamilyAdmin(familyId);
+          allow read: if isFamilyStoryteller(familyId) && isOwnDossier(familyId, dossierId);
         }
 
         // --- Events (extracted from transcripts) ---

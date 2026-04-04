@@ -289,7 +289,7 @@ function createTransporter(): nodemailer.Transporter | null {
  *      Story Queue question suggestions to analysis/gapAnalysis.
  */
 export const onSessionCompleted = functions
-  .runWith({ secrets: [smtpPass, geminiApiKey], timeoutSeconds: 300 })
+  .runWith({ secrets: [smtpPass, geminiApiKey], timeoutSeconds: 300, maxInstances: 5 })
   .firestore.document('families/{familyId}/dossiers/{dossierId}/sessions/{sessionId}')
   .onUpdate(async (change, context) => {
     const before = change.before.data();
@@ -602,7 +602,7 @@ async function sendDigestForDossier(
  * even if a function run overlaps an hour boundary, the second run is a no-op.
  */
 export const sendDailyDigest = functions
-  .runWith({ secrets: [smtpPass], timeoutSeconds: 540 })
+  .runWith({ secrets: [smtpPass], timeoutSeconds: 540, maxInstances: 2 })
   .pubsub.schedule('0 * * * *') // every hour
   .timeZone('UTC')
   .onRun(async () => {
