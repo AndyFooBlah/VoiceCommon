@@ -62,7 +62,7 @@ describe('buildSystemInstruction', () => {
 
   it('includes the personality traits for empathetic mode', () => {
     const instruction = buildSystemInstruction(makeOptions({ dossier: makeDossier({ personality: 'empathetic' }) }));
-    expect(instruction).toContain('warm, gentle biographer');
+    expect(instruction).toContain('warm, attentive biographer');
   });
 
   it('includes the personality traits for investigative mode', () => {
@@ -164,8 +164,7 @@ describe('buildSystemInstruction', () => {
     expect(instruction).toContain('MANDATORY START (FIRST SESSION)');
     expect(instruction).toContain('Hello Margaret');
     expect(instruction).toContain('LegacyBot');
-    expect(instruction).toContain('Andy asked me to interview you');
-    expect(instruction).toContain('preserve your stories and memories');
+    expect(instruction).toContain('Andy asked me to help preserve your stories');
   });
 
   it('generates returning session recap for completedSessionCount>0', () => {
