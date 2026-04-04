@@ -14,36 +14,46 @@
 
 /**
  * MemoirViewer — displays a generated memoir with chapters and citations.
- * Admins can view, edit status, and regenerate. Storytellers can read only.
+ * Admins can generate, change status, and export to PDF.
+ * Storytellers can read only.
+ *
+ * Generation runs server-side via the generateMemoir Cloud Function.
+ * The component listens to the memoir doc in Firestore for real-time
+ * status updates (generating → draft).
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { doc, onSnapshot, collection, query, orderBy } from 'firebase/firestore';
+import { httpsCallable } from 'firebase/functions';
+import { db, functions } from '../../services/firebase';
 import { useAuth } from '../../hooks/useAuth';
 import { useDossier } from '../../hooks/useDossier';
+import { useCurrentRoles } from '../../hooks/useFamily';
 import { Memoir } from '../../types';
-import {
-  getMemoirs,
-  createMemoir,
-  updateMemoir,
-  getEvents,
-  getAllSessionTranscripts,
-} from '../../services/storage';
-import { generateFullMemoir } from '../../services/memoirGeneration';
+import { updateMemoir, getMemoirs } from '../../services/storage';
 import { exportMemoirAsPdf } from '../../services/memoirExport';
+
+const generateMemoirFn = httpsCallable<
+  { familyId: string; dossierId: string },
+  { memoirId: string }
+>(functions, 'generateMemoir');
 
 export const MemoirViewer: React.FC = () => {
   const { familyId, dossierId } = useParams<{ familyId: string; dossierId: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { dossier, questions } = useDossier(familyId, dossierId);
+  const { dossier } = useDossier(familyId, dossierId);
+  const { isAdmin } = useCurrentRoles(familyId, user?.uid);
 
   const [memoirs, setMemoirs] = useState<Memoir[]>([]);
   const [activeMemoirId, setActiveMemoirId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
+  const [generationError, setGenerationError] = useState<string | null>(null);
   const [activeChapter, setActiveChapter] = useState(0);
 
+  // Initial load of memoir list
   useEffect(() => {
     if (!familyId || !dossierId) return;
     getMemoirs(familyId, dossierId)
@@ -55,53 +65,68 @@ export const MemoirViewer: React.FC = () => {
       .finally(() => setLoading(false));
   }, [familyId, dossierId]);
 
+  // Real-time listener on the active memoir doc so generating → draft transition
+  // is reflected without a manual refresh
+  useEffect(() => {
+    if (!familyId || !dossierId || !activeMemoirId) return;
+    const memoirRef = doc(db, 'families', familyId, 'dossiers', dossierId, 'memoirs', activeMemoirId);
+    const unsub = onSnapshot(memoirRef, (snap) => {
+      if (!snap.exists()) return;
+      const updated = { id: snap.id, ...snap.data() } as Memoir;
+      setMemoirs((prev) => prev.map((m) => (m.id === activeMemoirId ? updated : m)));
+      if (updated.status !== 'generating') {
+        setGenerating(false);
+      }
+    });
+    return unsub;
+  }, [familyId, dossierId, activeMemoirId]);
+
   const activeMemoir = memoirs.find((m) => m.id === activeMemoirId);
 
   const handleGenerate = useCallback(async () => {
-    if (!familyId || !dossierId || !dossier || !user) return;
+    if (!familyId || !dossierId || !user) return;
     setGenerating(true);
+    setGenerationError(null);
     try {
-      // Create placeholder memoir doc
-      const memoirId = await createMemoir(familyId, dossierId, {
-        title: `The Story of ${dossier.storytellerName}`,
+      const result = await generateMemoirFn({ familyId, dossierId });
+      const { memoirId } = result.data;
+
+      // Add placeholder to list and select it; real-time listener will fill it in
+      const now = new Date();
+      const placeholder: Memoir = {
+        id: memoirId,
+        title: 'Generating memoir...',
         status: 'generating',
         generatedBy: user.uid,
         chapters: [],
-      });
-
-      // Gather all material
-      const [events, sessions] = await Promise.all([
-        getEvents(familyId, dossierId),
-        getAllSessionTranscripts(familyId, dossierId),
-      ]);
-
-      // Generate memoir
-      const result = await generateFullMemoir({
-        dossier,
-        questions,
-        events,
-        sessions,
-      });
-
-      // Update with generated content
-      await updateMemoir(familyId, dossierId, memoirId, {
-        title: result.title,
-        chapters: result.chapters,
-        status: 'draft',
-      });
-
-      // Refresh the list
-      const updated = await getMemoirs(familyId, dossierId);
-      setMemoirs(updated);
+        createdAt: now as any,
+        updatedAt: now as any,
+      };
+      setMemoirs((prev) => [placeholder, ...prev]);
       setActiveMemoirId(memoirId);
       setActiveChapter(0);
-    } catch (err) {
+    } catch (err: any) {
       console.error('[Memoir] Generation error:', err);
-      alert('Memoir generation failed. Please try again.');
-    } finally {
+      setGenerationError(err?.message ?? 'Memoir generation failed. Please try again.');
       setGenerating(false);
     }
-  }, [familyId, dossierId, dossier, questions, user]);
+  }, [familyId, dossierId, user]);
+
+  // Also listen for new memoirs in the collection (handles the case where another
+  // admin triggered generation and this viewer is already open)
+  useEffect(() => {
+    if (!familyId || !dossierId) return;
+    const colRef = collection(db, 'families', familyId, 'dossiers', dossierId, 'memoirs');
+    const q = query(colRef, orderBy('createdAt', 'desc'));
+    const unsub = onSnapshot(q, (snap) => {
+      const updated = snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Memoir);
+      setMemoirs(updated);
+      if (updated.length > 0 && !activeMemoirId) {
+        setActiveMemoirId(updated[0].id ?? null);
+      }
+    });
+    return unsub;
+  }, [familyId, dossierId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (loading) {
     return (
@@ -124,7 +149,7 @@ export const MemoirViewer: React.FC = () => {
           <h2 className="text-2xl font-bold text-slate-800">
             {activeMemoir?.title ?? 'Memoir'}
           </h2>
-          {activeMemoir && (
+          {activeMemoir && activeMemoir.status !== 'generating' && (
             <div className="flex items-center gap-3 mt-1">
               <span className="text-sm text-slate-400">Status:</span>
               <select
@@ -133,17 +158,13 @@ export const MemoirViewer: React.FC = () => {
                   if (!familyId || !dossierId || !activeMemoir.id) return;
                   const newStatus = e.target.value as Memoir['status'];
                   await updateMemoir(familyId, dossierId, activeMemoir.id, { status: newStatus });
-                  setMemoirs((prev) => prev.map((m) =>
-                    m.id === activeMemoir.id ? { ...m, status: newStatus } : m
-                  ));
                 }}
                 className={`text-sm font-semibold rounded-full px-3 py-1 border-0 cursor-pointer ${
                   activeMemoir.status === 'published' ? 'bg-green-100 text-green-700'
                     : activeMemoir.status === 'review' ? 'bg-amber-100 text-amber-700'
-                    : activeMemoir.status === 'generating' ? 'bg-slate-100 text-slate-500'
                     : 'bg-indigo-100 text-indigo-700'
                 }`}
-                disabled={activeMemoir.status === 'generating'}
+                disabled={!isAdmin}
               >
                 <option value="draft">Draft</option>
                 <option value="review">Review</option>
@@ -152,6 +173,7 @@ export const MemoirViewer: React.FC = () => {
             </div>
           )}
         </div>
+
         <div className="flex gap-3">
           {activeMemoir && activeMemoir.chapters.length > 0 && (
             <button
@@ -161,25 +183,52 @@ export const MemoirViewer: React.FC = () => {
               Export PDF
             </button>
           )}
-          <button
-            onClick={handleGenerate}
-            disabled={generating}
-            className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl font-semibold hover:bg-indigo-700 transition-colors shadow-lg disabled:opacity-50"
-          >
-            {generating ? 'Generating...' : memoirs.length === 0 ? 'Generate Memoir' : 'Regenerate Memoir'}
-          </button>
+          {isAdmin && (
+            <button
+              onClick={handleGenerate}
+              disabled={generating}
+              className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl font-semibold hover:bg-indigo-700 transition-colors shadow-lg disabled:opacity-50"
+            >
+              {generating ? 'Generating...' : memoirs.length === 0 ? 'Generate Memoir' : 'Regenerate Memoir'}
+            </button>
+          )}
         </div>
       </div>
 
-      {generating && (
+      {/* Version history selector */}
+      {memoirs.length > 1 && (
+        <div className="flex gap-2 flex-wrap">
+          {memoirs.map((m) => (
+            <button
+              key={m.id}
+              onClick={() => { setActiveMemoirId(m.id ?? null); setActiveChapter(0); }}
+              className={`text-xs px-3 py-1.5 rounded-full border transition-colors ${
+                m.id === activeMemoirId
+                  ? 'bg-indigo-600 text-white border-indigo-600'
+                  : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+              }`}
+            >
+              {m.status === 'generating' ? 'Generating...' : (m.createdAt as any)?.toDate?.()?.toLocaleDateString() ?? 'Draft'}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {generating && activeMemoir?.status === 'generating' && (
         <div className="bg-amber-50 border border-amber-200 rounded-2xl p-6 text-center space-y-3">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-amber-600 mx-auto" />
           <p className="text-amber-700 font-medium">
             Generating memoir from interview transcripts...
           </p>
           <p className="text-sm text-amber-600">
-            This may take a few minutes depending on the number of sessions.
+            This may take a few minutes. You can navigate away — generation continues on the server.
           </p>
+        </div>
+      )}
+
+      {generationError && (
+        <div className="bg-red-50 border border-red-200 rounded-2xl p-4 text-red-700 text-sm">
+          {generationError}
         </div>
       )}
 

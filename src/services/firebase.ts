@@ -32,6 +32,7 @@ import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
+import { getFunctions } from 'firebase/functions';
 
 /**
  * Validates that all required Firebase config values are present.
@@ -73,5 +74,8 @@ export const db = getFirestore(app);
 
 /** Cloud Storage for Firebase — stores archived session audio (WebM/Opus). */
 export const storage = getStorage(app);
+
+/** Cloud Functions for Firebase — used for server-side callables (memoir generation, etc.). */
+export const functions = getFunctions(app);
 
 export default app;

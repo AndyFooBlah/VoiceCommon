@@ -30,6 +30,7 @@ import { defineString, defineSecret } from 'firebase-functions/params';
 import * as admin from 'firebase-admin';
 import * as nodemailer from 'nodemailer';
 import { runGapAnalysis, saveGapAnalysis, getGapAnalysis } from './analysis';
+import { generateMemoirContent } from './memoir';
 
 admin.initializeApp();
 
@@ -707,4 +708,64 @@ export const triggerDigestForDossier = functions
       );
     }
     return { sent: true };
+  });
+
+// ---------------------------------------------------------------------------
+// Memoir generation (#90)
+// ---------------------------------------------------------------------------
+
+/**
+ * Callable: generate a memoir from all interview transcripts and events.
+ *
+ * Requires the caller to be a family admin.
+ * Creates a placeholder memoir doc with status 'generating', runs the
+ * two-pass Gemini pipeline server-side (no client API key needed), then
+ * updates the doc to status 'draft' on completion.
+ *
+ * The client listens to the memoir doc in real-time for status updates.
+ */
+export const generateMemoir = functions
+  .runWith({ secrets: [geminiApiKey], timeoutSeconds: 540, maxInstances: 3 })
+  .https.onCall(async (data, context) => {
+    const { familyId, dossierId } = data as { familyId: string; dossierId: string };
+    if (!familyId || !dossierId) {
+      throw new functions.https.HttpsError('invalid-argument', 'familyId and dossierId are required.');
+    }
+
+    await verifyFamilyAdmin(context, familyId);
+
+    const apiKey = geminiApiKey.value();
+    if (!apiKey) {
+      throw new functions.https.HttpsError('internal', 'GEMINI_API_KEY is not configured on this server.');
+    }
+
+    // Create a placeholder memoir doc so the UI can show generating state immediately
+    const now = admin.firestore.Timestamp.now();
+    const memoirRef = await db
+      .collection('families').doc(familyId)
+      .collection('dossiers').doc(dossierId)
+      .collection('memoirs')
+      .add({
+        title: 'Generating memoir...',
+        status: 'generating',
+        generatedBy: context.auth!.uid,
+        chapters: [],
+        createdAt: now,
+        updatedAt: now,
+      });
+
+    try {
+      await generateMemoirContent(familyId, dossierId, memoirRef.id, apiKey);
+      functions.logger.info(`[Memoir] Generated for dossier ${dossierId}, doc ${memoirRef.id}`);
+    } catch (err) {
+      // Mark the doc as failed so the UI can surface the error
+      await memoirRef.update({
+        status: 'error' as any,
+        updatedAt: admin.firestore.Timestamp.now(),
+      });
+      functions.logger.error(`[Memoir] Generation failed for dossier ${dossierId}:`, err);
+      throw new functions.https.HttpsError('internal', 'Memoir generation failed. Please try again.');
+    }
+
+    return { memoirId: memoirRef.id };
   });
