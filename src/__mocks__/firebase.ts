@@ -85,6 +85,7 @@ export const mockAuth = {
     return vi.fn(); // unsubscribe
   }),
   signInWithRedirect: vi.fn().mockResolvedValue(undefined),
+  getRedirectResult: vi.fn().mockResolvedValue(null),
   signInWithEmailAndPassword: vi.fn().mockResolvedValue({
     user: { uid: 'mock-uid', email: 'mock@example.com', displayName: null },
   }),
@@ -99,6 +100,7 @@ vi.mock('firebase/auth', () => ({
   getAuth: vi.fn(() => ({})),
   onAuthStateChanged: mockAuth.onAuthStateChanged,
   signInWithRedirect: mockAuth.signInWithRedirect,
+  getRedirectResult: mockAuth.getRedirectResult,
   signInWithEmailAndPassword: mockAuth.signInWithEmailAndPassword,
   createUserWithEmailAndPassword: mockAuth.createUserWithEmailAndPassword,
   signOut: mockAuth.signOut,

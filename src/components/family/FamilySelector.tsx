@@ -32,18 +32,16 @@ export const FamilySelector: React.FC = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!user?.uid) return;
-    getUserFamilyIds(user.uid)
-      .then((ids) => {
-        setFamilyIds(ids);
-      })
-      .catch((err) => {
-        console.error('Failed to load family IDs:', err);
-      })
-      .finally(() => {
-        setLoading(false);
-      });
-  }, [user?.uid]);
+    if (!user) return;
+    // getIdToken() ensures the Firestore SDK has the auth token before the read.
+    // Without this, a redirect sign-in can trigger a race where the Firestore
+    // request goes out before the auth token has propagated internally.
+    user.getIdToken()
+      .then(() => getUserFamilyIds(user.uid))
+      .then((ids) => setFamilyIds(ids))
+      .catch((err) => console.error('Failed to load family IDs:', err))
+      .finally(() => setLoading(false));
+  }, [user]);
 
   useEffect(() => {
     if (loading) return;

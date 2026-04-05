@@ -24,7 +24,7 @@ vi.mock('react-router-dom', () => ({
   useNavigate: () => mockNavigate,
 }));
 
-const mockUser = { uid: 'uid-1', email: 'test@test.com', displayName: 'Test' };
+const mockUser = { uid: 'uid-1', email: 'test@test.com', displayName: 'Test', getIdToken: vi.fn().mockResolvedValue('mock-token') };
 vi.mock('../../../hooks/useAuth', () => ({
   useAuth: () => ({ user: mockUser, loading: false }),
 }));

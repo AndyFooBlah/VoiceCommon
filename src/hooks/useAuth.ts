@@ -38,6 +38,7 @@ import { useState, useEffect } from 'react';
 import {
   onAuthStateChanged,
   signInWithRedirect,
+  getRedirectResult,
   GoogleAuthProvider,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
@@ -81,10 +82,14 @@ export function useAuth() {
   const [loading, setLoading] = useState(true);
 
   // Subscribe to Firebase auth state changes on mount.
-  // This handles page reloads, email sign-ins, and Google redirect returns.
+  // getRedirectResult must be called to explicitly consume any pending
+  // signInWithRedirect result; in some SDK versions onAuthStateChanged won't
+  // fire with the new user until it is called.
   // ensureUserProfile runs fire-and-forget so auth state is never gated
   // on a Firestore round-trip (which could fail and leave the UI stuck).
   useEffect(() => {
+    getRedirectResult(auth).catch(console.error);
+
     const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
       setUser(firebaseUser);
       setLoading(false);
