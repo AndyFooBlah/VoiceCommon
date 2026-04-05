@@ -45,14 +45,17 @@ import { UserProfile } from '../types';
 
 const googleProvider = new GoogleAuthProvider();
 
-/**
- * Creates a user profile document in Firestore if one doesn't already exist.
- * Called on every auth state change to cover both redirect returns and
- * email sign-ins. Safe to call repeatedly — idempotent.
- */
 async function ensureUserProfile(user: User): Promise<void> {
+  console.log('[Auth] ensureUserProfile start uid=' + user.uid);
   const userRef = doc(db, 'users', user.uid);
-  const snapshot = await getDoc(userRef);
+  let snapshot;
+  try {
+    snapshot = await getDoc(userRef);
+    console.log('[Auth] ensureUserProfile getDoc ok, exists=' + snapshot.exists());
+  } catch (err) {
+    console.error('[Auth] ensureUserProfile getDoc FAILED:', err);
+    throw err;
+  }
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   if (!snapshot.exists()) {
     const profile: UserProfile = {
@@ -61,12 +64,25 @@ async function ensureUserProfile(user: User): Promise<void> {
       createdAt: Timestamp.now(),
       familyIds: [],
     };
-    await setDoc(userRef, { ...profile, timezone });
+    try {
+      await setDoc(userRef, { ...profile, timezone });
+      console.log('[Auth] ensureUserProfile created new profile');
+    } catch (err) {
+      console.error('[Auth] ensureUserProfile setDoc (create) FAILED:', err);
+      throw err;
+    }
   } else {
-    // Keep timezone current in case the user has travelled or changed system settings.
     const existing = snapshot.data();
     if (existing.timezone !== timezone) {
-      await setDoc(userRef, { timezone }, { merge: true });
+      try {
+        await setDoc(userRef, { timezone }, { merge: true });
+        console.log('[Auth] ensureUserProfile updated timezone');
+      } catch (err) {
+        console.error('[Auth] ensureUserProfile setDoc (timezone) FAILED:', err);
+        throw err;
+      }
+    } else {
+      console.log('[Auth] ensureUserProfile profile up-to-date, no write needed');
     }
   }
 }
@@ -75,38 +91,61 @@ export function useAuth() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Subscribe to Firebase auth state changes on mount.
-  // ensureUserProfile runs fire-and-forget so auth state is never gated
-  // on a Firestore round-trip (which could fail and leave the UI stuck).
   useEffect(() => {
+    console.log('[Auth] onAuthStateChanged listener registered');
     const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+      console.log('[Auth] onAuthStateChanged fired, uid=' + (firebaseUser?.uid ?? 'null'));
       setUser(firebaseUser);
       setLoading(false);
       if (firebaseUser) {
-        ensureUserProfile(firebaseUser).catch(console.error);
+        ensureUserProfile(firebaseUser).catch((err) =>
+          console.error('[Auth] ensureUserProfile (background) error:', err)
+        );
       }
     });
-    return unsubscribe;
+    return () => {
+      console.log('[Auth] onAuthStateChanged listener removed');
+      unsubscribe();
+    };
   }, []);
 
-  /** Sign in with Google OAuth popup. */
   async function signInWithGoogle(): Promise<void> {
-    await signInWithPopup(auth, googleProvider);
+    console.log('[Auth] signInWithGoogle called');
+    try {
+      await signInWithPopup(auth, googleProvider);
+      console.log('[Auth] signInWithPopup resolved');
+    } catch (err) {
+      console.error('[Auth] signInWithPopup error:', err);
+      throw err;
+    }
   }
 
-  /** Sign in an existing user with email and password. */
   async function signInWithEmail(email: string, password: string): Promise<void> {
-    await signInWithEmailAndPassword(auth, email, password);
+    console.log('[Auth] signInWithEmail called for', email);
+    try {
+      await signInWithEmailAndPassword(auth, email, password);
+      console.log('[Auth] signInWithEmailAndPassword resolved');
+    } catch (err) {
+      console.error('[Auth] signInWithEmailAndPassword error:', err);
+      throw err;
+    }
   }
 
-  /** Create a new account with email and password. */
   async function signUpWithEmail(email: string, password: string): Promise<void> {
-    await createUserWithEmailAndPassword(auth, email, password);
+    console.log('[Auth] signUpWithEmail called for', email);
+    try {
+      await createUserWithEmailAndPassword(auth, email, password);
+      console.log('[Auth] createUserWithEmailAndPassword resolved');
+    } catch (err) {
+      console.error('[Auth] createUserWithEmailAndPassword error:', err);
+      throw err;
+    }
   }
 
-  /** Sign the user out of Firebase. */
   async function signOut(): Promise<void> {
+    console.log('[Auth] signOut called');
     await firebaseSignOut(auth);
+    console.log('[Auth] signOut complete');
   }
 
   return { user, loading, signInWithGoogle, signInWithEmail, signUpWithEmail, signOut };

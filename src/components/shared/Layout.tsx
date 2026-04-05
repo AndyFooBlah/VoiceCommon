@@ -37,12 +37,16 @@ export const Layout: React.FC = () => {
   // directly on that page after login instead of the role-appropriate home screen.
   const showedLoginRef = useRef(false);
   useEffect(() => {
-    if (!loading && !user) showedLoginRef.current = true;
+    if (!loading && !user) {
+      console.log('[Layout] showing login screen, path=' + location.pathname);
+      showedLoginRef.current = true;
+    }
   }, [loading, user]);
   useEffect(() => {
+    console.log('[Layout] auth effect: loading=' + loading + ' user=' + (user?.uid ?? 'null') + ' showedLogin=' + showedLoginRef.current);
     if (!loading && user && showedLoginRef.current) {
       showedLoginRef.current = false;
-      // Preserve the invite flow so invite links survive the login step.
+      console.log('[Layout] post-login redirect to /');
       if (!location.pathname.startsWith('/invite')) {
         navigate('/', { replace: true });
       }
