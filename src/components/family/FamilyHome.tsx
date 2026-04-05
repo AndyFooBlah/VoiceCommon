@@ -20,7 +20,7 @@
  */
 
 import React from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, Navigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { useCurrentRoles } from '../../hooks/useFamily';
 import { FamilyPage } from './FamilyPage';
@@ -49,11 +49,6 @@ export const FamilyHome: React.FC = () => {
     return <StorytellerDashboard />;
   }
 
-  // Not a member — shouldn't happen, but handle gracefully
-  return (
-    <div className="max-w-md mx-auto p-8 mt-20 text-center space-y-4">
-      <h2 className="text-xl font-bold text-slate-800">Access Denied</h2>
-      <p className="text-slate-400">You are not a member of this family.</p>
-    </div>
-  );
+  // Not a member — redirect to family selector so new users can create a family
+  return <Navigate to="/" replace />;
 };
