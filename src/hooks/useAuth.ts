@@ -91,20 +91,17 @@ export function useAuth() {
 
   /** Sign in with Google OAuth popup. */
   async function signInWithGoogle(): Promise<void> {
-    const result = await signInWithPopup(auth, googleProvider);
-    await ensureUserProfile(result.user);
+    await signInWithPopup(auth, googleProvider);
   }
 
   /** Sign in an existing user with email and password. */
   async function signInWithEmail(email: string, password: string): Promise<void> {
-    const result = await signInWithEmailAndPassword(auth, email, password);
-    await ensureUserProfile(result.user);
+    await signInWithEmailAndPassword(auth, email, password);
   }
 
   /** Create a new account with email and password. */
   async function signUpWithEmail(email: string, password: string): Promise<void> {
-    const result = await createUserWithEmailAndPassword(auth, email, password);
-    await ensureUserProfile(result.user);
+    await createUserWithEmailAndPassword(auth, email, password);
   }
 
   /** Sign the user out of Firebase. */

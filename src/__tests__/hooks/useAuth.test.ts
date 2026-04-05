@@ -18,6 +18,9 @@
  * Verifies sign-in flows (Google, email), separate sign-up flow,
  * user profile creation, sign-out, and auth state management.
  *
+ * Profile creation is handled fire-and-forget in onAuthStateChanged,
+ * not inside the sign-in methods, so it is tested via the auth state section.
+ *
  * References: design.md §5.3 (Priority 1) | src/hooks/useAuth.ts
  */
 
@@ -84,6 +87,40 @@ describe('useAuth — auth state', () => {
 
     expect(unsub).toHaveBeenCalled();
   });
+
+  it('creates user profile with familyIds when auth state changes to signed-in', async () => {
+    const fakeUser = { uid: 'u1', email: 'a@b.com', displayName: 'Alice' };
+    mockFirestore.getDoc.mockResolvedValueOnce({ exists: () => false });
+    mockAuth.onAuthStateChanged.mockImplementation((_auth: any, cb: any) => {
+      cb(fakeUser);
+      return vi.fn();
+    });
+
+    renderHook(() => useAuth());
+
+    await waitFor(() => expect(mockFirestore.setDoc).toHaveBeenCalledTimes(1));
+    const profileData = mockFirestore.setDoc.mock.calls[0][1];
+    expect(profileData.familyIds).toEqual([]);
+  });
+
+  it('does not overwrite existing user profile when timezone matches', async () => {
+    const fakeUser = { uid: 'u1', email: 'a@b.com', displayName: 'Alice' };
+    const browserTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    mockFirestore.getDoc.mockResolvedValueOnce({
+      exists: () => true,
+      data: () => ({ timezone: browserTimezone }),
+    });
+    mockAuth.onAuthStateChanged.mockImplementation((_auth: any, cb: any) => {
+      cb(fakeUser);
+      return vi.fn();
+    });
+
+    renderHook(() => useAuth());
+
+    // Give fire-and-forget time to run, then verify no write happened
+    await waitFor(() => expect(mockFirestore.getDoc).toHaveBeenCalledTimes(1));
+    expect(mockFirestore.setDoc).not.toHaveBeenCalled();
+  });
 });
 
 describe('useAuth — signInWithGoogle', () => {
@@ -96,40 +133,10 @@ describe('useAuth — signInWithGoogle', () => {
 
     expect(mockAuth.signInWithPopup).toHaveBeenCalledTimes(1);
   });
-
-  it('creates a user profile with familyIds if one does not exist', async () => {
-    mockFirestore.getDoc.mockResolvedValueOnce({ exists: () => false });
-
-    const { result } = renderHook(() => useAuth());
-    await act(async () => {
-      await result.current.signInWithGoogle();
-    });
-
-    expect(mockFirestore.setDoc).toHaveBeenCalledTimes(1);
-    const profileData = mockFirestore.setDoc.mock.calls[0][1];
-    expect(profileData.familyIds).toEqual([]);
-  });
-
-  it('does not overwrite existing user profile', async () => {
-    const browserTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    mockFirestore.getDoc.mockResolvedValueOnce({
-      exists: () => true,
-      data: () => ({ timezone: browserTimezone }),
-    });
-
-    const { result } = renderHook(() => useAuth());
-    await act(async () => {
-      await result.current.signInWithGoogle();
-    });
-
-    expect(mockFirestore.setDoc).not.toHaveBeenCalled();
-  });
 });
 
 describe('useAuth — signInWithEmail', () => {
   it('signs in an existing user', async () => {
-    mockFirestore.getDoc.mockResolvedValueOnce({ exists: () => true, data: () => ({}) });
-
     const { result } = renderHook(() => useAuth());
     await act(async () => {
       await result.current.signInWithEmail('test@example.com', 'password123');
@@ -158,23 +165,10 @@ describe('useAuth — signInWithEmail', () => {
     // Sign-in errors should never trigger account creation
     expect(mockAuth.createUserWithEmailAndPassword).not.toHaveBeenCalled();
   });
-
-  it('creates user profile on successful sign-in', async () => {
-    mockFirestore.getDoc.mockResolvedValueOnce({ exists: () => false });
-
-    const { result } = renderHook(() => useAuth());
-    await act(async () => {
-      await result.current.signInWithEmail('test@example.com', 'pass123');
-    });
-
-    expect(mockFirestore.setDoc).toHaveBeenCalledTimes(1);
-  });
 });
 
 describe('useAuth — signUpWithEmail', () => {
   it('creates a new account', async () => {
-    mockFirestore.getDoc.mockResolvedValueOnce({ exists: () => false });
-
     const { result } = renderHook(() => useAuth());
     await act(async () => {
       await result.current.signUpWithEmail('new@example.com', 'pass123');
@@ -188,25 +182,12 @@ describe('useAuth — signUpWithEmail', () => {
   });
 
   it('does not call signInWithEmailAndPassword', async () => {
-    mockFirestore.getDoc.mockResolvedValueOnce({ exists: () => false });
-
     const { result } = renderHook(() => useAuth());
     await act(async () => {
       await result.current.signUpWithEmail('new@example.com', 'pass123');
     });
 
     expect(mockAuth.signInWithEmailAndPassword).not.toHaveBeenCalled();
-  });
-
-  it('creates user profile after registration', async () => {
-    mockFirestore.getDoc.mockResolvedValueOnce({ exists: () => false });
-
-    const { result } = renderHook(() => useAuth());
-    await act(async () => {
-      await result.current.signUpWithEmail('new@example.com', 'pass123');
-    });
-
-    expect(mockFirestore.setDoc).toHaveBeenCalledTimes(1);
   });
 
   it('propagates errors (e.g. email-already-in-use)', async () => {
