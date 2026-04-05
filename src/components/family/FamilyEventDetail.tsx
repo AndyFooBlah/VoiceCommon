@@ -244,7 +244,7 @@ export const FamilyEventDetail: React.FC = () => {
               return Array.from(bySession.entries()).map(([sid, { dossierId: did, indices }]) => (
                 <Link
                   key={sid}
-                  to={`/family/${familyId}/dossier/${did}/session/${sid}`}
+                  to={`/family/${familyId}/dossier/${did}/history/${sid}`}
                   state={{ highlightIndices: indices }}
                   className="inline-flex items-center gap-1 text-sm text-indigo-600 hover:underline font-medium"
                 >
