@@ -84,9 +84,7 @@ export const mockAuth = {
     callback(null);
     return vi.fn(); // unsubscribe
   }),
-  signInWithPopup: vi.fn().mockResolvedValue({
-    user: { uid: 'mock-uid', email: 'mock@example.com', displayName: 'Mock User' },
-  }),
+  signInWithRedirect: vi.fn().mockResolvedValue(undefined),
   signInWithEmailAndPassword: vi.fn().mockResolvedValue({
     user: { uid: 'mock-uid', email: 'mock@example.com', displayName: null },
   }),
@@ -100,7 +98,7 @@ export const mockAuth = {
 vi.mock('firebase/auth', () => ({
   getAuth: vi.fn(() => ({})),
   onAuthStateChanged: mockAuth.onAuthStateChanged,
-  signInWithPopup: mockAuth.signInWithPopup,
+  signInWithRedirect: mockAuth.signInWithRedirect,
   signInWithEmailAndPassword: mockAuth.signInWithEmailAndPassword,
   createUserWithEmailAndPassword: mockAuth.createUserWithEmailAndPassword,
   signOut: mockAuth.signOut,

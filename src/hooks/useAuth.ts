@@ -18,12 +18,18 @@
  * Wraps Firebase Auth state in a React hook that provides:
  *   - user:     The currently signed-in Firebase user (or null)
  *   - loading:  Whether the auth state is still being determined
- *   - signInWithGoogle:  Trigger Google OAuth popup sign-in
- *   - signInWithEmail:   Sign in (or register) with email/password
+ *   - signInWithGoogle:  Trigger Google OAuth redirect sign-in
+ *   - signInWithEmail:   Sign in with email/password
+ *   - signUpWithEmail:   Register a new account with email/password
  *   - signOut:           Sign the user out and clear local state
  *
  * On first login, a user profile document is created in Firestore at
  * users/{uid} with the user's email and display name.
+ *
+ * Google sign-in uses signInWithRedirect (not popup) to avoid
+ * Cross-Origin-Opener-Policy conflicts that prevent the popup closing.
+ * ensureUserProfile is called in onAuthStateChanged so it runs both
+ * on the redirect return and for email sign-ins.
  *
  * References: design.md §3.1 | GitHub Issue #2
  */
@@ -31,7 +37,7 @@
 import { useState, useEffect } from 'react';
 import {
   onAuthStateChanged,
-  signInWithPopup,
+  signInWithRedirect,
   GoogleAuthProvider,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
@@ -46,7 +52,8 @@ const googleProvider = new GoogleAuthProvider();
 
 /**
  * Creates a user profile document in Firestore if one doesn't already exist.
- * Called after every successful sign-in to handle first-time users.
+ * Called on every auth state change to cover both redirect returns and
+ * email sign-ins. Safe to call repeatedly — idempotent.
  */
 async function ensureUserProfile(user: User): Promise<void> {
   const userRef = doc(db, 'users', user.uid);
@@ -74,20 +81,21 @@ export function useAuth() {
   const [loading, setLoading] = useState(true);
 
   // Subscribe to Firebase auth state changes on mount.
-  // This handles page reloads — if the user was previously signed in,
-  // Firebase restores the session automatically.
+  // This handles page reloads, email sign-ins, and Google redirect returns.
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (firebaseUser) {
+        await ensureUserProfile(firebaseUser);
+      }
       setUser(firebaseUser);
       setLoading(false);
     });
     return unsubscribe;
   }, []);
 
-  /** Sign in with Google OAuth popup. */
+  /** Sign in with Google OAuth redirect (avoids popup COOP issues). */
   async function signInWithGoogle(): Promise<void> {
-    const result = await signInWithPopup(auth, googleProvider);
-    await ensureUserProfile(result.user);
+    await signInWithRedirect(auth, googleProvider);
   }
 
   /** Sign in an existing user with email and password. */
