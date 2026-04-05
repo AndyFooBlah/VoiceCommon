@@ -82,13 +82,15 @@ export function useAuth() {
 
   // Subscribe to Firebase auth state changes on mount.
   // This handles page reloads, email sign-ins, and Google redirect returns.
+  // ensureUserProfile runs fire-and-forget so auth state is never gated
+  // on a Firestore round-trip (which could fail and leave the UI stuck).
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (firebaseUser) {
-        await ensureUserProfile(firebaseUser);
-      }
+    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
       setUser(firebaseUser);
       setLoading(false);
+      if (firebaseUser) {
+        ensureUserProfile(firebaseUser).catch(console.error);
+      }
     });
     return unsubscribe;
   }, []);
