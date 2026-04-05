@@ -87,14 +87,42 @@ describe('useAuth — auth state', () => {
 });
 
 describe('useAuth — signInWithGoogle', () => {
-  it('calls signInWithRedirect (not popup — avoids COOP issues)', async () => {
+  it('calls signInWithPopup', async () => {
     const { result } = renderHook(() => useAuth());
 
     await act(async () => {
       await result.current.signInWithGoogle();
     });
 
-    expect(mockAuth.signInWithRedirect).toHaveBeenCalledTimes(1);
+    expect(mockAuth.signInWithPopup).toHaveBeenCalledTimes(1);
+  });
+
+  it('creates a user profile with familyIds if one does not exist', async () => {
+    mockFirestore.getDoc.mockResolvedValueOnce({ exists: () => false });
+
+    const { result } = renderHook(() => useAuth());
+    await act(async () => {
+      await result.current.signInWithGoogle();
+    });
+
+    expect(mockFirestore.setDoc).toHaveBeenCalledTimes(1);
+    const profileData = mockFirestore.setDoc.mock.calls[0][1];
+    expect(profileData.familyIds).toEqual([]);
+  });
+
+  it('does not overwrite existing user profile', async () => {
+    const browserTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    mockFirestore.getDoc.mockResolvedValueOnce({
+      exists: () => true,
+      data: () => ({ timezone: browserTimezone }),
+    });
+
+    const { result } = renderHook(() => useAuth());
+    await act(async () => {
+      await result.current.signInWithGoogle();
+    });
+
+    expect(mockFirestore.setDoc).not.toHaveBeenCalled();
   });
 });
 
