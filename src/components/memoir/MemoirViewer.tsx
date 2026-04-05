@@ -34,10 +34,12 @@ import { Memoir } from '../../types';
 import { updateMemoir, getMemoirs } from '../../services/storage';
 import { exportMemoirAsPdf } from '../../services/memoirExport';
 
+// Memoir generation runs multiple Gemini calls — allow up to 9 minutes.
+// The Cloud Function itself has a 540s server-side timeout.
 const generateMemoirFn = httpsCallable<
   { familyId: string; dossierId: string },
   { memoirId: string }
->(functions, 'generateMemoir');
+>(functions, 'generateMemoir', { timeout: 540_000 });
 
 export const MemoirViewer: React.FC = () => {
   const { familyId, dossierId } = useParams<{ familyId: string; dossierId: string }>();
