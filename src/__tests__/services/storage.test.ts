@@ -163,14 +163,15 @@ describe('syncTranscriptToFirestore', () => {
 });
 
 describe('updateQuestionStateInFirestore', () => {
-  it('updates the question document with status and findings', async () => {
+  it('upserts the question document with status and findings', async () => {
     await updateQuestionStateInFirestore('family-1', 'dossier-1', 'q1', 'InProgress', 'User mentioned a farm.');
 
-    expect(mockFirestore.updateDoc).toHaveBeenCalledTimes(1);
-    const updateData = mockFirestore.updateDoc.mock.calls[0][1];
+    expect(mockFirestore.setDoc).toHaveBeenCalledTimes(1);
+    const updateData = mockFirestore.setDoc.mock.calls[0][1];
     expect(updateData.status).toBe('InProgress');
     expect(updateData.findings).toBe('User mentioned a farm.');
     expect(updateData.updatedAt).toBeDefined();
+    expect(mockFirestore.setDoc.mock.calls[0][2]).toEqual({ merge: true });
   });
 });
 

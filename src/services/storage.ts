@@ -185,11 +185,11 @@ export async function updateQuestionStateInFirestore(
   findings: string,
 ): Promise<void> {
   const docRef = doc(db, 'families', familyId, 'dossiers', dossierId, 'questions', questionId);
-  await updateDoc(docRef, {
+  await setDoc(docRef, {
     status,
     findings,
     updatedAt: Timestamp.now(),
-  });
+  }, { merge: true });
 }
 
 // ---------------------------------------------------------------------------
