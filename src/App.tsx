@@ -20,6 +20,7 @@
  *   /create-family                           → CreateFamily
  *   /invite?token=...                        → AcceptInvite
  *   /family/:familyId                        → Admin: FamilyPage | Storyteller: StorytellerDashboard
+ *   /family/:familyId/storyteller            → StorytellerDashboard (direct link for admin+storyteller)
  *   /family/:familyId/dossier/:dossierId     → Admin: DossierEditor
  *   /family/:familyId/dossier/:dossierId/session    → SessionView (both roles)
  *   /family/:familyId/dossier/:dossierId/history    → SessionList
@@ -54,6 +55,7 @@ const App: React.FC = () => {
             <Route path="/create-family" element={<CreateFamily />} />
             <Route path="/invite" element={<AcceptInvite />} />
             <Route path="/family/:familyId" element={<FamilyHome />} />
+            <Route path="/family/:familyId/storyteller" element={<StorytellerDashboard />} />
             <Route path="/family/:familyId/events/:eventId" element={<FamilyEventDetail />} />
             <Route path="/family/:familyId/dossier/:dossierId" element={<DossierEditor />} />
             <Route path="/family/:familyId/dossier/:dossierId/session" element={<SessionView />} />

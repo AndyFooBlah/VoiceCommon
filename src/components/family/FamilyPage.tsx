@@ -35,6 +35,7 @@ import { useFamilyEvents, createEvent, updateEvent, deleteEvent } from '../../ho
 import { updateMemberEmail, resetMemberPassword } from '../../services/adminActions';
 import { InviteMember } from './InviteMember';
 import { FamilyMember, RelationType, MemberType } from '../../types';
+import { applyRemoveMember, applyRemoveRelation, applyUpdateRelation } from '../../utils/familyTree';
 
 export const FamilyPage: React.FC = () => {
   const { familyId } = useParams<{ familyId: string }>();
@@ -214,43 +215,34 @@ export const FamilyPage: React.FC = () => {
 
   function handleRemoveFamilyMember(memberId: string) {
     if (!familyId || !family) return;
-    const member = (family.familyTree ?? []).find((m) => m.id === memberId);
+    const tree = family.familyTree ?? [];
+    const member = tree.find((m) => m.id === memberId);
     if (!window.confirm(`Remove ${member ? treeDisplayName(member) : 'this member'} from the family tree?`)) return;
-    const updated = (family.familyTree ?? []).filter((m) => m.id !== memberId);
-    updateFamilyTree(familyId, updated);
+    updateFamilyTree(familyId, applyRemoveMember(tree, memberId));
   }
 
   function handleAddRelation(memberId: string) {
     if (!familyId || !family) return;
     const member = (family.familyTree ?? []).find((m) => m.id === memberId);
     if (!member) return;
-    const updatedMember = {
-      ...member,
+    // New relation starts with no target — inverse is applied when the user picks one.
+    handleFamilyMemberChange(memberId, {
       relations: [...member.relations, { type: 'Parent' as RelationType, toMemberId: '' }],
-    };
-    handleFamilyMemberChange(memberId, updatedMember);
+    });
   }
 
   function handleRemoveRelation(memberId: string, relationIndex: number) {
     if (!familyId || !family) return;
-    const member = (family.familyTree ?? []).find((m) => m.id === memberId);
-    if (!member) return;
-    const updatedRelations = member.relations.filter((_, i) => i !== relationIndex);
-    handleFamilyMemberChange(memberId, { relations: updatedRelations });
+    updateFamilyTree(familyId, applyRemoveRelation(family.familyTree ?? [], memberId, relationIndex));
   }
 
   function handleUpdateRelation(
     memberId: string,
     relationIndex: number,
-    updates: { type?: RelationType; toMemberId?: string }
+    updates: { type?: RelationType; toMemberId?: string },
   ) {
     if (!familyId || !family) return;
-    const member = (family.familyTree ?? []).find((m) => m.id === memberId);
-    if (!member) return;
-    const updatedRelations = member.relations.map((r, i) =>
-      i === relationIndex ? { ...r, ...updates } : r
-    );
-    handleFamilyMemberChange(memberId, { relations: updatedRelations });
+    updateFamilyTree(familyId, applyUpdateRelation(family.familyTree ?? [], memberId, relationIndex, updates));
   }
 
   // Events handlers

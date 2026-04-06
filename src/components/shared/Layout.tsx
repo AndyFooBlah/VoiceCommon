@@ -54,7 +54,7 @@ export const Layout: React.FC = () => {
   const familyIdMatch = location.pathname.match(/^\/family\/([^/]+)/);
   const familyId = familyIdMatch?.[1];
 
-  const { isAdmin, loading: rolesLoading } = useCurrentRoles(familyId, user?.uid);
+  const { isAdmin, isStoryteller } = useCurrentRoles(familyId, user?.uid);
 
   if (loading) {
     return (
@@ -103,6 +103,14 @@ export const Layout: React.FC = () => {
                 className="text-sm text-slate-500 hover:text-slate-700 font-medium transition-colors"
               >
                 Family
+              </button>
+            )}
+            {familyId && isStoryteller && (
+              <button
+                onClick={() => navigate(`/family/${familyId}/storyteller`)}
+                className="text-sm text-slate-500 hover:text-slate-700 font-medium transition-colors"
+              >
+                My Sessions
               </button>
             )}
             <span className="text-sm text-slate-500">
