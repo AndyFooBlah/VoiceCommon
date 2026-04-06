@@ -539,9 +539,9 @@ export const FamilyPage: React.FC = () => {
                       <p className="text-sm text-slate-400">{member.email}</p>
                     )}
 
-                    {/* Storyteller bio */}
+                    {/* Storyteller bio — truncated to 3 lines */}
                     {dossier?.storytellerContext && (
-                      <p className="text-sm text-slate-600 mt-2 italic">
+                      <p className="text-sm text-slate-600 mt-2 italic line-clamp-3">
                         {dossier.storytellerContext}
                       </p>
                     )}

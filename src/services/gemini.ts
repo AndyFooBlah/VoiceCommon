@@ -182,7 +182,11 @@ KNOWLEDGE BASE:
 - Story Queue: ${JSON.stringify(questions.map((q) => ({ id: q.id, text: q.text, status: q.status, findings: q.findings })))}
 - Family Tree: ${JSON.stringify(familyTree ?? dossier.familyTree ?? [])}
 - Historical Context: ${dossier.historicalContext}
-${dossier.storytellerContext ? `- Storyteller Background: ${dossier.storytellerContext}` : ''}
+${dossier.storytellerContext ? `- Storyteller Biography: ${dossier.storytellerContext}
+  IMPORTANT: Read this biography carefully before the session. Use it to:
+  • Ask targeted follow-up questions that connect to people, places, and experiences mentioned here
+  • Avoid asking about things the biography already reveals — instead, dig deeper into those details
+  • Make ${name} feel known: reference specifics from their background naturally in conversation` : ''}
 ${adminNotesSection}
 ${promptPhotos && promptPhotos.length > 0 ? `
 PROMPT PHOTOS:
