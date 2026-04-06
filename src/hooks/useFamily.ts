@@ -132,12 +132,17 @@ export function useFamilyMembers(familyId: string | undefined) {
  */
 export function useCurrentRoles(familyId: string | undefined, uid: string | undefined) {
   const [roles, setRoles] = useState<UserRole[]>([]);
-  const [loading, setLoading] = useState(true);
+  // Track which familyId+uid pair the current roles were loaded for.
+  // loading is derived synchronously: true whenever we have a uid/familyId but
+  // haven't yet received a snapshot confirming them. This prevents a transient
+  // render where uid just arrived but the effect-based loading flag still reflects
+  // a prior null-uid state, which would incorrectly trigger a Navigate redirect.
+  const [loadedFor, setLoadedFor] = useState<{ familyId: string; uid: string } | null>(null);
 
   useEffect(() => {
     if (!familyId || !uid) {
       setRoles([]);
-      setLoading(false);
+      setLoadedFor(null);
       return;
     }
 
@@ -153,12 +158,12 @@ export function useCurrentRoles(familyId: string | undefined, uid: string | unde
         } else {
           setRoles([]);
         }
-        setLoading(false);
+        setLoadedFor({ familyId, uid });
       },
       (err) => {
         console.error('[useCurrentRoles] snapshot error familyId=' + familyId + ' uid=' + uid + ':', err);
         setRoles([]);
-        setLoading(false);
+        setLoadedFor({ familyId, uid });
       },
     );
 
@@ -168,8 +173,10 @@ export function useCurrentRoles(familyId: string | undefined, uid: string | unde
     };
   }, [familyId, uid]);
 
-  const isAdmin = roles.includes('admin');
-  const isStoryteller = roles.includes('storyteller');
+  const loading = !loadedFor ||
+    !(loadedFor.familyId === familyId && loadedFor.uid === uid);
+  const isAdmin = !loading && roles.includes('admin');
+  const isStoryteller = !loading && roles.includes('storyteller');
 
   return { roles, isAdmin, isStoryteller, loading };
 }
