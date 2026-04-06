@@ -31,6 +31,8 @@ export const FamilyHome: React.FC = () => {
   const { user } = useAuth();
   const { isAdmin, isStoryteller, loading } = useCurrentRoles(familyId, user?.uid);
 
+  console.log('[FamilyHome] familyId=' + familyId + ' uid=' + (user?.uid ?? 'null') + ' isAdmin=' + isAdmin + ' isStoryteller=' + isStoryteller + ' loading=' + loading);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">

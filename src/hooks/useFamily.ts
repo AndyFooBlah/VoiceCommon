@@ -141,10 +141,12 @@ export function useCurrentRoles(familyId: string | undefined, uid: string | unde
       return;
     }
 
+    console.log('[useCurrentRoles] subscribing familyId=' + familyId + ' uid=' + uid);
     const docRef = doc(db, 'families', familyId, 'members', uid);
     const unsubscribe = onSnapshot(
       docRef,
       (snapshot) => {
+        console.log('[useCurrentRoles] snapshot familyId=' + familyId + ' uid=' + uid + ' exists=' + snapshot.exists() + ' data=' + JSON.stringify(snapshot.exists() ? snapshot.data() : null));
         if (snapshot.exists()) {
           const data = snapshot.data() as FamilyMemberRecord;
           setRoles(data.roles);
@@ -154,13 +156,16 @@ export function useCurrentRoles(familyId: string | undefined, uid: string | unde
         setLoading(false);
       },
       (err) => {
-        console.error('useCurrentRoles snapshot error:', err);
+        console.error('[useCurrentRoles] snapshot error familyId=' + familyId + ' uid=' + uid + ':', err);
         setRoles([]);
         setLoading(false);
       },
     );
 
-    return unsubscribe;
+    return () => {
+      console.log('[useCurrentRoles] unsubscribing familyId=' + familyId + ' uid=' + uid);
+      unsubscribe();
+    };
   }, [familyId, uid]);
 
   const isAdmin = roles.includes('admin');

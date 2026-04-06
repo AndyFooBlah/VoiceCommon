@@ -45,7 +45,7 @@ export const FamilySelector: React.FC = () => {
       })
       .catch((err) => console.error('[FamilySelector] Failed to load family IDs:', err))
       .finally(() => setLoading(false));
-  }, [user]);
+  }, [user?.uid]);
 
   useEffect(() => {
     if (loading) return;
