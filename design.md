@@ -184,12 +184,22 @@ The `onMemberWritten` Cloud Function (Firestore trigger on `families/{familyId}/
 
 1. User lands on `LoginScreen` (Google sign-in or email/password form).
 2. On first login, a `users/{uid}` profile is created if it does not exist.
-3. App reads `users/{uid}.familyIds`. If empty → `FamilyHome` prompts to create or join a family.
-4. If one family → auto-navigate to `FamilyPage`. If multiple → `FamilySelector`.
-5. On `FamilyPage`, role is checked from `families/{familyId}/members/{uid}.roles`:
-   - **admin** → `DossierList` (full management interface)
-   - **storyteller** → `SessionView` (record-only interface, redirected immediately)
-6. Dual-role users (both admin and storyteller) are treated as admin.
+3. `FamilySelector` reads `users/{uid}.familyIds`:
+   - Empty → show "Create a Family" / "I Have an Invite Link"
+   - One family → auto-navigate to `/family/:familyId`
+   - Multiple → show family list picker
+4. `FamilyHome` subscribes to `families/{familyId}/members/{uid}` via `useCurrentRoles` and routes by role:
+   - **admin** → `FamilyPage` (full management interface)
+   - **storyteller** → `StorytellerDashboard` (history + start session)
+   - **not a member** → redirect back to `FamilySelector`
+5. Dual-role users (both admin and storyteller) are treated as admin.
+
+**Important implementation note — `useCurrentRoles` loading**: `loading` is derived
+synchronously from a `loadedFor` state (the `{familyId, uid}` pair for which a snapshot
+has been received), rather than from a boolean state flag set in effects. This prevents
+a race where the uid arrives in the same React batch that sets `loading=false` (from a
+prior null-uid effect run), which would cause `FamilyHome` to render a redirect before
+the Firestore snapshot can confirm the user's role.
 
 ### 3.2 Invitation Workflow
 

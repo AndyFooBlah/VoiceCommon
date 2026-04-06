@@ -46,16 +46,8 @@ import { UserProfile } from '../types';
 const googleProvider = new GoogleAuthProvider();
 
 async function ensureUserProfile(user: User): Promise<void> {
-  console.log('[Auth] ensureUserProfile start uid=' + user.uid);
   const userRef = doc(db, 'users', user.uid);
-  let snapshot;
-  try {
-    snapshot = await getDoc(userRef);
-    console.log('[Auth] ensureUserProfile getDoc ok, exists=' + snapshot.exists());
-  } catch (err) {
-    console.error('[Auth] ensureUserProfile getDoc FAILED:', err);
-    throw err;
-  }
+  const snapshot = await getDoc(userRef);
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   if (!snapshot.exists()) {
     const profile: UserProfile = {
@@ -64,25 +56,11 @@ async function ensureUserProfile(user: User): Promise<void> {
       createdAt: Timestamp.now(),
       familyIds: [],
     };
-    try {
-      await setDoc(userRef, { ...profile, timezone });
-      console.log('[Auth] ensureUserProfile created new profile');
-    } catch (err) {
-      console.error('[Auth] ensureUserProfile setDoc (create) FAILED:', err);
-      throw err;
-    }
+    await setDoc(userRef, { ...profile, timezone });
   } else {
     const existing = snapshot.data();
     if (existing.timezone !== timezone) {
-      try {
-        await setDoc(userRef, { timezone }, { merge: true });
-        console.log('[Auth] ensureUserProfile updated timezone');
-      } catch (err) {
-        console.error('[Auth] ensureUserProfile setDoc (timezone) FAILED:', err);
-        throw err;
-      }
-    } else {
-      console.log('[Auth] ensureUserProfile profile up-to-date, no write needed');
+      await setDoc(userRef, { timezone }, { merge: true });
     }
   }
 }
@@ -92,60 +70,32 @@ export function useAuth() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    console.log('[Auth] onAuthStateChanged listener registered');
     const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
-      console.log('[Auth] onAuthStateChanged fired, uid=' + (firebaseUser?.uid ?? 'null'));
       setUser(firebaseUser);
       setLoading(false);
       if (firebaseUser) {
         ensureUserProfile(firebaseUser).catch((err) =>
-          console.error('[Auth] ensureUserProfile (background) error:', err)
+          console.error('[Auth] ensureUserProfile error:', err)
         );
       }
     });
-    return () => {
-      console.log('[Auth] onAuthStateChanged listener removed');
-      unsubscribe();
-    };
+    return unsubscribe;
   }, []);
 
   async function signInWithGoogle(): Promise<void> {
-    console.log('[Auth] signInWithGoogle called');
-    try {
-      await signInWithPopup(auth, googleProvider);
-      console.log('[Auth] signInWithPopup resolved');
-    } catch (err) {
-      console.error('[Auth] signInWithPopup error:', err);
-      throw err;
-    }
+    await signInWithPopup(auth, googleProvider);
   }
 
   async function signInWithEmail(email: string, password: string): Promise<void> {
-    console.log('[Auth] signInWithEmail called for', email);
-    try {
-      await signInWithEmailAndPassword(auth, email, password);
-      console.log('[Auth] signInWithEmailAndPassword resolved');
-    } catch (err) {
-      console.error('[Auth] signInWithEmailAndPassword error:', err);
-      throw err;
-    }
+    await signInWithEmailAndPassword(auth, email, password);
   }
 
   async function signUpWithEmail(email: string, password: string): Promise<void> {
-    console.log('[Auth] signUpWithEmail called for', email);
-    try {
-      await createUserWithEmailAndPassword(auth, email, password);
-      console.log('[Auth] createUserWithEmailAndPassword resolved');
-    } catch (err) {
-      console.error('[Auth] createUserWithEmailAndPassword error:', err);
-      throw err;
-    }
+    await createUserWithEmailAndPassword(auth, email, password);
   }
 
   async function signOut(): Promise<void> {
-    console.log('[Auth] signOut called');
     await firebaseSignOut(auth);
-    console.log('[Auth] signOut complete');
   }
 
   return { user, loading, signInWithGoogle, signInWithEmail, signUpWithEmail, signOut };

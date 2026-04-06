@@ -33,16 +33,9 @@ export const FamilySelector: React.FC = () => {
 
   useEffect(() => {
     if (!user) return;
-    console.log('[FamilySelector] loading family IDs for uid=' + user.uid);
     user.getIdToken()
-      .then((token) => {
-        console.log('[FamilySelector] getIdToken ok, token length=' + token.length);
-        return getUserFamilyIds(user.uid);
-      })
-      .then((ids) => {
-        console.log('[FamilySelector] family IDs loaded:', ids);
-        setFamilyIds(ids);
-      })
+      .then(() => getUserFamilyIds(user.uid))
+      .then((ids) => setFamilyIds(ids))
       .catch((err) => console.error('[FamilySelector] Failed to load family IDs:', err))
       .finally(() => setLoading(false));
   }, [user?.uid]);
