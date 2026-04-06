@@ -19,7 +19,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { mockFirestore } from '../../__mocks__/firebase';
-import { useFamily, useFamilyMembers, useCurrentRoles, createFamily, getUserFamilyIds } from '../../hooks/useFamily';
+import { useFamily, useFamilyMembers, useCurrentRoles, createFamily, getUserFamilyIds, updateMemberRoles } from '../../hooks/useFamily';
 
 beforeEach(() => {
   Object.values(mockFirestore).forEach((fn) => {
@@ -158,6 +158,26 @@ describe('createFamily', () => {
     expect(mockBatch.set).toHaveBeenCalledTimes(1);
     expect(mockBatch.update).toHaveBeenCalledTimes(1);
     expect(mockBatch.commit).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('updateMemberRoles', () => {
+  it('calls updateDoc with the new roles array', async () => {
+    await updateMemberRoles('family-1', 'uid-1', ['admin', 'storyteller']);
+
+    expect(mockFirestore.updateDoc).toHaveBeenCalledTimes(1);
+    expect(mockFirestore.updateDoc).toHaveBeenCalledWith(
+      expect.anything(),
+      { roles: ['admin', 'storyteller'] },
+    );
+  });
+
+  it('can remove a role by passing the reduced array', async () => {
+    await updateMemberRoles('family-1', 'uid-1', ['admin']);
+
+    const payload = mockFirestore.updateDoc.mock.calls[0][1];
+    expect(payload.roles).toEqual(['admin']);
+    expect(payload.roles).not.toContain('storyteller');
   });
 });
 

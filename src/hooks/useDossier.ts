@@ -116,6 +116,19 @@ export function useDossierList(
   return { dossiers, loading, createDossier, deleteDossier };
 }
 
+/**
+ * Link an existing dossier to a family member (set storytellerUid).
+ * Used when granting the storyteller role to a member who already exists.
+ */
+export async function setDossierStoryteller(
+  familyId: string,
+  dossierId: string,
+  uid: string,
+): Promise<void> {
+  const dossierRef = doc(db, 'families', familyId, 'dossiers', dossierId);
+  await updateDoc(dossierRef, { storytellerUid: uid, updatedAt: Timestamp.now() });
+}
+
 // ---------------------------------------------------------------------------
 // Single Dossier — used when editing or running a session
 // ---------------------------------------------------------------------------

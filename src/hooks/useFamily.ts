@@ -231,6 +231,19 @@ export async function updateFamilyTree(
 }
 
 /**
+ * Update the roles array for a family member.
+ * Caller must be a family admin (enforced by Firestore rules).
+ */
+export async function updateMemberRoles(
+  familyId: string,
+  uid: string,
+  roles: UserRole[],
+): Promise<void> {
+  const memberRef = doc(db, 'families', familyId, 'members', uid);
+  await updateDoc(memberRef, { roles });
+}
+
+/**
  * Fetch the user's familyIds from their profile.
  */
 export async function getUserFamilyIds(uid: string): Promise<string[]> {

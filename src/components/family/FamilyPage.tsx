@@ -28,13 +28,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
-import { useFamily, useFamilyMembers, updateFamilyTree } from '../../hooks/useFamily';
+import { useFamily, useFamilyMembers, updateFamilyTree, updateMemberRoles } from '../../hooks/useFamily';
 import { useFamilyInvitations } from '../../hooks/useInvitations';
-import { useDossierList } from '../../hooks/useDossier';
+import { useDossierList, setDossierStoryteller } from '../../hooks/useDossier';
 import { useFamilyEvents, createEvent, updateEvent, deleteEvent } from '../../hooks/useEvents';
 import { updateMemberEmail, resetMemberPassword } from '../../services/adminActions';
 import { InviteMember } from './InviteMember';
-import { FamilyMember, RelationType, MemberType } from '../../types';
+import { FamilyMember, RelationType, MemberType, UserRole } from '../../types';
 import { applyRemoveMember, applyRemoveRelation, applyUpdateRelation } from '../../utils/familyTree';
 
 export const FamilyPage: React.FC = () => {
@@ -70,6 +70,9 @@ export const FamilyPage: React.FC = () => {
   const [reissueLink, setReissueLink] = useState<string | null>(null);
   const [reissueForName, setReissueForName] = useState('');
   const [reissuing, setReissuing] = useState<string | null>(null);
+
+  // Role management state
+  const [updatingRoles, setUpdatingRoles] = useState<string | null>(null);
 
   // Events state
   const [showEventForm, setShowEventForm] = useState(false);
@@ -125,6 +128,45 @@ export const FamilyPage: React.FC = () => {
       alert(err.message || 'Failed to create invitation');
     } finally {
       setReissuing(null);
+    }
+  }
+
+  async function handleToggleRole(targetUid: string, role: UserRole) {
+    if (!familyId) return;
+    const member = members.find((m) => m.uid === targetUid);
+    if (!member) return;
+
+    const hasRole = member.roles.includes(role);
+
+    if (hasRole && role === 'admin') {
+      const adminCount = members.filter((m) => m.roles.includes('admin')).length;
+      if (adminCount <= 1) {
+        alert('Cannot remove the only admin. Grant admin to another member first.');
+        return;
+      }
+    }
+
+    const newRoles: UserRole[] = hasRole
+      ? member.roles.filter((r) => r !== role)
+      : [...member.roles, role];
+
+    setUpdatingRoles(targetUid);
+    try {
+      await updateMemberRoles(familyId, targetUid, newRoles);
+
+      // When granting storyteller to someone without a dossier, create and link one.
+      if (!hasRole && role === 'storyteller') {
+        const hasDossier = dossiers.some((d) => d.storytellerUid === targetUid);
+        if (!hasDossier) {
+          const dossierId = await createDossier(member.displayName);
+          await setDossierStoryteller(familyId, dossierId, targetUid);
+        }
+      }
+    } catch (err: any) {
+      console.error('[FamilyPage] Toggle role error:', err);
+      alert(err.message || 'Failed to update role');
+    } finally {
+      setUpdatingRoles(null);
     }
   }
 
@@ -503,6 +545,34 @@ export const FamilyPage: React.FC = () => {
                         {dossier.storytellerContext}
                       </p>
                     )}
+
+                    {/* Role toggles */}
+                    <div className="flex items-center gap-2 mt-2">
+                      <span className="text-xs text-slate-400">Roles:</span>
+                      {(['admin', 'storyteller'] as UserRole[]).map((role) => {
+                        const active = member.roles.includes(role);
+                        return (
+                          <button
+                            key={role}
+                            onClick={() => handleToggleRole(member.uid, role)}
+                            disabled={updatingRoles === member.uid}
+                            title={active ? `Remove ${role} role` : `Grant ${role} role`}
+                            className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider transition-colors disabled:opacity-50 ${
+                              active
+                                ? role === 'admin'
+                                  ? 'bg-indigo-100 text-indigo-600 hover:bg-indigo-200'
+                                  : 'bg-emerald-100 text-emerald-600 hover:bg-emerald-200'
+                                : 'bg-slate-100 text-slate-400 hover:bg-slate-200'
+                            }`}
+                          >
+                            {active ? '✓ ' : '+ '}{role}
+                          </button>
+                        );
+                      })}
+                      {updatingRoles === member.uid && (
+                        <span className="text-xs text-slate-400">Saving…</span>
+                      )}
+                    </div>
                   </div>
 
                   {/* Action buttons */}
