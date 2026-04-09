@@ -31,7 +31,7 @@ export const Logo: React.FC<LogoProps> = ({ size = 32, className }) => (
     width={size}
     height={size}
     className={className}
-    aria-label="LegacyBot logo"
+    aria-label="BiographyBot logo"
   >
     <defs>
       <linearGradient id="lb-sun" x1="0" y1="0" x2="0" y2="1">

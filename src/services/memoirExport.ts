@@ -107,7 +107,7 @@ function renderCoverPage(doc: jsPDF, memoir: Memoir, storytellerName: string): v
     PAGE_HEIGHT - 30,
     { align: 'center' },
   );
-  doc.text('Created with LegacyBot', PAGE_WIDTH / 2, PAGE_HEIGHT - 22, { align: 'center' });
+  doc.text('Created with BiographyBot', PAGE_WIDTH / 2, PAGE_HEIGHT - 22, { align: 'center' });
 }
 
 function renderTableOfContents(doc: jsPDF, memoir: Memoir): void {

@@ -1,8 +1,10 @@
 # Product Requirements Document: LegacyBot
 
+> **Public name:** This product is publicly branded as **BiographyBot** and served at [biographybot.com](https://biographybot.com). The GitHub repository and internal codebase use the name "LegacyBot" for historical continuity.
+
 ## 1. Executive Summary
 
-LegacyBot is a voice-first life story preservation application that helps families capture and archive the oral histories of their loved ones. An AI interviewer powered by Google Gemini Live conducts empathetic, real-time voice conversations with storytellers, guided by context and questions set up by a family administrator ("Archivist"). The resulting audio, transcripts, timelines, and AI-generated memoirs form a permanent, searchable family archive.
+LegacyBot (publicly: BiographyBot) is a voice-first life story preservation application that helps families capture and archive the oral histories of their loved ones. An AI interviewer powered by Google Gemini Live conducts empathetic, real-time voice conversations with storytellers, guided by context and questions set up by a family administrator ("Archivist"). The resulting audio, transcripts, timelines, and AI-generated memoirs form a permanent, searchable family archive.
 
 ---
 

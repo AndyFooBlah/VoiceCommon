@@ -92,7 +92,7 @@ export const Layout: React.FC = () => {
           >
             <Logo size={28} />
             <h1 className="text-xl font-bold text-slate-800 tracking-tight font-display">
-              LegacyBot
+              BiographyBot
             </h1>
           </button>
 

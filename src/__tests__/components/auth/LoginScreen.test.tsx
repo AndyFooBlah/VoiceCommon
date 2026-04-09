@@ -46,14 +46,14 @@ function renderLogin() {
 }
 
 describe('LoginScreen — rendering', () => {
-  it('shows the LegacyBot heading', () => {
+  it('shows the BiographyBot heading', () => {
     renderLogin();
-    expect(screen.getByText('LegacyBot')).toBeInTheDocument();
+    expect(screen.getByText('BiographyBot')).toBeInTheDocument();
   });
 
   it('shows the tagline', () => {
     renderLogin();
-    expect(screen.getByText(/Always archival, never forgotten/)).toBeInTheDocument();
+    expect(screen.getByText(/Tell your family's story/)).toBeInTheDocument();
   });
 
   it('shows the Google sign-in button', () => {

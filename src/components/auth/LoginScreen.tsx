@@ -112,7 +112,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
           <div className="flex items-center justify-center gap-3">
             <Logo size={44} />
             <h1 className="text-4xl font-bold text-slate-800 tracking-tight font-display">
-              LegacyBot
+              BiographyBot
             </h1>
           </div>
           {inviteEmail ? (
@@ -121,7 +121,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
             </p>
           ) : (
             <p className="text-slate-400 italic text-sm">
-              &ldquo;Always archival, never forgotten.&rdquo;
+              Tell your family's story.
             </p>
           )}
         </div>

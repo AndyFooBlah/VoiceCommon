@@ -110,7 +110,7 @@ export const AcceptInvite: React.FC = () => {
       <div className="text-center space-y-2">
         <h2 className="text-2xl font-bold text-slate-800">You're Invited!</h2>
         <p className="text-slate-400">
-          You've been invited to join a family on LegacyBot.
+          You've been invited to join a family on BiographyBot.
         </p>
       </div>
 

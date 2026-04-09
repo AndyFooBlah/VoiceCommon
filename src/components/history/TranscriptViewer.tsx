@@ -389,7 +389,7 @@ export const TranscriptViewer: React.FC = () => {
                           entry.role === 'user' ? 'text-indigo-200' : 'text-slate-400'
                         }`}
                       >
-                        {entry.role === 'user' ? 'Storyteller' : 'LegacyBot'}
+                        {entry.role === 'user' ? 'Storyteller' : 'BiographyBot'}
                       </span>
                       {entry.timestamp?.toDate && (
                         <span

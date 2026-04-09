@@ -1,8 +1,10 @@
 # Technical Design Document: LegacyBot
 
+> **Public name:** This app is publicly branded as **BiographyBot** ([biographybot.com](https://biographybot.com)). The GitHub repository and codebase use "LegacyBot" for historical continuity.
+
 ## 1. System Architecture
 
-LegacyBot is a React SPA using the Google Gemini Live API for real-time voice interaction and Firebase for auth, persistence, and backend functions.
+LegacyBot (publicly: BiographyBot) is a React SPA using the Google Gemini Live API for real-time voice interaction and Firebase for auth, persistence, and backend functions.
 
 ### 1.1 Core Components
 

@@ -1,11 +1,13 @@
 # LegacyBot
 
-A voice-first life story preservation app that helps families capture and archive the stories of their loved ones. LegacyBot uses the Google Gemini Live API to conduct empathetic, real-time voice interviews with storytellers, automatically transcribing and organizing their narratives.
+> **Public name:** This app is publicly branded as **BiographyBot** and hosted at [biographybot.com](https://biographybot.com). The GitHub repository and internal codebase retain the name "LegacyBot" for historical continuity.
+
+A voice-first life story preservation app that helps families capture and archive the stories of their loved ones. BiographyBot uses the Google Gemini Live API to conduct empathetic, real-time voice interviews with storytellers, automatically transcribing and organizing their narratives.
 
 ## How It Works
 
 1. **Create a Dossier** — Set up a storyteller profile with their name, background context, family tree, and a queue of interview questions.
-2. **Start a Session** — LegacyBot greets the storyteller by name and guides the conversation using the question queue, adapting naturally to wherever the story leads.
+2. **Start a Session** — BiographyBot greets the storyteller by name and guides the conversation using the question queue, adapting naturally to wherever the story leads.
 3. **Review History** — Browse past sessions, read transcripts, listen to archived audio, and track question progress across interviews.
 
 ## Key Features
@@ -190,7 +192,7 @@ CI uses Node 20 on Ubuntu with npm caching enabled for fast installs. A concurre
 
 ## Privacy & Security
 
-LegacyBot stores deeply personal information — life stories, family histories, health details, and childhood memories. Deploying it responsibly requires understanding exactly where that data goes, who can access it, and under what conditions it may be used by third-party services.
+BiographyBot stores deeply personal information — life stories, family histories, health details, and childhood memories. Deploying it responsibly requires understanding exactly where that data goes, who can access it, and under what conditions it may be used by third-party services.
 
 ### Keeping credentials out of your repository
 
@@ -270,7 +272,7 @@ User accounts → Firebase Authentication (US only)
 
 ## Built With AI
 
-LegacyBot was developed collaboratively with several AI coding assistants across different phases of the project.
+BiographyBot was developed collaboratively with several AI coding assistants across different phases of the project.
 
 | AI | Model | Role |
 |----|-------|------|

@@ -178,7 +178,7 @@ describe('buildSystemInstruction', () => {
     const instruction = buildSystemInstruction(makeOptions({ completedSessionCount: 0 }));
     expect(instruction).toContain('MANDATORY START (FIRST SESSION)');
     expect(instruction).toContain('Hello Margaret');
-    expect(instruction).toContain('LegacyBot');
+    expect(instruction).toContain('BiographyBot');
     expect(instruction).toContain('Andy asked me to help preserve your stories');
   });
 

@@ -94,7 +94,7 @@ export const TalkView: React.FC = () => {
         <div className="flex items-center justify-center gap-3">
           <Logo size={48} />
           <h1 className="text-5xl font-bold text-slate-800 tracking-tighter font-display">
-            LegacyBot
+            BiographyBot
           </h1>
         </div>
         <p className="text-slate-400 font-medium italic">
