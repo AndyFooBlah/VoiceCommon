@@ -339,8 +339,8 @@ describe('buildTalkSystemInstruction', () => {
     expect(instruction).toContain('isCorrection');
   });
 
-  it('encourages asking only one question at a time', () => {
+  it('discourages prompting the user to keep talking', () => {
     const instruction = buildTalkSystemInstruction(makeTalkOptions());
-    expect(instruction).toContain('ONE follow-up question');
+    expect(instruction).toContain('Do NOT prompt');
   });
 });
