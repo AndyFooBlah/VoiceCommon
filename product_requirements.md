@@ -149,7 +149,14 @@ A low-stakes, unstructured conversational mode distinct from the formal intervie
 - Session data is durable: Firestore transcripts persist in real-time; audio chunks are buffered and flushed on any disconnect.
 - Cloud Functions use `maxInstances` limits on expensive functions (`onSessionCompleted`, `sendDailyDigest`) to control costs.
 
-### 5.5 License
+### 5.5 Hosting
+
+- The app is deployed to Firebase Hosting at **https://legacybot-4814e.web.app**.
+- Production builds are generated with `npm run build` (Vite) and deployed with `firebase deploy --only hosting`.
+- CI runs lint, type-check, and tests on every push to `main` but does not auto-deploy; hosting deploys are currently manual.
+- A single-page app rewrite rule routes all paths to `index.html`.
+
+### 5.6 License
 
 Apache 2.0 — Copyright 2026 Andrew Brook. All source files carry the standard Apache 2.0 header.
 
@@ -160,6 +167,6 @@ Apache 2.0 — Copyright 2026 Andrew Brook. All source files carry the standard 
 - Vector/semantic search across transcripts (planned: Vertex AI)
 - Read-only sharing links for family members outside the app
 - E2E automated tests (planned: Playwright)
-- Firebase Hosting CDN deployment
+- Bundle code splitting / chunk optimization (issue #96)
 - Firebase App Check (endpoint abuse protection)
 - TTS-based chapterized session summaries
