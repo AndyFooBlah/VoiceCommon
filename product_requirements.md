@@ -151,7 +151,7 @@ A low-stakes, unstructured conversational mode distinct from the formal intervie
 
 ### 5.5 Hosting
 
-- The app is deployed to Firebase Hosting at **https://legacybot-4814e.web.app**.
+- The app is deployed to Firebase Hosting at **https://biographybot.com** (also accessible at `https://legacybot-4814e.web.app`).
 - Production builds are generated with `npm run build` (Vite) and deployed with `firebase deploy --only hosting`.
 - CI runs lint, type-check, and tests on every push to `main` but does not auto-deploy; hosting deploys are currently manual.
 - A single-page app rewrite rule routes all paths to `index.html`.

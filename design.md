@@ -6,7 +6,7 @@ LegacyBot is a React SPA using the Google Gemini Live API for real-time voice in
 
 ### 1.1 Core Components
 
-- **Frontend**: React 19, TypeScript, Tailwind CSS v4, Vite 6, React Router v7 — deployed to Firebase Hosting at **https://legacybot-4814e.web.app**
+- **Frontend**: React 19, TypeScript, Tailwind CSS v4, Vite 6, React Router v7 — deployed to Firebase Hosting at **https://biographybot.com**
 - **AI Core**: `@google/genai`. All models are Gemini 3.1 or newer — no earlier models are used anywhere.
   - Live session: `gemini-3.1-flash-live-preview` (`thinkingLevel: MINIMAL` for lowest latency)
   - Batch analysis (post-session, gap analysis, memoir): `gemini-3.1-pro-preview` (`thinkingLevel: HIGH`)
