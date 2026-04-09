@@ -248,7 +248,7 @@ export const TranscriptViewer: React.FC = () => {
     <div className="max-w-3xl mx-auto p-8 space-y-6">
       <div>
         <button
-          onClick={() => navigate(`/family/${familyId}/dossier/${dossierId}/history`)}
+          onClick={() => navigate(isAdmin ? `/family/${familyId}/dossier/${dossierId}/history` : `/family/${familyId}`)}
           className="text-sm text-indigo-600 font-medium hover:underline mb-1"
         >
           &larr; Back to Session History
