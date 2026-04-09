@@ -62,6 +62,28 @@ import { extractEvents, assessEngagement, suggestQuestions } from '../services/p
 
 const GEMINI_MODEL = 'gemini-3.1-flash-live-preview';
 
+/**
+ * Maximum seconds of audio that may be queued ahead of the current playback
+ * position. If this is exceeded, the model is almost certainly generating output
+ * in a runaway loop — we reset the schedule and interrupt.
+ */
+const MAX_AUDIO_LOOKAHEAD_S = 30;
+
+/**
+ * Compute the word-overlap ratio between two strings (ignoring very short words).
+ * Used to detect when consecutive bot turns are near-identical repeats.
+ */
+function wordOverlapRatio(a: string, b: string): number {
+  const tokenize = (s: string) =>
+    new Set(s.toLowerCase().split(/\s+/).filter((w) => w.length > 2));
+  const wa = tokenize(a);
+  const wb = tokenize(b);
+  if (wa.size === 0 || wb.size === 0) return 0;
+  let shared = 0;
+  for (const w of wa) { if (wb.has(w)) shared++; }
+  return shared / Math.min(wa.size, wb.size);
+}
+
 interface UseSessionOptions {
   familyId: string;
   dossierId: string;
@@ -120,6 +142,10 @@ export function useSession({
   // PCM debug counters — track send rate to detect runaway audio pipelines
   const pcmFrameCountRef = useRef(0);
   const pcmLogTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Repetition loop detection — tracks the last complete bot turn text so
+  // we can compare it to the next turn and detect near-identical repeats.
+  const lastBotOutputRef = useRef<string>('');
 
   /** Convert Float32 audio samples to PCM Int16 and base64-encode for Gemini. */
   const createPCMData = useCallback((data: Float32Array) => {
@@ -496,8 +522,35 @@ export function useSession({
             currentInputRef.current = '';
           }
           if (currentOutputRef.current.trim()) {
-            addMessage('bot', currentOutputRef.current);
+            const outputText = currentOutputRef.current.trim();
             currentOutputRef.current = '';
+
+            // Repetition loop detection: compare this turn to the previous bot
+            // turn. If the word overlap is very high (>85%) and the turn is long
+            // enough to be meaningful (>12 words), the model is stuck in a loop.
+            // Interrupt the audio, discard the duplicate text, and send a silent
+            // recovery nudge so the model resumes from a fresh state.
+            const wordCount = outputText.split(/\s+/).length;
+            const overlap = wordOverlapRatio(outputText, lastBotOutputRef.current);
+            if (wordCount > 12 && overlap > 0.85) {
+              console.warn(
+                `[Session] Repetition loop detected — ${Math.round(overlap * 100)}% word overlap with previous bot turn (${wordCount} words). Interrupting.`,
+              );
+              handleInterruption();
+              const session = sessionRef.current;
+              if (session) {
+                try {
+                  session.sendRealtimeInput({
+                    text: '[Internal system note — not for the storyteller: the previous response was an exact repeat. Resume the interview naturally from where you left off without acknowledging this note.]',
+                  });
+                } catch (e) {
+                  console.warn('[Session] Could not send repetition-recovery prompt:', e);
+                }
+              }
+            } else {
+              addMessage('bot', outputText);
+              lastBotOutputRef.current = outputText;
+            }
           }
         }
 
@@ -507,8 +560,22 @@ export function useSession({
         for (const part of message.serverContent?.modelTurn?.parts ?? []) {
           const audioData = part?.inlineData?.data;
           if (audioData && mixer.playbackContext) {
-            setIsBotSpeaking(true);
             const ctx = mixer.playbackContext;
+
+            // Audio backlog guard: if more than MAX_AUDIO_LOOKAHEAD_S seconds of
+            // audio is already queued ahead of the current playback position, the
+            // model is almost certainly in a runaway generation loop. Reset the
+            // schedule, stop all playing audio, and discard this chunk.
+            if (nextStartTimeRef.current - ctx.currentTime > MAX_AUDIO_LOOKAHEAD_S) {
+              console.warn(
+                `[Session] Audio backlog exceeded ${MAX_AUDIO_LOOKAHEAD_S}s — possible loop. Skipping chunk and interrupting.`,
+              );
+              handleInterruption();
+              nextStartTimeRef.current = ctx.currentTime;
+              continue; // eslint-disable-line no-continue
+            }
+
+            setIsBotSpeaking(true);
             nextStartTimeRef.current = Math.max(nextStartTimeRef.current, ctx.currentTime);
 
             const buffer = await decodeAudioData(decode(audioData), ctx, 24000, 1);
@@ -585,6 +652,7 @@ export function useSession({
       setStatus(ConnectionStatus.CONNECTING);
       setMessages([]);
       transcriptEntriesRef.current = [];
+      lastBotOutputRef.current = '';
       setConnectivityWarning(null);
       console.log(`[Session] Starting new session at ${new Date().toISOString()}`);
 

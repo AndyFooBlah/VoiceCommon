@@ -684,6 +684,79 @@ describe('reconnectSession', () => {
 });
 
 // ---------------------------------------------------------------------------
+describe('repetition loop detection', () => {
+  /** Simulate a bot turn with given text via the onmessage callback. */
+  async function sendBotTurn(text: string) {
+    await act(async () => {
+      capturedCallbacks.current.onmessage?.({
+        serverContent: { outputTranscription: { text }, turnComplete: false },
+      });
+      capturedCallbacks.current.onmessage?.({ serverContent: { turnComplete: true } });
+    });
+  }
+
+  it('adds a unique bot turn to messages normally', async () => {
+    const { result } = renderSession();
+    await act(async () => { await result.current.startSession(); });
+
+    await sendBotTurn('Hello Margaret! It is wonderful to speak with you today. Tell me about your childhood.');
+
+    expect(result.current.messages).toHaveLength(1);
+    expect(result.current.messages[0].role).toBe('bot');
+  });
+
+  it('suppresses a repeated bot turn and does not add it to messages', async () => {
+    const { result } = renderSession();
+    await act(async () => { await result.current.startSession(); });
+
+    const sameText = 'Hello Margaret! It is so wonderful to speak with you today. Could you tell me about where you grew up?';
+    await sendBotTurn(sameText);
+    expect(result.current.messages).toHaveLength(1);
+
+    // Second identical turn — should be suppressed
+    await sendBotTurn(sameText);
+    expect(result.current.messages).toHaveLength(1); // no new message added
+  });
+
+  it('sends a recovery prompt via sendRealtimeInput when a repeat is detected', async () => {
+    const { result } = renderSession();
+    await act(async () => { await result.current.startSession(); });
+
+    const sameText = 'Hello Margaret! It is so wonderful to speak with you today. Could you tell me about where you grew up?';
+    await sendBotTurn(sameText);
+    mockLiveSession.sendRealtimeInput.mockClear();
+
+    await sendBotTurn(sameText);
+    expect(mockLiveSession.sendRealtimeInput).toHaveBeenCalledTimes(1);
+    const callArg = mockLiveSession.sendRealtimeInput.mock.calls[0][0];
+    expect(callArg.text).toContain('repeat');
+  });
+
+  it('does not suppress short turns even if they match', async () => {
+    const { result } = renderSession();
+    await act(async () => { await result.current.startSession(); });
+
+    // Short turns (≤12 words) are exempt from the duplicate filter
+    const shortTurn = 'And what happened next?';
+    await sendBotTurn(shortTurn);
+    await sendBotTurn(shortTurn);
+
+    // Both should be added — short turns are not filtered
+    expect(result.current.messages).toHaveLength(2);
+  });
+
+  it('does not suppress turns that differ meaningfully in content', async () => {
+    const { result } = renderSession();
+    await act(async () => { await result.current.startSession(); });
+
+    await sendBotTurn('Hello Margaret! Could you tell me about where you grew up and what your childhood was like?');
+    await sendBotTurn('That sounds like a wonderful memory. What do you remember most vividly about your time on the farm?');
+
+    expect(result.current.messages).toHaveLength(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
 describe('clearDeviceError / dismissConnectivityWarning', () => {
   it('clears device error', async () => {
     const err = new Error('microphone access denied');
