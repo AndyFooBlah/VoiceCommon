@@ -38,8 +38,8 @@ import { useCurrentRoles, useFamily } from '../../hooks/useFamily';
 import { useDossier } from '../../hooks/useDossier';
 import { useFamilyInvitations } from '../../hooks/useInvitations';
 import { StorytellerProfile } from './StorytellerProfile';
-import { uploadPromptPhoto, getPromptPhotos, deletePromptPhoto } from '../../services/storage';
-import { PersonalityMode, VoicePreset, PromptPhoto } from '../../types';
+import { uploadPromptPhoto, getPromptPhotos, deletePromptPhoto, getMiscFacts } from '../../services/storage';
+import { PersonalityMode, VoicePreset, PromptPhoto, MiscFact } from '../../types';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 
 export const DossierEditor: React.FC = () => {
@@ -74,9 +74,13 @@ export const DossierEditor: React.FC = () => {
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const promptPhotoFileRef = useRef<HTMLInputElement>(null);
 
+  // Misc facts state (from "Talk About My Family" conversations)
+  const [miscFacts, setMiscFacts] = useState<MiscFact[]>([]);
+
   useEffect(() => {
     if (!familyId || !dossierId) return;
     getPromptPhotos(familyId, dossierId).then(setPromptPhotos).catch(console.error);
+    getMiscFacts(familyId, dossierId).then(setMiscFacts).catch(console.error);
   }, [familyId, dossierId]);
 
   async function handleInviteStoryteller() {
@@ -494,6 +498,44 @@ export const DossierEditor: React.FC = () => {
             rows={3}
             className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:ring-1 focus:ring-indigo-500 resize-none"
           />
+        </section>
+
+        {/* Miscellaneous Facts — captured during Talk conversations */}
+        <section className="space-y-3 pt-2 border-t border-slate-100">
+          <div>
+            <h3 className="font-bold text-slate-700">Additional Notes</h3>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Facts and corrections captured during "Talk About My Family" conversations.
+            </p>
+          </div>
+          {miscFacts.length === 0 ? (
+            <p className="text-xs text-slate-400 italic">
+              No notes yet — these appear after Talk conversations.
+            </p>
+          ) : (
+            <ul className="space-y-2">
+              {miscFacts.map((fact) => (
+                <li key={fact.id} className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-1">
+                  <div className="flex items-start gap-2">
+                    {fact.isCorrection && (
+                      <span className="shrink-0 mt-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 uppercase tracking-wide">
+                        Correction
+                      </span>
+                    )}
+                    <p className="text-sm text-slate-700">{fact.text}</p>
+                  </div>
+                  {fact.correctionNote && (
+                    <p className="text-xs text-slate-400 italic pl-1">{fact.correctionNote}</p>
+                  )}
+                  <p className="text-[10px] text-slate-300">
+                    {fact.createdAt?.toDate?.()?.toLocaleDateString(undefined, {
+                      year: 'numeric', month: 'short', day: 'numeric',
+                    }) ?? ''}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          )}
         </section>
 
         {/* Nudge email — manual re-engagement trigger for admins */}

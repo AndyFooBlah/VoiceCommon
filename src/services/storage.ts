@@ -59,6 +59,7 @@ import {
   MediaItem,
   AudioClip,
   PromptPhoto,
+  MiscFact,
 } from '../types';
 
 // ---------------------------------------------------------------------------
@@ -763,4 +764,98 @@ export async function deletePromptPhoto(
 ): Promise<void> {
   const docRef = doc(db, 'families', familyId, 'dossiers', dossierId, 'promptPhotos', photoId);
   await deleteDoc(docRef);
+}
+
+// ---------------------------------------------------------------------------
+// Miscellaneous Facts (#95 — Talk About My Family)
+// ---------------------------------------------------------------------------
+
+/**
+ * Save a miscellaneous fact recorded by the AI during a "Talk" conversation.
+ * Returns the new document ID.
+ */
+export async function saveMiscFact(
+  familyId: string,
+  dossierId: string,
+  fact: Omit<MiscFact, 'id' | 'createdAt'>,
+): Promise<string> {
+  const colRef = collection(db, 'families', familyId, 'dossiers', dossierId, 'miscFacts');
+  const docRef = await addDoc(colRef, {
+    ...fact,
+    createdAt: Timestamp.now(),
+  });
+  return docRef.id;
+}
+
+/**
+ * Fetch all miscellaneous facts for a dossier, ordered by creation date.
+ */
+export async function getMiscFacts(
+  familyId: string,
+  dossierId: string,
+): Promise<MiscFact[]> {
+  const colRef = collection(db, 'families', familyId, 'dossiers', dossierId, 'miscFacts');
+  const q = query(colRef, orderBy('createdAt', 'asc'));
+  const snapshot = await getDocs(q);
+  return snapshot.docs.map((d) => ({ ...d.data(), id: d.id }) as MiscFact);
+}
+
+/**
+ * Fetch context for a "Talk About My Family" session.
+ *
+ * Returns a condensed summary of recent interview transcripts and dossier
+ * events so the AI can reference what the storyteller has already shared.
+ * Limited to 3 sessions × last 20 turns each to keep the context manageable.
+ */
+export interface TalkContext {
+  recentTranscripts: Array<{ sessionId: string; date: string; excerpt: string }>;
+  eventTitles: string[];
+  miscFactTexts: string[];
+}
+
+export async function getTalkContext(
+  familyId: string,
+  dossierId: string,
+): Promise<TalkContext> {
+  // Fetch the 3 most recent completed sessions
+  const sessionsRef = collection(db, 'families', familyId, 'dossiers', dossierId, 'sessions');
+  const sessionsSnap = await getDocs(
+    query(sessionsRef, where('status', '==', 'completed'), orderBy('startTime', 'desc'), firestoreLimit(3)),
+  );
+
+  const recentTranscripts: TalkContext['recentTranscripts'] = [];
+  for (const sessionDoc of sessionsSnap.docs) {
+    const sessionData = sessionDoc.data();
+    const transcriptRef = doc(
+      db, 'families', familyId, 'dossiers', dossierId,
+      'sessions', sessionDoc.id, 'transcript', 'entries',
+    );
+    const transcriptSnap = await getDoc(transcriptRef);
+    if (!transcriptSnap.exists()) continue;
+
+    const entries: TranscriptEntry[] = transcriptSnap.data().entries ?? [];
+    // Take the last 20 turns for context, truncating long turns
+    const excerpt = entries
+      .slice(-20)
+      .map((e) => `${e.role === 'user' ? 'Storyteller' : 'AI'}: ${e.text.slice(0, 200)}`)
+      .join('\n');
+    if (!excerpt) continue;
+
+    const date = sessionData.startTime?.toDate?.()?.toLocaleDateString(undefined, {
+      year: 'numeric', month: 'long', day: 'numeric',
+    }) ?? 'Unknown date';
+
+    recentTranscripts.push({ sessionId: sessionDoc.id, date, excerpt });
+  }
+
+  // Fetch dossier-level event titles
+  const eventsRef = collection(db, 'families', familyId, 'dossiers', dossierId, 'events');
+  const eventsSnap = await getDocs(query(eventsRef, orderBy('createdAt', 'asc')));
+  const eventTitles = eventsSnap.docs.map((d) => d.data().title as string).filter(Boolean);
+
+  // Fetch previously recorded misc facts so the AI doesn't duplicate them
+  const existingFacts = await getMiscFacts(familyId, dossierId);
+  const miscFactTexts = existingFacts.map((f) => f.text);
+
+  return { recentTranscripts, eventTitles, miscFactTexts };
 }

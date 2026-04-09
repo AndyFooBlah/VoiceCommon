@@ -134,6 +134,13 @@ families/{familyId}/dossiers/{dossierId}/media/{fileId}
   - storageUrl: string
   - uploadedAt: timestamp
 
+families/{familyId}/dossiers/{dossierId}/miscFacts/{factId}   # from Talk mode (#95)
+  - text: string                 # the fact or correction
+  - isCorrection: boolean
+  - correctionNote?: string      # what it corrects (when isCorrection is true)
+  - source: 'talk'
+  - createdAt: timestamp
+
 families/{familyId}/invitations/{invitationId}
   - email: string
   - roles: ('admin' | 'storyteller')[]
@@ -287,6 +294,40 @@ Runs in `useSession.ts` as a background async block after `stopSession`. Uses th
 **Required Cloud Function env strings** (set via `firebase functions:config:set` or `.env`):
 - `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER` — email server config
 - `APP_URL` — base URL for invite links and email links
+
+### 3.7 Talk About My Family (Conversational Mode)
+
+A second conversational mode alongside the structured interview. The storyteller can have an unrecorded, free-form voice conversation with the AI about their family.
+
+**Key differences from interview mode:**
+- No audio upload to Cloud Storage (blob is discarded on stop)
+- No Firestore session document created
+- No transcript sync to Firestore
+- No Story Queue — the AI has no question agenda
+- No post-session analysis pipeline
+
+**AI context:** Before connecting, `getTalkContext()` fetches the last 3 completed session transcripts plus dossier-level events, building a `TalkContext` object. This is injected into `buildTalkSystemInstruction()` so the AI can reference what the storyteller has already shared.
+
+**Tools registered:**
+- **`recordFact(text, isCorrection, correctionNote?)`** — saves a `MiscFact` document to Firestore when the AI learns something new or hears a correction to prior sessions.
+- **`setPreferredName(name)`** — identical to interview mode.
+- **`endTalk()`** — analog of `endSession`; AI speaks closing words first.
+
+**Data model — MiscFact:**
+```
+families/{familyId}/dossiers/{dossierId}/miscFacts/{factId}
+  text: string            — the fact or correction
+  isCorrection: boolean
+  correctionNote?: string — what it corrects (when isCorrection is true)
+  source: 'talk'
+  createdAt: timestamp
+```
+
+MiscFacts are visible (read-only) in the DossierEditor under "Additional Notes." They are also injected back into the talk context on subsequent Talk conversations so the AI doesn't record the same fact twice.
+
+**Entry point:** "Talk About My Family" button on `StorytellerDashboard` → `/family/:familyId/dossier/:dossierId/talk` → `TalkView`.
+
+**Reconnect:** Talk sessions do not auto-reconnect. On error, the user is shown a "Start New Conversation" button (the prior talk context is not preserved in memory).
 
 ### 3.8 GEDCOM Import
 

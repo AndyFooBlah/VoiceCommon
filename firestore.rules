@@ -99,6 +99,14 @@ service cloud.firestore {
           allow create: if isFamilyStoryteller(familyId) && isOwnDossier(familyId, dossierId);
         }
 
+        // --- Miscellaneous Facts (from "Talk About My Family" conversations) ---
+        // Written by the storyteller's client during a talk session.
+        // Admins can read all facts; storytellers can read and create their own.
+        match /miscFacts/{factId} {
+          allow read, write: if isFamilyAdmin(familyId);
+          allow read, create: if isFamilyStoryteller(familyId) && isOwnDossier(familyId, dossierId);
+        }
+
         // --- Prompt photos ---
         match /promptPhotos/{photoId} {
           allow read, write: if isFamilyAdmin(familyId);

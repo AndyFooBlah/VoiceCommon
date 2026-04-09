@@ -23,6 +23,7 @@
  *   /family/:familyId/storyteller            → StorytellerDashboard (direct link for admin+storyteller)
  *   /family/:familyId/dossier/:dossierId     → Admin: DossierEditor
  *   /family/:familyId/dossier/:dossierId/session    → SessionView (both roles)
+ *   /family/:familyId/dossier/:dossierId/talk       → TalkView (both roles)
  *   /family/:familyId/dossier/:dossierId/history    → SessionList
  *   /family/:familyId/dossier/:dossierId/history/:sessionId → TranscriptViewer
  */
@@ -44,6 +45,7 @@ import { MediaGallery } from './components/media/MediaGallery';
 import { StorytellerDashboard } from './components/storyteller/StorytellerDashboard';
 import { FamilyHome } from './components/family/FamilyHome';
 import { FamilyEventDetail } from './components/family/FamilyEventDetail';
+import { TalkView } from './components/talk/TalkView';
 
 const App: React.FC = () => {
   return (
@@ -59,6 +61,7 @@ const App: React.FC = () => {
             <Route path="/family/:familyId/events/:eventId" element={<FamilyEventDetail />} />
             <Route path="/family/:familyId/dossier/:dossierId" element={<DossierEditor />} />
             <Route path="/family/:familyId/dossier/:dossierId/session" element={<SessionView />} />
+            <Route path="/family/:familyId/dossier/:dossierId/talk" element={<TalkView />} />
             <Route path="/family/:familyId/dossier/:dossierId/memoir" element={<MemoirViewer />} />
             <Route path="/family/:familyId/dossier/:dossierId/events" element={<EventsTimeline />} />
             <Route path="/family/:familyId/dossier/:dossierId/media" element={<MediaGallery />} />

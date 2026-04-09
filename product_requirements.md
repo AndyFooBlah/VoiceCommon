@@ -100,6 +100,18 @@ LegacyBot is a voice-first life story preservation application that helps famili
 - Uploaded files are stored in Cloud Storage and linked to the dossier.
 - Prompt photos can be shown to the storyteller by the AI mid-session to spark memories.
 
+### 3.11 Talk About My Family
+
+A low-stakes, unstructured conversational mode distinct from the formal interview.
+
+- **Storyteller experience**: Press a green "Talk About My Family" button on the dashboard. The AI greets them and invites open-ended conversation — no agenda, no question list.
+- **Not recorded**: Audio is not archived. No session document is created. The conversation is not preserved as a transcript.
+- **Informed AI**: Before connecting, the system fetches recent interview transcripts and life events so the AI can reference what the storyteller has already shared, making the conversation feel continuous and connected.
+- **Fact capture**: If the AI learns something new or hears a correction to prior sessions, it calls `recordFact` to save a lightweight **Miscellaneous Fact** to Firestore. Facts are not visible to the storyteller but appear in the DossierEditor as "Additional Notes" for the archivist.
+- **Corrections**: If a fact corrects something from a prior session, `isCorrection` is flagged and `correctionNote` explains what it amends. This creates a basis for future reconciliation.
+- **Archivist visibility**: MiscFacts appear in the DossierEditor's "Additional Notes" panel, ordered by date. Corrections are visually distinguished with an amber "Correction" badge.
+- **Future work**: A reconciliation pass will detect inconsistencies across transcripts and MiscFacts and surface them in subsequent interview sessions or as Story Queue questions.
+
 ---
 
 ## 4. User Experience Goals

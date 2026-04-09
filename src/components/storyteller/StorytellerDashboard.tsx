@@ -153,12 +153,20 @@ export const StorytellerDashboard: React.FC = () => {
         <p className="text-slate-400">Ready to share more of your story?</p>
       </div>
 
-      <button
-        onClick={() => navigate(`/family/${familyId}/dossier/${dossier.id}/session`)}
-        className="w-full py-5 bg-indigo-600 text-white rounded-2xl font-bold text-lg hover:bg-indigo-700 transition-colors shadow-lg"
-      >
-        Start New Interview
-      </button>
+      <div className="flex flex-col gap-3">
+        <button
+          onClick={() => navigate(`/family/${familyId}/dossier/${dossier.id}/session`)}
+          className="w-full py-5 bg-indigo-600 text-white rounded-2xl font-bold text-lg hover:bg-indigo-700 transition-colors shadow-lg"
+        >
+          Start New Interview
+        </button>
+        <button
+          onClick={() => navigate(`/family/${familyId}/dossier/${dossier.id}/talk`)}
+          className="w-full py-4 bg-emerald-600 text-white rounded-2xl font-bold text-base hover:bg-emerald-700 transition-colors shadow-md"
+        >
+          Talk About My Family
+        </button>
+      </div>
 
       {/* Inline session history */}
       <div className="space-y-3">
@@ -177,12 +185,20 @@ export const StorytellerDashboard: React.FC = () => {
           {dossiers.slice(1).map((d) => (
             <div key={d.id} className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-4">
               <h3 className="font-semibold text-slate-800">{d.storytellerName}</h3>
-              <button
-                onClick={() => navigate(`/family/${familyId}/dossier/${d.id}/session`)}
-                className="w-full py-3 bg-indigo-600 text-white rounded-xl font-semibold hover:bg-indigo-700 transition-colors"
-              >
-                Start Session
-              </button>
+              <div className="flex flex-col gap-2">
+                <button
+                  onClick={() => navigate(`/family/${familyId}/dossier/${d.id}/session`)}
+                  className="w-full py-3 bg-indigo-600 text-white rounded-xl font-semibold hover:bg-indigo-700 transition-colors"
+                >
+                  Start Interview
+                </button>
+                <button
+                  onClick={() => navigate(`/family/${familyId}/dossier/${d.id}/talk`)}
+                  className="w-full py-2.5 bg-emerald-600 text-white rounded-xl font-semibold hover:bg-emerald-700 transition-colors text-sm"
+                >
+                  Talk About My Family
+                </button>
+              </div>
               <DossierSessions familyId={familyId} dossierId={d.id!} />
             </div>
           ))}

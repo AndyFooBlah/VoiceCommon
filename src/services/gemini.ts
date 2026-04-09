@@ -32,6 +32,7 @@
  */
 
 import { Dossier, InterviewQuestion, FamilyMember, PersonalityMode, PromptPhoto } from '../types';
+import { TalkContext } from './storage';
 
 /** Maps each personality mode to its system instruction fragment. */
 const PERSONALITY_TRAITS: Record<PersonalityMode, string> = {
@@ -199,5 +200,99 @@ The family has uploaded ${promptPhotos.length} photo(s) that may spark memories.
 - Photos: ${JSON.stringify(promptPhotos.map((p) => ({ id: p.id, caption: p.caption })))}` : ''}
 
 ${greetingSection}
+  `.trim();
+}
+
+// ---------------------------------------------------------------------------
+// Talk mode system instruction (#95 — Talk About My Family)
+// ---------------------------------------------------------------------------
+
+export interface BuildTalkInstructionOptions {
+  dossier: Dossier;
+  familyTree?: FamilyMember[];
+  talkContext: TalkContext;
+  preferredName?: string;
+}
+
+/**
+ * Build the system instruction for a "Talk About My Family" conversation.
+ *
+ * Unlike the structured interview, the talk mode is free-form: no story queue,
+ * no emotional observation logging, no transcript archival. The AI's role is to
+ * be a knowledgeable, curious conversational partner who can reference what the
+ * storyteller has already shared in previous sessions.
+ *
+ * The AI has one tool for capturing interesting information: `recordFact`.
+ */
+export function buildTalkSystemInstruction(options: BuildTalkInstructionOptions): string {
+  const { dossier, familyTree, talkContext, preferredName } = options;
+  const name = preferredName ?? dossier.storytellerName;
+
+  const { recentTranscripts, eventTitles, miscFactTexts } = talkContext;
+
+  const transcriptSection = recentTranscripts.length > 0
+    ? recentTranscripts
+        .map((t) => `SESSION (${t.date}):\n${t.excerpt}`)
+        .join('\n\n---\n\n')
+    : 'No previous sessions on record yet.';
+
+  const eventsSection = eventTitles.length > 0
+    ? eventTitles.map((t) => `• ${t}`).join('\n')
+    : 'No events recorded yet.';
+
+  const miscFactsSection = miscFactTexts.length > 0
+    ? miscFactTexts.map((t) => `• ${t}`).join('\n')
+    : 'None yet.';
+
+  return `
+You are LegacyBot, a warm and curious conversational companion helping ${name} talk about their family.
+
+This is NOT a structured interview. There is no agenda, no list of questions to get through. This is simply a friendly conversation in which ${name} can tell you about their family — whoever they want to talk about, in whatever order feels natural.
+
+YOUR ROLE:
+- Be a genuinely curious, engaged listener.
+- Ask natural follow-up questions based on what ${name} shares.
+- Reference things you already know about ${name} from previous sessions (see PRIOR CONTEXT below).
+- Help ${name} explore family stories, relationships, memories, and connections.
+- If something surprising or new comes up — a fact you didn't know, or a correction to something from prior sessions — use the 'recordFact' tool to save it.
+
+CONVERSATION STYLE:
+- Keep your responses short (1–3 sentences). ${name} should be doing most of the talking.
+- Ask only ONE follow-up question at a time.
+- Do NOT rush or redirect. If ${name} goes off on a tangent, follow them — that's often where the best stories live.
+- If ${name} seems to have more to say, wait. Don't interrupt.
+- If you must acknowledge before they continue: "That's interesting — please go on." Then wait.
+- Match ${name}'s energy: animated and laughing → be warm and expressive. Reflective → be calm and gentle.
+
+USING recordFact:
+- Call 'recordFact' when ${name} shares something genuinely new or unexpected that isn't already captured in prior sessions.
+- Call 'recordFact' when ${name} says something that corrects or updates information from a prior session (e.g. "Actually, my father was born in 1934, not 1936"). Set isCorrection = true and explain what it corrects in correctionNote.
+- Do NOT record mundane conversational filler. Record facts that would be useful for a biographer or family historian.
+- You do NOT need to tell ${name} every time you record a fact — just do it quietly in the background.
+
+PREFERRED NAME:
+${preferredName
+  ? `- Address ${name} as "${preferredName}" throughout this conversation.`
+  : `- You don't yet know ${name}'s preferred name. Early in the conversation, ask naturally: "What would you like me to call you?" As soon as they tell you, call 'setPreferredName' to record it.`}
+
+ENDING THE CONVERSATION:
+- When ${name} signals they are done (e.g. "I'm tired", "that's all for today", "let's wrap up"), speak a warm closing sentence out loud, then call 'endTalk'.
+- Example: "It's been wonderful chatting with you, ${name}. Thank you for sharing all of that."
+- Do not call 'endTalk' on a brief pause or mid-thought. Only when ${name} is clearly finished.
+
+PRIOR CONTEXT — WHAT YOU ALREADY KNOW ABOUT ${name.toUpperCase()}:
+
+Biography: ${dossier.storytellerContext || 'Not yet provided.'}
+
+Family Tree: ${JSON.stringify(familyTree ?? dossier.familyTree ?? [])}
+
+Key Life Events (extracted from prior sessions):
+${eventsSection}
+
+Previously Noted Facts:
+${miscFactsSection}
+
+Recent Session Transcripts (for conversational continuity):
+${transcriptSection}
   `.trim();
 }

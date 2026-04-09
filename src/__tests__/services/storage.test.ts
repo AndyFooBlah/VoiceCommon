@@ -27,6 +27,8 @@ import {
   updateQuestionStateInFirestore,
   saveFamilyEvents,
   saveMessageEdit,
+  saveMiscFact,
+  getMiscFacts,
 } from '../../services/storage';
 
 beforeEach(() => {
@@ -335,5 +337,106 @@ describe('saveMessageEdit', () => {
     await expect(
       saveMessageEdit('family-1', 'dossier-1', 'session-1', 1, 'Corrected', 'user-uid', 'Alice'),
     ).rejects.toThrow('Transcript not found');
+  });
+});
+
+describe('saveMiscFact', () => {
+  it('saves a new fact and returns its ID', async () => {
+    mockFirestore.addDoc.mockResolvedValueOnce({ id: 'fact-abc' });
+
+    const id = await saveMiscFact('family-1', 'dossier-1', {
+      text: 'Margaret was born in 1934, not 1936.',
+      isCorrection: true,
+      correctionNote: 'Prior sessions recorded birth year as 1936.',
+      source: 'talk',
+    });
+
+    expect(id).toBe('fact-abc');
+    expect(mockFirestore.addDoc).toHaveBeenCalledTimes(1);
+  });
+
+  it('writes to the miscFacts subcollection path', async () => {
+    await saveMiscFact('family-1', 'dossier-1', {
+      text: 'Arthur worked at the mill until 1960.',
+      isCorrection: false,
+      source: 'talk',
+    });
+
+    expect(mockFirestore.collection).toHaveBeenCalledWith(
+      expect.anything(),
+      'families',
+      'family-1',
+      'dossiers',
+      'dossier-1',
+      'miscFacts',
+    );
+  });
+
+  it('includes a createdAt timestamp', async () => {
+    await saveMiscFact('family-1', 'dossier-1', {
+      text: 'Some fact.',
+      isCorrection: false,
+      source: 'talk',
+    });
+
+    const data = mockFirestore.addDoc.mock.calls[0][1];
+    expect(data.createdAt).toBeDefined();
+    expect(data.text).toBe('Some fact.');
+    expect(data.isCorrection).toBe(false);
+    expect(data.source).toBe('talk');
+  });
+
+  it('persists correctionNote when provided', async () => {
+    await saveMiscFact('family-1', 'dossier-1', {
+      text: 'Corrected fact.',
+      isCorrection: true,
+      correctionNote: 'Explains what it corrects.',
+      source: 'talk',
+    });
+
+    const data = mockFirestore.addDoc.mock.calls[0][1];
+    expect(data.correctionNote).toBe('Explains what it corrects.');
+  });
+});
+
+describe('getMiscFacts', () => {
+  it('returns an empty array when no facts exist', async () => {
+    mockFirestore.getDocs.mockResolvedValueOnce({ docs: [] });
+
+    const facts = await getMiscFacts('family-1', 'dossier-1');
+
+    expect(facts).toEqual([]);
+  });
+
+  it('maps Firestore docs to MiscFact objects with id', async () => {
+    mockFirestore.getDocs.mockResolvedValueOnce({
+      docs: [
+        { id: 'fact-1', data: () => ({ text: 'Fact one', isCorrection: false, source: 'talk', createdAt: mockFirestore.Timestamp.now() }) },
+        { id: 'fact-2', data: () => ({ text: 'Fact two', isCorrection: true, correctionNote: 'Corrects something.', source: 'talk', createdAt: mockFirestore.Timestamp.now() }) },
+      ],
+    });
+
+    const facts = await getMiscFacts('family-1', 'dossier-1');
+
+    expect(facts).toHaveLength(2);
+    expect(facts[0].id).toBe('fact-1');
+    expect(facts[0].text).toBe('Fact one');
+    expect(facts[1].id).toBe('fact-2');
+    expect(facts[1].isCorrection).toBe(true);
+    expect(facts[1].correctionNote).toBe('Corrects something.');
+  });
+
+  it('queries the miscFacts subcollection ordered by createdAt', async () => {
+    await getMiscFacts('family-1', 'dossier-1');
+
+    expect(mockFirestore.collection).toHaveBeenCalledWith(
+      expect.anything(),
+      'families',
+      'family-1',
+      'dossiers',
+      'dossier-1',
+      'miscFacts',
+    );
+    expect(mockFirestore.orderBy).toHaveBeenCalledWith('createdAt', 'asc');
   });
 });

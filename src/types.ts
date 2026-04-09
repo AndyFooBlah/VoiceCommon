@@ -23,6 +23,7 @@
  *   families/{familyId}/dossiers/{dossierId}/questions/{qId}   → InterviewQuestion
  *   families/{familyId}/dossiers/{dossierId}/sessions/{sId}    → SessionMetadata
  *   .../sessions/{sId}/transcript (single doc)                 → TranscriptEntry[]
+ *   families/{familyId}/dossiers/{dossierId}/miscFacts/{fId}   → MiscFact
  *   users/{uid}                                                → UserProfile
  *   invitations/{inviteId}                                     → Invitation
  */
@@ -371,6 +372,28 @@ export interface Message {
   role: 'user' | 'bot';
   text: string;
   timestamp: Date;
+}
+
+// ---------------------------------------------------------------------------
+// Miscellaneous Facts (#95 — Talk About My Family)
+// ---------------------------------------------------------------------------
+
+/**
+ * Firestore document at families/{familyId}/dossiers/{dossierId}/miscFacts/{factId}.
+ *
+ * Captured during a "Talk About My Family" conversation when the AI learns
+ * something new or hears a correction to information from prior sessions.
+ * These are not part of any session transcript — the talk conversation itself
+ * is not recorded — but interesting facts can be saved here for future
+ * reconciliation and reference.
+ */
+export interface MiscFact {
+  id?: string;               // Firestore document ID (set on read, not stored in doc)
+  text: string;              // The fact or correction, as noted by the AI
+  isCorrection: boolean;     // True if this fact amends something from prior sessions
+  correctionNote?: string;   // What the fact corrects (e.g. "birth year was 1934, not 1936")
+  source: 'talk';            // Origin — always 'talk' for now
+  createdAt: Timestamp;
 }
 
 // ---------------------------------------------------------------------------
