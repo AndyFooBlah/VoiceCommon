@@ -67,7 +67,6 @@ const makeDossier = () =>
     storytellerContext: 'Grew up in Ohio',
     familyTree: [],
     historicalContext: '',
-    adminName: 'Andy',
     storytellerUid: null,
     selectedVoice: 'Zephyr',
     personality: 'empathetic',

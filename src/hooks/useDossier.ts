@@ -93,7 +93,6 @@ export function useDossierList(
     const newDossier: Omit<Dossier, 'id'> = {
       storytellerUid: null,
       storytellerName,
-      adminName: '',
       storytellerContext: '',
       historicalContext: '',
       familyTree: [],

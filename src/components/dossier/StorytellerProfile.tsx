@@ -16,14 +16,14 @@
  * StorytellerProfile — editable profile section within the Dossier editor.
  *
  * Contains three fields:
- *   - Storyteller Name (required) — used by the bot to greet them personally
- *   - Admin Name (required) — the archivist's name, used in the bot's introduction
+ *   - Storyteller Name (required) — the legal/full name, used if no preferred name is set
+ *   - Preferred Name (optional) — how the storyteller prefers to be addressed;
+ *     may be pre-set by the archivist or confirmed by the AI during a session
  *   - Storyteller Context (free text) — background info like age, location,
  *     life era, personality notes, etc.
  *
- * The names are validated on blur — they cannot be empty. Changes are propagated
- * to the parent DossierEditor via the onChange callback, which debounces
- * writes to Firestore.
+ * Changes are propagated to the parent DossierEditor via the onChange callback,
+ * which debounces writes to Firestore.
  *
  * References: product_requirements.md §3.3 | GitHub Issue #5
  */
@@ -64,20 +64,22 @@ export const StorytellerProfile: React.FC<StorytellerProfileProps> = ({
           />
         </div>
 
-        {/* Admin/Archivist name field (required) */}
+        {/* Preferred name field */}
         <div>
           <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">
-            Your Name (Archivist) *
+            Preferred Name
           </label>
           <input
             type="text"
-            value={dossier.adminName || ''}
-            onChange={(e) => onChange({ adminName: e.target.value })}
-            placeholder="e.g. Andy"
+            value={dossier.preferredName || ''}
+            onChange={(e) => onChange({ preferredName: e.target.value || undefined })}
+            placeholder="e.g. Grandma Rose, Bob"
             className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:ring-1 focus:ring-indigo-500"
           />
           <p className="text-[10px] text-slate-400 mt-1">
-            The bot will introduce itself with your name (e.g., &quot;Andy asked me to interview you&quot;)
+            {dossier.preferredName
+              ? `The interviewer will address them as "${dossier.preferredName}". This may have been confirmed during a session.`
+              : 'Leave blank — the interviewer will ask naturally during the first session.'}
           </p>
         </div>
 

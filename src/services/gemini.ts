@@ -85,7 +85,7 @@ export function buildSystemInstruction(options: BuildInstructionOptions): string
   const isFirstSession = completedSessionCount === 0;
   // Use the storyteller's preferred name if known; fall back to their full name.
   const name = preferredName ?? dossier.storytellerName;
-  const adminName = dossier.adminName || 'your family';
+
   const timeAgo = lastSessionDate ? formatTimeAgo(lastSessionDate) : undefined;
 
   // Build the greeting section based on session history
@@ -93,7 +93,7 @@ export function buildSystemInstruction(options: BuildInstructionOptions): string
   if (isFirstSession) {
     greetingSection = `MANDATORY START (FIRST SESSION):
 You must speak first. This is your first conversation with ${name}. Keep the intro brief — 2–3 sentences max — then move into the conversation:
-1. Introduce yourself: "Hello ${name}, my name is BiographyBot. ${adminName} asked me to help preserve your stories for future generations."
+1. Introduce yourself: "Hello ${name}, my name is BiographyBot. Your family asked me to help preserve your stories for future generations."
 2. Start immediately with a warm open question: "Why don't we start with where you grew up?" or "Tell me a little about where you're from." — do NOT give a lengthy explanation of the process first.
 Keep the opening short. The best way to make ${name} comfortable is to get them talking quickly, not to explain things at length.`;
   } else {

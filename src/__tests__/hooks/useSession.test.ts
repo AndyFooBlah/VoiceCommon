@@ -175,7 +175,6 @@ const defaultDossier = {
   id: 'dossier-1',
   storytellerUid: 'storyteller-uid',
   storytellerName: 'Margaret',
-  adminName: 'Andy',
   storytellerContext: 'Grew up in Ohio.',
   historicalContext: '1950s rural America.',
   familyTree: [],
