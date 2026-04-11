@@ -38,7 +38,7 @@ import { useAudioMixer } from './useAudioMixer';
 import { encode, decode, decodeAudioData } from '../services/audioUtils';
 import { buildTalkSystemInstruction } from '../services/gemini';
 import { getTalkContext, saveMiscFact, TalkContext } from '../services/storage';
-import { searchWikipedia, searchPlace, getDistanceBetweenPlaces } from '../services/externalSearch';
+import { searchWikipedia, searchPlace, getDistanceBetweenPlaces, getJoke, getWeather } from '../services/externalSearch';
 
 const GEMINI_MODEL = 'gemini-3.1-flash-live-preview';
 
@@ -127,6 +127,8 @@ export function useTalkSession({
       case 'searchWikipedia': return `Wikipedia: "${args.query}"`;
       case 'searchPlace': return `Place: "${args.query}"`;
       case 'getDistanceBetweenPlaces': return `Distance: "${args.placeA}" → "${args.placeB}"`;
+      case 'getJoke': return `Joke`;
+      case 'getWeather': return `Weather: "${args.location}"`;
       default: return `[${name}]`;
     }
   };
@@ -267,7 +269,32 @@ export function useTalkSession({
       },
     };
 
-    return [recordFactTool, setPreferredNameTool, endTalkTool, searchWikipediaTool, searchPlaceTool, getDistanceTool];
+    const getJokeTool: FunctionDeclaration = {
+      name: 'getJoke',
+      parameters: {
+        type: Type.OBJECT,
+        description: 'Fetch a random joke to share when the moment calls for levity.',
+        properties: {},
+        required: [],
+      },
+    };
+
+    const getWeatherTool: FunctionDeclaration = {
+      name: 'getWeather',
+      parameters: {
+        type: Type.OBJECT,
+        description: 'Get the current weather conditions and a 3-day forecast for a given location.',
+        properties: {
+          location: {
+            type: Type.STRING,
+            description: 'City, address, or place name to get weather for.',
+          },
+        },
+        required: ['location'],
+      },
+    };
+
+    return [recordFactTool, setPreferredNameTool, endTalkTool, searchWikipediaTool, searchPlaceTool, getDistanceTool, getJokeTool, getWeatherTool];
   }, []);
 
   const makeMessageHandler = useCallback(
@@ -327,6 +354,23 @@ export function useTalkSession({
                 toolResult = { result: await getDistanceBetweenPlaces(placeA, placeB) };
               } catch {
                 toolResult = { result: 'Distance calculation unavailable.' };
+              }
+            } else if (fc.name === 'getJoke') {
+              console.log(`[Talk] AI fetching joke`);
+              addToolEntry('getJoke', {});
+              try {
+                toolResult = { result: await getJoke() };
+              } catch {
+                toolResult = { result: 'Joke unavailable.' };
+              }
+            } else if (fc.name === 'getWeather') {
+              const { location } = fc.args as any;
+              console.log(`[Talk] AI checking weather for: "${location}"`);
+              addToolEntry('getWeather', { location });
+              try {
+                toolResult = { result: await getWeather(location) };
+              } catch {
+                toolResult = { result: 'Weather lookup unavailable.' };
               }
             }
 

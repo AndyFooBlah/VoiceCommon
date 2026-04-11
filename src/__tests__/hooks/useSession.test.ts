@@ -171,6 +171,8 @@ vi.mock('../../services/externalSearch', () => ({
   searchWikipedia: vi.fn().mockResolvedValue('Wikipedia result'),
   searchPlace: vi.fn().mockResolvedValue('Place info'),
   getDistanceBetweenPlaces: vi.fn().mockResolvedValue('100 miles'),
+  getJoke: vi.fn().mockResolvedValue('Why do programmers prefer dark mode? Because light attracts bugs.'),
+  getWeather: vi.fn().mockResolvedValue('Portland, OR: Currently 58°F (14°C), partly cloudy.'),
 }));
 
 // ---------------------------------------------------------------------------

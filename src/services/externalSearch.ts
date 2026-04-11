@@ -20,8 +20,10 @@
  *   - searchWikipedia: Wikipedia REST API (no key required)
  *   - searchPlace: Google Geocoding API
  *   - getDistanceBetweenPlaces: straight-line distance via Haversine
+ *   - getJoke: JokeAPI v2 (no key required)
+ *   - getWeather: Google Maps Platform Weather API
  *
- * GitHub Issues: #101 (Wikipedia), #102 (Google Maps)
+ * GitHub Issues: #101 (Wikipedia), #102 (Google Maps), #105 (Jokes), #106 (Weather)
  */
 
 // ---------------------------------------------------------------------------
@@ -145,6 +147,7 @@ export async function searchPlace(query: string): Promise<string> {
 
 /**
  * Calculate the straight-line distance between two named places.
+ * @public
  */
 export async function getDistanceBetweenPlaces(placeA: string, placeB: string): Promise<string> {
   if (!import.meta.env.VITE_GOOGLE_MAPS_API_KEY) {
@@ -161,5 +164,111 @@ export async function getDistanceBetweenPlaces(placeA: string, placeB: string): 
   } catch (err) {
     console.warn('[Maps] getDistanceBetweenPlaces error:', err);
     return `Maps distance lookup unavailable at this time.`;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// JokeAPI (#105)
+// ---------------------------------------------------------------------------
+
+/**
+ * Fetch a random joke from JokeAPI v2.
+ * Categories: Programming, Miscellaneous, Pun — all harmful content blacklisted.
+ * Returns the joke as plain text (single line or two-liner joined by newline).
+ */
+export async function getJoke(): Promise<string> {
+  try {
+    const url =
+      'https://v2.jokeapi.dev/joke/Programming,Miscellaneous,Pun' +
+      '?blacklistFlags=nsfw,religious,political,racist,sexist,explicit&format=txt';
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`JokeAPI responded with ${res.status}`);
+    const text = await res.text();
+    return text.trim() || 'Sorry, I couldn\'t think of a joke right now.';
+  } catch (err) {
+    console.warn('[JokeAPI] Error:', err);
+    return `Joke unavailable at this time.`;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Google Maps Weather API (#106)
+// ---------------------------------------------------------------------------
+
+/**
+ * Get current weather conditions and a 3-day forecast for a location.
+ * Geocodes the location string, then queries the Google Maps Platform Weather API.
+ */
+export async function getWeather(location: string): Promise<string> {
+  const key = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
+  if (!key) {
+    return `Weather lookup is not configured (no API key). Cannot check weather for "${location}".`;
+  }
+  try {
+    const geo = await geocode(location);
+    if (!geo) return `Could not find location "${location}" for weather lookup.`;
+
+    const body = { location: { latitude: geo.lat, longitude: geo.lng } };
+
+    const [currentRes, forecastRes] = await Promise.all([
+      fetch(`https://weather.googleapis.com/v1/currentConditions:lookup?key=${key}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
+      fetch(`https://weather.googleapis.com/v1/forecast/days:lookup?key=${key}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...body, days: 3 }),
+      }),
+    ]);
+
+    if (!currentRes.ok && !forecastRes.ok) {
+      return `Weather data unavailable for "${location}" at this time.`;
+    }
+
+    let summary = `Weather for ${geo.formattedAddress}:`;
+
+    if (currentRes.ok) {
+      const current = await currentRes.json();
+      const tempF = current.temperature?.degrees;
+      const feelsF = current.feelsLikeTemperature?.degrees;
+      const condition = current.weatherCondition?.description?.text ?? '';
+      if (tempF != null) {
+        const tempC = Math.round((tempF - 32) * 5 / 9);
+        const feelsC = feelsF != null ? Math.round((feelsF - 32) * 5 / 9) : null;
+        summary += ` Currently ${Math.round(tempF)}°F (${tempC}°C)`;
+        if (feelsC != null && Math.abs(feelsF! - tempF) >= 3) {
+          summary += `, feels like ${Math.round(feelsF!)}°F (${feelsC}°C)`;
+        }
+        if (condition) summary += `, ${condition.toLowerCase()}`;
+        summary += '.';
+      }
+    }
+
+    if (forecastRes.ok) {
+      const forecast = await forecastRes.json();
+      const days: any[] = forecast.forecastDays ?? [];
+      if (days.length > 0) {
+        const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+        const dayParts = days.slice(0, 3).map((d: any) => {
+          const date = d.interval?.startTime ? new Date(d.interval.startTime) : null;
+          const label = date ? dayNames[date.getDay()] : '?';
+          const hi = d.maxTemperature?.degrees;
+          const lo = d.minTemperature?.degrees;
+          const cond = d.daytimeForecast?.weatherCondition?.description?.text ?? '';
+          let part = label;
+          if (hi != null && lo != null) part += ` ${Math.round(hi)}/${Math.round(lo)}°F`;
+          if (cond) part += ` ${cond.toLowerCase()}`;
+          return part;
+        });
+        summary += ` Next 3 days: ${dayParts.join(', ')}.`;
+      }
+    }
+
+    return summary;
+  } catch (err) {
+    console.warn('[Weather] Error:', err);
+    return `Weather lookup unavailable at this time.`;
   }
 }

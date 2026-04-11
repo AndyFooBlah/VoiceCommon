@@ -177,7 +177,7 @@ describe('buildSystemInstruction', () => {
     const instruction = buildSystemInstruction(makeOptions({ completedSessionCount: 0 }));
     expect(instruction).toContain('MANDATORY START (FIRST SESSION)');
     expect(instruction).toContain('Hello Margaret');
-    expect(instruction).toContain('BiographyBot');
+    expect(instruction).toContain('Zephyr'); // bot is named after the voice preset
     expect(instruction).toContain('Your family asked me to help preserve your stories');
   });
 
