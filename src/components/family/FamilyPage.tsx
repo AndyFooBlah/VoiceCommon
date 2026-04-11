@@ -33,6 +33,8 @@ import { useFamilyInvitations } from '../../hooks/useInvitations';
 import { useDossierList, setDossierStoryteller } from '../../hooks/useDossier';
 import { useFamilyEvents, createEvent, updateEvent, deleteEvent } from '../../hooks/useEvents';
 import { updateMemberEmail, resetMemberPassword } from '../../services/adminActions';
+import { doc, updateDoc } from 'firebase/firestore';
+import { db } from '../../services/firebase';
 import { InviteMember } from './InviteMember';
 import { FamilyMember, RelationType, MemberType, UserRole } from '../../types';
 import { applyRemoveMember, applyRemoveRelation, applyUpdateRelation } from '../../utils/familyTree';
@@ -53,6 +55,11 @@ export const FamilyPage: React.FC = () => {
   const [editingUid, setEditingUid] = useState<string | null>(null);
   const [editEmail, setEditEmail] = useState('');
   const [saving, setSaving] = useState(false);
+
+  // Edit name state
+  const [editingNameUid, setEditingNameUid] = useState<string | null>(null);
+  const [editName, setEditName] = useState('');
+  const [savingName, setSavingName] = useState(false);
 
   // Reset password state
   const [resetLink, setResetLink] = useState<string | null>(null);
@@ -81,6 +88,23 @@ export const FamilyPage: React.FC = () => {
   const [eventDate, setEventDate] = useState('');
   const [eventDescription, setEventDescription] = useState('');
   const [savingEvent, setSavingEvent] = useState(false);
+
+  async function handleSaveName(targetUid: string) {
+    if (!familyId || !editName.trim()) return;
+    setSavingName(true);
+    try {
+      await updateDoc(doc(db, 'families', familyId, 'members', targetUid), {
+        displayName: editName.trim(),
+      });
+      setEditingNameUid(null);
+      setEditName('');
+    } catch (err: any) {
+      console.error('[FamilyPage] Update name error:', err);
+      alert(err.message || 'Failed to update name');
+    } finally {
+      setSavingName(false);
+    }
+  }
 
   async function handleSaveEmail(targetUid: string) {
     if (!familyId || !editEmail.trim()) return;
@@ -488,6 +512,11 @@ export const FamilyPage: React.FC = () => {
             const isStoryteller = member.roles.includes('storyteller');
             const isAdmin = member.roles.includes('admin');
             const isEditing = editingUid === member.uid;
+            const isEditingName = editingNameUid === member.uid;
+            // Treat displayName as absent if it was set to the email (common when no Google name exists)
+            const resolvedName = member.displayName && member.displayName !== member.email
+              ? member.displayName
+              : (dossier?.storytellerName || null);
 
             return (
               <div
@@ -497,7 +526,33 @@ export const FamilyPage: React.FC = () => {
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
                     <div className="flex items-center gap-2 mb-1">
-                      <p className="font-semibold text-slate-800">{member.displayName}</p>
+                      {isEditingName ? (
+                        <div className="flex items-center gap-2 flex-1">
+                          <input
+                            type="text"
+                            value={editName}
+                            onChange={(e) => setEditName(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === 'Enter') handleSaveName(member.uid); if (e.key === 'Escape') { setEditingNameUid(null); setEditName(''); } }}
+                            className="flex-1 p-1.5 bg-slate-50 border border-slate-200 rounded-lg text-sm font-semibold outline-none focus:ring-1 focus:ring-indigo-500"
+                            autoFocus
+                          />
+                          <button
+                            onClick={() => handleSaveName(member.uid)}
+                            disabled={savingName || !editName.trim()}
+                            className="px-2 py-1 bg-indigo-600 text-white rounded-lg text-xs font-semibold hover:bg-indigo-700 disabled:opacity-50"
+                          >
+                            {savingName ? '…' : 'Save'}
+                          </button>
+                          <button
+                            onClick={() => { setEditingNameUid(null); setEditName(''); }}
+                            className="text-xs text-slate-400 hover:text-slate-600"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      ) : (
+                        <p className="font-semibold text-slate-800">{resolvedName ?? member.email}</p>
+                      )}
                       {isAdmin && (
                         <span className="text-[10px] font-bold px-2 py-0.5 bg-indigo-100 text-indigo-600 rounded-full uppercase tracking-wider">
                           Admin
@@ -585,6 +640,15 @@ export const FamilyPage: React.FC = () => {
                         Edit Dossier
                       </button>
                     )}
+                    <button
+                      onClick={() => {
+                        setEditingNameUid(member.uid);
+                        setEditName(resolvedName ?? '');
+                      }}
+                      className="text-slate-500 hover:underline text-left"
+                    >
+                      Edit Name
+                    </button>
                     <button
                       onClick={() => {
                         setEditingUid(member.uid);
