@@ -21,12 +21,14 @@ import React, { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { useDossierList } from '../../hooks/useDossier';
+import { useFamilyMembers } from '../../hooks/useFamily';
 import { useFamilyInvitations } from '../../hooks/useInvitations';
 
 export const DossierList: React.FC = () => {
   const { familyId } = useParams<{ familyId: string }>();
   const { user } = useAuth();
   const { dossiers, loading, createDossier, deleteDossier } = useDossierList(familyId);
+  const { members } = useFamilyMembers(familyId);
   const { createInvite } = useFamilyInvitations(familyId);
   const navigate = useNavigate();
 
@@ -224,36 +226,62 @@ export const DossierList: React.FC = () => {
                 </div>
               )}
 
-              <div
-                className="cursor-pointer"
-                onClick={() => navigate(`/family/${familyId}/dossier/${d.id}`)}
-              >
-                <h3 className="text-lg font-bold text-slate-800">
-                  {d.storytellerName}
-                </h3>
-                {d.storytellerContext && (
-                  <p className="text-sm text-slate-400 mt-1 line-clamp-2">
-                    {d.storytellerContext}
-                  </p>
-                )}
-                <div className="flex items-center gap-3 mt-4">
-                  <span className="text-xs text-slate-400 bg-slate-50 px-2 py-1 rounded-md">
-                    {d.personality}
-                  </span>
-                  <span className="text-xs text-slate-400 bg-slate-50 px-2 py-1 rounded-md">
-                    {d.selectedVoice}
-                  </span>
-                  {d.storytellerUid ? (
-                    <span className="text-xs text-emerald-500 bg-emerald-50 px-2 py-1 rounded-md font-semibold">
-                      Assigned
-                    </span>
-                  ) : (
-                    <span className="text-xs text-amber-500 bg-amber-50 px-2 py-1 rounded-md font-semibold">
-                      Needs Invite
-                    </span>
-                  )}
-                </div>
-              </div>
+              {(() => {
+                const member = d.storytellerUid
+                  ? members.find((m) => m.uid === d.storytellerUid)
+                  : undefined;
+                return (
+                  <div
+                    className="cursor-pointer"
+                    onClick={() => navigate(`/family/${familyId}/dossier/${d.id}`)}
+                  >
+                    {/* Name row */}
+                    <div className="flex items-baseline gap-2 flex-wrap">
+                      <h3 className="text-lg font-bold text-slate-800">
+                        {d.storytellerName}
+                      </h3>
+                      {d.preferredName && d.preferredName !== d.storytellerName && (
+                        <span className="text-sm text-slate-400">
+                          "{d.preferredName}"
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Email */}
+                    {member?.email && (
+                      <p className="text-sm text-slate-500 mt-0.5">
+                        {member.email}
+                      </p>
+                    )}
+
+                    {/* Context */}
+                    {d.storytellerContext && (
+                      <p className="text-sm text-slate-400 mt-1.5 line-clamp-2">
+                        {d.storytellerContext}
+                      </p>
+                    )}
+
+                    {/* Badges */}
+                    <div className="flex items-center gap-2 mt-3 flex-wrap">
+                      <span className="text-xs text-slate-400 bg-slate-50 px-2 py-1 rounded-md capitalize">
+                        {d.personality}
+                      </span>
+                      <span className="text-xs text-slate-400 bg-slate-50 px-2 py-1 rounded-md">
+                        {d.selectedVoice}
+                      </span>
+                      {d.storytellerUid ? (
+                        <span className="text-xs text-emerald-500 bg-emerald-50 px-2 py-1 rounded-md font-semibold">
+                          Assigned
+                        </span>
+                      ) : (
+                        <span className="text-xs text-amber-500 bg-amber-50 px-2 py-1 rounded-md font-semibold">
+                          Needs Invite
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
 
               <button
                 onClick={(e) => {
