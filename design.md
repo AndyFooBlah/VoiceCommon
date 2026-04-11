@@ -181,6 +181,14 @@ Storage rules cannot query Firestore, so family membership is propagated into th
 familyId in request.auth.token.get('familyIds', [])
 ```
 
+#### Client-side API key exposure
+
+`VITE_GEMINI_API_KEY` and `VITE_GOOGLE_MAPS_API_KEY` are embedded in the browser bundle by Vite and are therefore visible to any user who inspects the built JavaScript. This is the standard tradeoff for client-side Vite apps.
+
+**Mitigations:** Both keys are restricted in Google Cloud Console to HTTP referrer `biographybot.com/*` (preventing use from other origins) and to the specific APIs each key needs. Billing alerts are configured to catch unexpected spend.
+
+**Why not proxy?** Maps and Gemini calls happen mid-voice-session; a Cloud Function proxy would add noticeable latency. At current usage scale the referrer restriction is considered sufficient. See README § "Client-side API keys" for the full decision rationale. Revisit with a proxy or [Firebase App Check](https://firebase.google.com/docs/app-check) if the app scales to arbitrary public users.
+
 #### Custom Claims Sync (`onMemberWritten`)
 
 The `onMemberWritten` Cloud Function (Firestore trigger on `families/{familyId}/members/{memberId}`) fires on every member write. It reads `users/{uid}.familyIds` and calls `admin.auth().setCustomUserClaims()` to sync the array into the Auth token. Clients must call `user.getIdToken(true)` after joining a family to pick up the new claim before accessing Cloud Storage.

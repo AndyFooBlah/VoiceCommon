@@ -88,7 +88,7 @@ src/
    cp .firebaserc.example .firebaserc
    ```
 
-4. Fill in your Firebase and Gemini credentials in `.env.local`, and your Firebase project ID in `.firebaserc`:
+4. Fill in your Firebase, Gemini, and Maps credentials in `.env.local`, and your Firebase project ID in `.firebaserc`:
    ```
    VITE_FIREBASE_API_KEY=...
    VITE_FIREBASE_AUTH_DOMAIN=...
@@ -97,7 +97,9 @@ src/
    VITE_FIREBASE_MESSAGING_SENDER_ID=...
    VITE_FIREBASE_APP_ID=...
    VITE_GEMINI_API_KEY=...
+   VITE_GOOGLE_MAPS_API_KEY=...   # optional — enables Places, Distance, and Weather tools
    ```
+   The Maps key requires the **Geocoding API** and **Maps Weather API** to be enabled on your Google Cloud project. Without it, the AI's geographic and weather tool calls will return a "not configured" message rather than real data. See [Prerequisites](#prerequisites) and the "Client-side API keys" section below for setup and security guidance.
 
 5. Deploy Firestore and Storage security rules to your Firebase project:
    ```bash
@@ -256,6 +258,35 @@ Family data, dossiers, events, memoirs → Firestore (persists until deleted)
 
 User accounts → Firebase Authentication (US only)
 ```
+
+### Client-side API keys and the Maps Platform key
+
+Several `VITE_` environment variables are embedded in the browser bundle at build time. This is standard for Vite-based SPAs, but it means the values are visible to anyone who inspects the JavaScript — they are not secrets in the traditional sense.
+
+#### Keys embedded in the bundle
+
+| Variable | Used for | Risk if leaked |
+|---|---|---|
+| `VITE_FIREBASE_API_KEY` | Firebase client SDK initialisation | Low — this key only identifies the project; access is gated by Firebase security rules and Auth |
+| `VITE_GEMINI_API_KEY` | Gemini Live API (real-time voice sessions) | High — can be used to make Gemini API calls billed to your account |
+| `VITE_GOOGLE_MAPS_API_KEY` | Geocoding, Places, and Weather lookups during sessions | Medium — can be used to make Maps Platform API calls billed to your account |
+
+#### Mitigations in place
+
+- **HTTP referrer restriction** — both the Gemini and Maps keys should be restricted in the [Google Cloud Console](https://console.cloud.google.com/apis/credentials) to only accept requests from `biographybot.com/*`. This prevents the key from being used from a different origin even if extracted from the bundle.
+- **API restriction** — the Maps key should be restricted to only the APIs it needs: Geocoding API and Maps Weather API. The Gemini key scope is managed separately via API quotas.
+- **Billing alerts** — set a budget alert in [Google Cloud Billing](https://console.cloud.google.com/billing) so unexpected usage is caught quickly.
+
+#### Why not use a server-side proxy?
+
+The more secure alternative is to proxy all Maps and Gemini calls through a Firebase Cloud Function, keeping the keys entirely server-side and never exposing them in the browser. This was considered and intentionally deferred for the following reasons:
+
+1. **Latency** — Maps lookups happen mid-conversation inside a Gemini Live voice session. Routing them through a Cloud Function would add a round-trip, making the tool-call response noticeably slower.
+2. **Cost** — Every Maps/Gemini call via a proxy adds a Cloud Function invocation cost on top of the API cost.
+3. **Complexity** — A proxy introduces an additional network hop, error surface, and deployment step for what is currently a simple client-side fetch.
+4. **Referrer restriction is effective enough at this scale** — For a family-use app with a known production domain, an HTTP referrer restriction prevents nearly all automated abuse. Referrer headers can be spoofed by determined attackers, but the financial incentive to abuse a family history app is low.
+
+This decision should be revisited if the app is ever opened to arbitrary public usage or if API spend reaches a level where abuse would be financially significant. At that point, a Cloud Function proxy or [Firebase App Check](https://firebase.google.com/docs/app-check) are the recommended next steps.
 
 ### Relevant terms of service and privacy documentation
 
