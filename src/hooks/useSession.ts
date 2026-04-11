@@ -189,6 +189,51 @@ export function useSession({
     }
   }, []);
 
+  /** Format a tool call name + args into a short human-readable label. */
+  const formatToolCall = (name: string, args: Record<string, unknown>): string => {
+    switch (name) {
+      case 'searchWikipedia': return `Wikipedia: "${args.query}"`;
+      case 'searchPlace': return `Place: "${args.query}"`;
+      case 'getDistanceBetweenPlaces': return `Distance: "${args.placeA}" → "${args.placeB}"`;
+      default: return `[${name}]`;
+    }
+  };
+
+  /** Log a background tool call to the transcript and sync to Firestore. */
+  const addToolEntry = useCallback(
+    (toolName: string, toolArgs: Record<string, unknown>, toolResult: string) => {
+      const text = formatToolCall(toolName, toolArgs);
+      const newMsg: Message = {
+        id: Math.random().toString(36).substr(2, 9),
+        role: 'tool',
+        text,
+        timestamp: new Date(),
+        toolName,
+        toolArgs,
+      };
+      setMessages((prev) => [...prev, newMsg]);
+
+      const entryIndex = transcriptEntriesRef.current.length;
+      transcriptEntriesRef.current.push({
+        role: 'tool',
+        text,
+        toolName,
+        toolArgs,
+        toolResult: toolResult.slice(0, 500), // cap stored result length
+        timestamp: Timestamp.now(),
+        messageIndex: entryIndex,
+      });
+
+      const currentSessionId = sessionIdRef.current;
+      if (currentSessionId) {
+        syncTranscriptToFirestore(familyId, dossierId, currentSessionId, [...transcriptEntriesRef.current]).catch(
+          (err) => console.error('[Firestore] Tool entry sync error:', err),
+        );
+      }
+    },
+    [familyId, dossierId],
+  );
+
   /** Add a message to the live transcript and sync to Firestore. */
   const addMessage = useCallback(
     (role: 'user' | 'bot', text: string) => {
@@ -545,25 +590,34 @@ export function useSession({
               const { query } = fc.args as any;
               console.log(`[Session] AI searching Wikipedia: "${query}"`);
               try {
-                toolResult = { result: await searchWikipedia(query) };
+                const result = await searchWikipedia(query);
+                toolResult = { result };
+                addToolEntry('searchWikipedia', { query }, result);
               } catch {
                 toolResult = { result: 'Wikipedia search unavailable.' };
+                addToolEntry('searchWikipedia', { query }, 'Search unavailable.');
               }
             } else if (fc.name === 'searchPlace') {
               const { query } = fc.args as any;
               console.log(`[Session] AI searching place: "${query}"`);
               try {
-                toolResult = { result: await searchPlace(query) };
+                const result = await searchPlace(query);
+                toolResult = { result };
+                addToolEntry('searchPlace', { query }, result);
               } catch {
                 toolResult = { result: 'Place search unavailable.' };
+                addToolEntry('searchPlace', { query }, 'Search unavailable.');
               }
             } else if (fc.name === 'getDistanceBetweenPlaces') {
               const { placeA, placeB } = fc.args as any;
               console.log(`[Session] AI calculating distance: "${placeA}" → "${placeB}"`);
               try {
-                toolResult = { result: await getDistanceBetweenPlaces(placeA, placeB) };
+                const result = await getDistanceBetweenPlaces(placeA, placeB);
+                toolResult = { result };
+                addToolEntry('getDistanceBetweenPlaces', { placeA, placeB }, result);
               } catch {
                 toolResult = { result: 'Distance calculation unavailable.' };
+                addToolEntry('getDistanceBetweenPlaces', { placeA, placeB }, 'Unavailable.');
               }
             }
 
@@ -680,7 +734,7 @@ export function useSession({
         // --- Handle Interruption ---
         if (message.serverContent?.interrupted) handleInterruption();
       },
-    [familyId, dossierId, promptPhotos, mixer, addMessage, handleInterruption, onQuestionUpdate, onShowPhoto, onPreferredNameUpdate, stopSession],
+    [familyId, dossierId, promptPhotos, mixer, addMessage, addToolEntry, handleInterruption, onQuestionUpdate, onShowPhoto, onPreferredNameUpdate, stopSession],
   );
 
   /**

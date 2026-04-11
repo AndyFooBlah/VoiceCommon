@@ -202,13 +202,17 @@ export interface TranscriptEditHistoryEntry {
 
 /** A single turn in the conversation transcript. */
 export interface TranscriptEntry {
-  role: 'user' | 'bot';
+  role: 'user' | 'bot' | 'tool';
   text: string;         // current (display) text
   cleanText?: string;   // AI-cleaned version (corrected transcription errors, removed fillers)
   timestamp: Timestamp;
   messageIndex?: number;   // 0-based position in the session transcript
   originalText?: string;   // original AI transcription, set on first edit
   editHistory?: TranscriptEditHistoryEntry[]; // ordered list of edits
+  /** Tool call metadata — present when role === 'tool'. */
+  toolName?: string;
+  toolArgs?: Record<string, unknown>;
+  toolResult?: string;  // truncated result for audit purposes
 }
 
 // ---------------------------------------------------------------------------
@@ -369,9 +373,12 @@ export interface AudioClip {
 /** In-memory message for the live transcript feed during a session. */
 export interface Message {
   id: string;
-  role: 'user' | 'bot';
+  role: 'user' | 'bot' | 'tool';
   text: string;
   timestamp: Date;
+  /** Tool call metadata — present when role === 'tool'. */
+  toolName?: string;
+  toolArgs?: Record<string, unknown>;
 }
 
 // ---------------------------------------------------------------------------

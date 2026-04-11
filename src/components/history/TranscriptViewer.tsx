@@ -389,6 +389,25 @@ export const TranscriptViewer: React.FC = () => {
             const lastEdit = entry.editHistory?.[entry.editHistory.length - 1];
             const showEditButton = canEdit && entry.role === 'user' && !isEditing;
 
+            // Tool call entries render as a compact centred pill
+            if (entry.role === 'tool') {
+              return (
+                <div key={idx} className="flex justify-center">
+                  <div className="group flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-full text-[11px] text-slate-400 font-mono">
+                    <svg className="w-3 h-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                    </svg>
+                    <span>{entry.text}</span>
+                    {entry.toolResult && (
+                      <span className="hidden group-hover:inline ml-1 text-slate-300" title={entry.toolResult}>
+                        — {entry.toolResult.slice(0, 80)}{entry.toolResult.length > 80 ? '…' : ''}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            }
+
             return (
               <div
                 key={idx}

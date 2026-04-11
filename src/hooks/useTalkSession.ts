@@ -122,6 +122,28 @@ export function useTalkSession({
     setMessages((prev) => [...prev, newMsg]);
   }, []);
 
+  const formatToolCall = (name: string, args: Record<string, unknown>): string => {
+    switch (name) {
+      case 'searchWikipedia': return `Wikipedia: "${args.query}"`;
+      case 'searchPlace': return `Place: "${args.query}"`;
+      case 'getDistanceBetweenPlaces': return `Distance: "${args.placeA}" → "${args.placeB}"`;
+      default: return `[${name}]`;
+    }
+  };
+
+  /** Log a background tool call to the in-memory message feed. */
+  const addToolEntry = useCallback((toolName: string, toolArgs: Record<string, unknown>) => {
+    const newMsg: Message = {
+      id: Math.random().toString(36).substr(2, 9),
+      role: 'tool',
+      text: formatToolCall(toolName, toolArgs),
+      timestamp: new Date(),
+      toolName,
+      toolArgs,
+    };
+    setMessages((prev) => [...prev, newMsg]);
+  }, []);
+
   const stopTalk = useCallback(async () => {
     console.log(`[Talk] Stopping at ${new Date().toISOString()}`);
 
@@ -282,6 +304,7 @@ export function useTalkSession({
             } else if (fc.name === 'searchWikipedia') {
               const { query } = fc.args as any;
               console.log(`[Talk] AI searching Wikipedia: "${query}"`);
+              addToolEntry('searchWikipedia', { query });
               try {
                 toolResult = { result: await searchWikipedia(query) };
               } catch {
@@ -290,6 +313,7 @@ export function useTalkSession({
             } else if (fc.name === 'searchPlace') {
               const { query } = fc.args as any;
               console.log(`[Talk] AI searching place: "${query}"`);
+              addToolEntry('searchPlace', { query });
               try {
                 toolResult = { result: await searchPlace(query) };
               } catch {
@@ -298,6 +322,7 @@ export function useTalkSession({
             } else if (fc.name === 'getDistanceBetweenPlaces') {
               const { placeA, placeB } = fc.args as any;
               console.log(`[Talk] AI calculating distance: "${placeA}" → "${placeB}"`);
+              addToolEntry('getDistanceBetweenPlaces', { placeA, placeB });
               try {
                 toolResult = { result: await getDistanceBetweenPlaces(placeA, placeB) };
               } catch {
@@ -364,7 +389,7 @@ export function useTalkSession({
 
         if (message.serverContent?.interrupted) handleInterruption();
       },
-    [familyId, dossierId, mixer, addMessage, handleInterruption, onPreferredNameUpdate, stopTalk],
+    [familyId, dossierId, mixer, addMessage, addToolEntry, handleInterruption, onPreferredNameUpdate, stopTalk],
   );
 
   const wireWorklet = useCallback(
