@@ -24,6 +24,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { getUserFamilyIds } from '../../hooks/useFamily';
 import { Logo } from '../shared/Logo';
+import { SystemDiagnostics } from '../shared/SystemDiagnostics';
 
 export const FamilySelector: React.FC = () => {
   const { user } = useAuth();
@@ -98,6 +99,8 @@ export const FamilySelector: React.FC = () => {
             I Have an Invite Link
           </button>
         </div>
+
+        <SystemDiagnostics />
       </div>
     );
   }
@@ -130,6 +133,8 @@ export const FamilySelector: React.FC = () => {
           + Create another family
         </button>
       </div>
+
+      <SystemDiagnostics />
     </div>
   );
 };

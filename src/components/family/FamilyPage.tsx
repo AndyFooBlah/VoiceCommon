@@ -36,6 +36,7 @@ import { updateMemberEmail, resetMemberPassword } from '../../services/adminActi
 import { doc, updateDoc } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { InviteMember } from './InviteMember';
+import { SystemDiagnostics } from '../shared/SystemDiagnostics';
 import { FamilyMember, RelationType, MemberType, UserRole } from '../../types';
 import { applyRemoveMember, applyRemoveRelation, applyUpdateRelation } from '../../utils/familyTree';
 
@@ -1062,6 +1063,8 @@ export const FamilyPage: React.FC = () => {
           </div>
         )}
       </section>
+
+      <SystemDiagnostics />
     </div>
   );
 };
