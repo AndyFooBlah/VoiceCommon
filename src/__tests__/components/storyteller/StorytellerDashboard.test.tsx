@@ -95,9 +95,9 @@ describe('StorytellerDashboard — with dossiers', () => {
     expect(screen.queryByText('Born in 1935')).not.toBeInTheDocument();
   });
 
-  it('shows Start New Interview button', () => {
+  it('shows Start a Conversation button', () => {
     render(<StorytellerDashboard />);
-    expect(screen.getByText('Start New Interview')).toBeInTheDocument();
+    expect(screen.getByText('Start a Conversation')).toBeInTheDocument();
   });
 
   it('shows Past Sessions section heading', () => {
@@ -105,9 +105,9 @@ describe('StorytellerDashboard — with dossiers', () => {
     expect(screen.getByText('Past Sessions')).toBeInTheDocument();
   });
 
-  it('navigates to session on Start New Interview click', () => {
+  it('navigates to session on Start a Conversation click', () => {
     render(<StorytellerDashboard />);
-    fireEvent.click(screen.getByText('Start New Interview'));
+    fireEvent.click(screen.getByText('Start a Conversation'));
     expect(mockNavigate).toHaveBeenCalledWith('/family/family-1/dossier/d1/session');
   });
 });

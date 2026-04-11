@@ -63,8 +63,8 @@ let mockStatus = ConnectionStatus.DISCONNECTED;
 let mockMessages: any[] = [];
 let mockSessionId: string | null = null;
 
-vi.mock('../../../hooks/useSession', () => ({
-  useSession: () => ({
+vi.mock('../../../hooks/useUnifiedSession', () => ({
+  useUnifiedSession: () => ({
     status: mockStatus,
     messages: mockMessages,
     isBotSpeaking: false,
@@ -119,12 +119,12 @@ describe('SessionView — disconnected state', () => {
 
   it('shows the ready prompt', async () => {
     await renderView();
-    expect(screen.getByText(/Ready to begin, Margaret/)).toBeInTheDocument();
+    expect(screen.getByText(/Ready to talk, Margaret/)).toBeInTheDocument();
   });
 
   it('shows the start button instructions', async () => {
     await renderView();
-    expect(screen.getByText(/Press the button above to start/)).toBeInTheDocument();
+    expect(screen.getByText(/Press the green button to start a conversation/)).toBeInTheDocument();
   });
 
   it('calls startSession when start button is clicked', async () => {
@@ -168,7 +168,7 @@ describe('SessionView — connected state', () => {
 
   it('shows the storytelling prompt', async () => {
     await renderView();
-    expect(screen.getByText(/Tell your story, Margaret/)).toBeInTheDocument();
+    expect(screen.getByText(/Talking with Margaret/)).toBeInTheDocument();
   });
 
   it('shows the preservation message', async () => {

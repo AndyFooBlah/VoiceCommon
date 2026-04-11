@@ -37,7 +37,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { useFamily, useCurrentRoles } from '../../hooks/useFamily';
 import { useDossier } from '../../hooks/useDossier';
-import { useSession } from '../../hooks/useSession';
+import { useUnifiedSession } from '../../hooks/useUnifiedSession';
 import { getPromptPhotos } from '../../services/storage';
 import { Visualizer } from './Visualizer';
 import { TranscriptFeed } from './TranscriptFeed';
@@ -108,7 +108,7 @@ export const SessionView: React.FC = () => {
     reconnectSession,
     stopSession,
     flushPartialSession,
-  } = useSession({
+  } = useUnifiedSession({
     familyId: familyId ?? '',
     dossierId: dossierId ?? '',
     storytellerUid: user?.uid ?? '',
@@ -208,28 +208,32 @@ export const SessionView: React.FC = () => {
         />
 
         <div className="flex flex-col items-center gap-6 w-full">
-          {/* Start / Stop button */}
+          {/* Start / End call button — phone metaphor */}
           {status !== ConnectionStatus.CONNECTED ? (
             <button
               onClick={startSession}
               disabled={status === ConnectionStatus.CONNECTING}
-              className="w-28 h-28 bg-indigo-600 rounded-full text-white shadow-2xl hover:scale-105 active:scale-95 transition-all flex items-center justify-center group disabled:opacity-50"
+              className="w-28 h-28 bg-green-500 rounded-full text-white shadow-2xl hover:bg-green-600 hover:scale-105 active:scale-95 transition-all flex items-center justify-center disabled:opacity-50"
+              aria-label="Start a conversation"
             >
               {status === ConnectionStatus.CONNECTING ? (
                 <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-white" />
               ) : (
-                <svg className="w-12 h-12 ml-1 group-hover:scale-110 transition-transform" fill="currentColor" viewBox="0 0 20 20">
-                  <path d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" />
+                /* Phone handset — answer call */
+                <svg className="w-12 h-12" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z" />
                 </svg>
               )}
             </button>
           ) : (
             <button
               onClick={stopSession}
-              className="w-28 h-28 bg-slate-800 rounded-full text-white shadow-2xl hover:bg-slate-900 transition-all flex items-center justify-center"
+              className="w-28 h-28 bg-red-500 rounded-full text-white shadow-2xl hover:bg-red-600 transition-all flex items-center justify-center"
+              aria-label="End conversation"
             >
-              <svg className="w-10 h-10" fill="currentColor" viewBox="0 0 20 20">
-                <path d="M10 18a8 8 0 100-16 8 8 0 000 16zM8 7a1 1 0 00-1 1v4a1 1 0 001 1h4a1 1 0 001-1V8a1 1 0 00-1-1H8z" />
+              {/* Rotated phone handset — hang up */}
+              <svg className="w-12 h-12 rotate-[135deg]" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z" />
               </svg>
             </button>
           )}
@@ -237,12 +241,12 @@ export const SessionView: React.FC = () => {
           <div className="text-center space-y-1">
             <p className="text-xl font-bold text-slate-800">
               {status === ConnectionStatus.CONNECTED
-                ? `Tell your story, ${dossier.storytellerName}...`
+                ? `Talking with ${dossier.storytellerName}…`
                 : status === ConnectionStatus.CONNECTING
                   ? messages.length > 0
                     ? 'Back in just a moment…'
                     : `One moment, ${dossier.storytellerName}…`
-                  : `Ready to begin, ${dossier.storytellerName}?`}
+                  : `Ready to talk, ${dossier.storytellerName}?`}
             </p>
             <p className="text-sm text-slate-400">
               {status === ConnectionStatus.CONNECTED
@@ -250,8 +254,8 @@ export const SessionView: React.FC = () => {
                 : status === ConnectionStatus.CONNECTING
                   ? messages.length > 0
                     ? 'Restoring the connection — please hold on.'
-                    : 'Your interview will begin in just a moment.'
-                  : 'Press the button above to start your oral history session.'}
+                    : 'Your conversation will begin in just a moment.'
+                  : 'Press the green button to start a conversation.'}
             </p>
           </div>
         </div>
@@ -303,7 +307,7 @@ export const SessionView: React.FC = () => {
                   clearDeviceError();
                   startSession();
                 }}
-                className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-colors"
+                className="w-full py-4 bg-green-500 text-white rounded-2xl font-bold hover:bg-green-600 transition-colors"
               >
                 Try Again
               </button>

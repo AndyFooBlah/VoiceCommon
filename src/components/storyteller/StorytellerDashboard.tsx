@@ -63,7 +63,7 @@ const DossierSessions: React.FC<DossierSessionsProps> = ({ familyId, dossierId }
   if (sessions.length === 0) {
     return (
       <p className="text-center text-slate-400 py-6 text-sm">
-        No sessions yet — start your first interview above.
+        No sessions yet — start your first conversation above.
       </p>
     );
   }
@@ -156,15 +156,12 @@ export const StorytellerDashboard: React.FC = () => {
       <div className="flex flex-col gap-3">
         <button
           onClick={() => navigate(`/family/${familyId}/dossier/${dossier.id}/session`)}
-          className="w-full py-5 bg-indigo-600 text-white rounded-2xl font-bold text-lg hover:bg-indigo-700 transition-colors shadow-lg"
+          className="w-full py-5 bg-green-500 text-white rounded-2xl font-bold text-lg hover:bg-green-600 transition-colors shadow-lg flex items-center justify-center gap-3"
         >
-          Start New Interview
-        </button>
-        <button
-          onClick={() => navigate(`/family/${familyId}/dossier/${dossier.id}/talk`)}
-          className="w-full py-4 bg-emerald-600 text-white rounded-2xl font-bold text-base hover:bg-emerald-700 transition-colors shadow-md"
-        >
-          Talk About My Family
+          <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+            <path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z" />
+          </svg>
+          Start a Conversation
         </button>
       </div>
 
@@ -188,15 +185,12 @@ export const StorytellerDashboard: React.FC = () => {
               <div className="flex flex-col gap-2">
                 <button
                   onClick={() => navigate(`/family/${familyId}/dossier/${d.id}/session`)}
-                  className="w-full py-3 bg-indigo-600 text-white rounded-xl font-semibold hover:bg-indigo-700 transition-colors"
+                  className="w-full py-3 bg-green-500 text-white rounded-xl font-semibold hover:bg-green-600 transition-colors flex items-center justify-center gap-2"
                 >
-                  Start Interview
-                </button>
-                <button
-                  onClick={() => navigate(`/family/${familyId}/dossier/${d.id}/talk`)}
-                  className="w-full py-2.5 bg-emerald-600 text-white rounded-xl font-semibold hover:bg-emerald-700 transition-colors text-sm"
-                >
-                  Talk About My Family
+                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z" />
+                  </svg>
+                  Start a Conversation
                 </button>
               </div>
               <DossierSessions familyId={familyId} dossierId={d.id!} />

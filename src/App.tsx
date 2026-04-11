@@ -29,7 +29,7 @@
  */
 
 import React from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Layout } from './components/shared/Layout';
 import { ErrorBoundary } from './components/shared/ErrorBoundary';
 import { FamilySelector } from './components/family/FamilySelector';
@@ -45,7 +45,7 @@ import { MediaGallery } from './components/media/MediaGallery';
 import { StorytellerDashboard } from './components/storyteller/StorytellerDashboard';
 import { FamilyHome } from './components/family/FamilyHome';
 import { FamilyEventDetail } from './components/family/FamilyEventDetail';
-import { TalkView } from './components/talk/TalkView';
+// TalkView kept for potential future use; /talk route now redirects to /session (#103)
 
 const App: React.FC = () => {
   return (
@@ -61,7 +61,7 @@ const App: React.FC = () => {
             <Route path="/family/:familyId/events/:eventId" element={<FamilyEventDetail />} />
             <Route path="/family/:familyId/dossier/:dossierId" element={<DossierEditor />} />
             <Route path="/family/:familyId/dossier/:dossierId/session" element={<SessionView />} />
-            <Route path="/family/:familyId/dossier/:dossierId/talk" element={<TalkView />} />
+            <Route path="/family/:familyId/dossier/:dossierId/talk" element={<Navigate to="../session" replace />} />
             <Route path="/family/:familyId/dossier/:dossierId/memoir" element={<MemoirViewer />} />
             <Route path="/family/:familyId/dossier/:dossierId/events" element={<EventsTimeline />} />
             <Route path="/family/:familyId/dossier/:dossierId/media" element={<MediaGallery />} />
