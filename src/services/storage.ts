@@ -259,6 +259,23 @@ export async function getLastSessionDate(
   return snapshot.docs[0].data().startTime?.toDate?.() ?? undefined;
 }
 
+/**
+ * Returns the start dates of the most recent N completed sessions.
+ * Used to compute date awareness in the system instruction.
+ */
+export async function getRecentSessionDates(
+  familyId: string,
+  dossierId: string,
+  limit: number = 3,
+): Promise<Date[]> {
+  const colRef = collection(db, 'families', familyId, 'dossiers', dossierId, 'sessions');
+  const q = query(colRef, where('status', '==', 'completed'), orderBy('startTime', 'desc'), firestoreLimit(limit));
+  const snapshot = await getDocs(q);
+  return snapshot.docs
+    .map((d) => d.data().startTime?.toDate?.())
+    .filter((d): d is Date => d instanceof Date);
+}
+
 // ---------------------------------------------------------------------------
 // Emotional observation logging
 // ---------------------------------------------------------------------------

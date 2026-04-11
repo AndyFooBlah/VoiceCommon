@@ -88,6 +88,7 @@ const {
     getCompletedSessionCount: vi.fn().mockResolvedValue(0),
     getPreviousSessionSummary: vi.fn().mockResolvedValue(undefined),
     getLastSessionDate: vi.fn().mockResolvedValue(undefined),
+    getRecentSessionDates: vi.fn().mockResolvedValue([]),
     logEmotionalObservation: vi.fn().mockResolvedValue(undefined),
     saveExtractedEvents: vi.fn().mockResolvedValue([]),
     saveFamilyEvents: vi.fn().mockResolvedValue(undefined),
@@ -159,10 +160,17 @@ vi.mock('../../services/postSessionAnalysis', () => ({
     flags: [],
   }),
   suggestQuestions: vi.fn().mockResolvedValue([]),
+  cleanTranscriptText: vi.fn().mockResolvedValue(''),
 }));
 
 vi.mock('../../services/gemini', () => ({
   buildSystemInstruction: vi.fn().mockReturnValue('mock system instruction'),
+}));
+
+vi.mock('../../services/externalSearch', () => ({
+  searchWikipedia: vi.fn().mockResolvedValue('Wikipedia result'),
+  searchPlace: vi.fn().mockResolvedValue('Place info'),
+  getDistanceBetweenPlaces: vi.fn().mockResolvedValue('100 miles'),
 }));
 
 // ---------------------------------------------------------------------------

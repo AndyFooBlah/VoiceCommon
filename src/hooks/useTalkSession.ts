@@ -38,6 +38,7 @@ import { useAudioMixer } from './useAudioMixer';
 import { encode, decode, decodeAudioData } from '../services/audioUtils';
 import { buildTalkSystemInstruction } from '../services/gemini';
 import { getTalkContext, saveMiscFact, TalkContext } from '../services/storage';
+import { searchWikipedia, searchPlace, getDistanceBetweenPlaces } from '../services/externalSearch';
 
 const GEMINI_MODEL = 'gemini-3.1-flash-live-preview';
 
@@ -205,7 +206,46 @@ export function useTalkSession({
       },
     };
 
-    return [recordFactTool, setPreferredNameTool, endTalkTool];
+    const searchWikipediaTool: FunctionDeclaration = {
+      name: 'searchWikipedia',
+      parameters: {
+        type: Type.OBJECT,
+        description:
+          'Look up a topic, person, event, or place on Wikipedia silently. ' +
+          'Use the result to enrich your responses — do not read the result aloud.',
+        properties: {
+          query: { type: Type.STRING, description: 'The search term.' },
+        },
+        required: ['query'],
+      },
+    };
+
+    const searchPlaceTool: FunctionDeclaration = {
+      name: 'searchPlace',
+      parameters: {
+        type: Type.OBJECT,
+        description: 'Look up a geographic location by name. Use the result naturally — do not recite coordinates.',
+        properties: {
+          query: { type: Type.STRING, description: 'The place name or address to look up.' },
+        },
+        required: ['query'],
+      },
+    };
+
+    const getDistanceTool: FunctionDeclaration = {
+      name: 'getDistanceBetweenPlaces',
+      parameters: {
+        type: Type.OBJECT,
+        description: 'Calculate the approximate straight-line distance between two named places.',
+        properties: {
+          placeA: { type: Type.STRING, description: 'The first place name or address.' },
+          placeB: { type: Type.STRING, description: 'The second place name or address.' },
+        },
+        required: ['placeA', 'placeB'],
+      },
+    };
+
+    return [recordFactTool, setPreferredNameTool, endTalkTool, searchWikipediaTool, searchPlaceTool, getDistanceTool];
   }, []);
 
   const makeMessageHandler = useCallback(
@@ -213,6 +253,8 @@ export function useTalkSession({
       async (message: LiveServerMessage) => {
         if (message.toolCall?.functionCalls) {
           for (const fc of message.toolCall.functionCalls) {
+            let toolResult: any = { result: 'ok' };
+
             if (fc.name === 'recordFact') {
               const { text, isCorrection, correctionNote } = fc.args as any;
               console.log(`[Talk] AI recording fact (isCorrection=${isCorrection}): ${text}`);
@@ -237,12 +279,36 @@ export function useTalkSession({
                 }
               };
               setTimeout(waitForAudioEnd, 500);
+            } else if (fc.name === 'searchWikipedia') {
+              const { query } = fc.args as any;
+              console.log(`[Talk] AI searching Wikipedia: "${query}"`);
+              try {
+                toolResult = { result: await searchWikipedia(query) };
+              } catch {
+                toolResult = { result: 'Wikipedia search unavailable.' };
+              }
+            } else if (fc.name === 'searchPlace') {
+              const { query } = fc.args as any;
+              console.log(`[Talk] AI searching place: "${query}"`);
+              try {
+                toolResult = { result: await searchPlace(query) };
+              } catch {
+                toolResult = { result: 'Place search unavailable.' };
+              }
+            } else if (fc.name === 'getDistanceBetweenPlaces') {
+              const { placeA, placeB } = fc.args as any;
+              console.log(`[Talk] AI calculating distance: "${placeA}" → "${placeB}"`);
+              try {
+                toolResult = { result: await getDistanceBetweenPlaces(placeA, placeB) };
+              } catch {
+                toolResult = { result: 'Distance calculation unavailable.' };
+              }
             }
 
             const session = sessionRef.current;
             if (session) {
               session.sendToolResponse({
-                functionResponses: [{ id: fc.id, name: fc.name, response: { result: 'ok' } }],
+                functionResponses: [{ id: fc.id, name: fc.name, response: toolResult }],
               });
             }
           }
@@ -342,6 +408,13 @@ export function useTalkSession({
       setConnectivityWarning(null);
       console.log(`[Talk] Starting at ${new Date().toISOString()}`);
 
+      // Compute current date/time from browser locale
+      const currentDateTime = new Date().toLocaleString(navigator.language, {
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        dateStyle: 'full',
+        timeStyle: 'short',
+      } as Intl.DateTimeFormatOptions);
+
       // Fetch prior context and check connectivity
       const emptyContext: TalkContext = { recentTranscripts: [], eventTitles: [], miscFactTexts: [] };
       let talkContext: TalkContext = emptyContext;
@@ -376,6 +449,7 @@ export function useTalkSession({
         familyTree,
         talkContext,
         preferredName: dossier.preferredName,
+        currentDateTime,
       });
 
       const greetingTrigger = `[Begin the conversation. Greet ${dossier.preferredName ?? dossier.storytellerName} warmly and invite them to talk about anything on their mind — their family, a memory, someone they want to tell you about.]`;

@@ -51,6 +51,7 @@ import {
   getCompletedSessionCount,
   getPreviousSessionSummary,
   getLastSessionDate,
+  getRecentSessionDates,
   logEmotionalObservation,
   saveExtractedEvents,
   saveFamilyEvents,
@@ -58,7 +59,8 @@ import {
   saveSuggestedQuestions,
   getEvents,
 } from '../services/storage';
-import { extractEvents, assessEngagement, suggestQuestions } from '../services/postSessionAnalysis';
+import { extractEvents, assessEngagement, suggestQuestions, cleanTranscriptText } from '../services/postSessionAnalysis';
+import { searchWikipedia, searchPlace, getDistanceBetweenPlaces } from '../services/externalSearch';
 
 const GEMINI_MODEL = 'gemini-3.1-flash-live-preview';
 
@@ -198,12 +200,12 @@ export function useSession({
       };
       setMessages((prev) => [...prev, newMsg]);
 
-      const messageIndex = transcriptEntriesRef.current.length;
+      const entryIndex = transcriptEntriesRef.current.length;
       transcriptEntriesRef.current.push({
         role,
         text,
         timestamp: Timestamp.now(),
-        messageIndex,
+        messageIndex: entryIndex,
       });
 
       const currentSessionId = sessionIdRef.current;
@@ -211,6 +213,20 @@ export function useSession({
         syncTranscriptToFirestore(familyId, dossierId, currentSessionId, [...transcriptEntriesRef.current]).catch(
           (err) => console.error('[Firestore] Transcript sync error:', err),
         );
+
+        // Async transcript cleanup (#99): clean the text and write cleanText back
+        cleanTranscriptText(text).then((cleanText) => {
+          if (cleanText && cleanText !== text && transcriptEntriesRef.current[entryIndex]) {
+            transcriptEntriesRef.current[entryIndex] = {
+              ...transcriptEntriesRef.current[entryIndex],
+              cleanText,
+            };
+            const sid = sessionIdRef.current;
+            if (sid) {
+              syncTranscriptToFirestore(familyId, dossierId, sid, [...transcriptEntriesRef.current]).catch(() => {});
+            }
+          }
+        }).catch(() => {}); // Silently ignore — cleanText is best-effort
       }
     },
     [familyId, dossierId],
@@ -302,11 +318,55 @@ export function useSession({
       },
     };
 
+    const searchWikipediaTool: FunctionDeclaration = {
+      name: 'searchWikipedia',
+      parameters: {
+        type: Type.OBJECT,
+        description:
+          'Look up a topic, person, event, or place on Wikipedia to enrich your understanding. ' +
+          'Use this silently — do not read the result aloud; use it to ask better follow-up questions.',
+        properties: {
+          query: { type: Type.STRING, description: 'The search term (person, place, event, etc.).' },
+        },
+        required: ['query'],
+      },
+    };
+
+    const searchPlaceTool: FunctionDeclaration = {
+      name: 'searchPlace',
+      parameters: {
+        type: Type.OBJECT,
+        description:
+          'Look up a geographic location by name to understand where it is. ' +
+          'Use the result naturally in conversation — do not recite coordinates.',
+        properties: {
+          query: { type: Type.STRING, description: 'The place name or address to look up.' },
+        },
+        required: ['query'],
+      },
+    };
+
+    const getDistanceTool: FunctionDeclaration = {
+      name: 'getDistanceBetweenPlaces',
+      parameters: {
+        type: Type.OBJECT,
+        description: 'Calculate the approximate straight-line distance between two named places.',
+        properties: {
+          placeA: { type: Type.STRING, description: 'The first place name or address.' },
+          placeB: { type: Type.STRING, description: 'The second place name or address.' },
+        },
+        required: ['placeA', 'placeB'],
+      },
+    };
+
     return [
       updateQuestionStatusTool,
       reportEmotionalObservationTool,
       setPreferredNameTool,
       endSessionTool,
+      searchWikipediaTool,
+      searchPlaceTool,
+      getDistanceTool,
       ...(promptPhotos && promptPhotos.length > 0 ? [showPhotoTool] : []),
     ];
   }, [promptPhotos]);
@@ -440,6 +500,8 @@ export function useSession({
         // --- Handle Function Calls ---
         if (message.toolCall?.functionCalls) {
           for (const fc of message.toolCall.functionCalls) {
+            let toolResult: any = { result: 'ok' };
+
             if (fc.name === 'updateQuestionStatus') {
               const { id, status, findings } = fc.args as any;
               onQuestionUpdate(id, status, findings);
@@ -469,8 +531,6 @@ export function useSession({
               }
             } else if (fc.name === 'endSession') {
               console.log('[Session] AI called endSession — waiting for closing audio to finish');
-              // Poll until all queued bot audio finishes playing, then stop.
-              // The AI has already spoken its closing; we just need to let the audio drain.
               const maxWait = Date.now() + 30_000;
               const waitForAudioEnd = () => {
                 if (sourcesRef.current.size === 0 || Date.now() > maxWait) {
@@ -480,18 +540,41 @@ export function useSession({
                   setTimeout(waitForAudioEnd, 200);
                 }
               };
-              // Small initial delay to let any final audio chunk start playing
               setTimeout(waitForAudioEnd, 500);
+            } else if (fc.name === 'searchWikipedia') {
+              const { query } = fc.args as any;
+              console.log(`[Session] AI searching Wikipedia: "${query}"`);
+              try {
+                toolResult = { result: await searchWikipedia(query) };
+              } catch {
+                toolResult = { result: 'Wikipedia search unavailable.' };
+              }
+            } else if (fc.name === 'searchPlace') {
+              const { query } = fc.args as any;
+              console.log(`[Session] AI searching place: "${query}"`);
+              try {
+                toolResult = { result: await searchPlace(query) };
+              } catch {
+                toolResult = { result: 'Place search unavailable.' };
+              }
+            } else if (fc.name === 'getDistanceBetweenPlaces') {
+              const { placeA, placeB } = fc.args as any;
+              console.log(`[Session] AI calculating distance: "${placeA}" → "${placeB}"`);
+              try {
+                toolResult = { result: await getDistanceBetweenPlaces(placeA, placeB) };
+              } catch {
+                toolResult = { result: 'Distance calculation unavailable.' };
+              }
             }
 
-            // Respond to every tool call so the model can continue
+            // Send tool response so the model can continue
             const session = sessionRef.current;
             if (session) {
               session.sendToolResponse({
                 functionResponses: [{
                   id: fc.id,
                   name: fc.name,
-                  response: { result: 'ok' },
+                  response: toolResult,
                 }],
               });
             }
@@ -660,15 +743,22 @@ export function useSession({
       let completedSessionCount = 0;
       let previousSessionSummary: string | undefined;
       let lastSessionDate: Date | undefined;
+      let recentSessionDates: Date[] = [];
+      const currentDateTime = new Date().toLocaleString(navigator.language, {
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        dateStyle: 'full',
+        timeStyle: 'short',
+      } as Intl.DateTimeFormatOptions);
       try {
         const start = Date.now();
-        [completedSessionCount, previousSessionSummary, lastSessionDate] = await Promise.all([
+        [completedSessionCount, previousSessionSummary, lastSessionDate, recentSessionDates] = await Promise.all([
           Promise.race([
             getCompletedSessionCount(familyId, dossierId),
             new Promise<number>((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000)),
           ]).catch(() => 0),
           getPreviousSessionSummary(familyId, dossierId).catch(() => undefined),
           getLastSessionDate(familyId, dossierId).catch(() => undefined),
+          getRecentSessionDates(familyId, dossierId).catch(() => [] as Date[]),
         ]);
         const latency = Date.now() - start;
         console.log(`[Session] Firestore connectivity check: ${latency}ms`);
@@ -709,6 +799,8 @@ export function useSession({
         previousSessionSummary,
         lastSessionDate,
         preferredName: dossier.preferredName,
+        currentDateTime,
+        recentSessionDates,
       });
 
       const greetingTrigger = completedSessionCount === 0

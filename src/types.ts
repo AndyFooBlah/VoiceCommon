@@ -204,6 +204,7 @@ export interface TranscriptEditHistoryEntry {
 export interface TranscriptEntry {
   role: 'user' | 'bot';
   text: string;         // current (display) text
+  cleanText?: string;   // AI-cleaned version (corrected transcription errors, removed fillers)
   timestamp: Timestamp;
   messageIndex?: number;   // 0-based position in the session transcript
   originalText?: string;   // original AI transcription, set on first edit

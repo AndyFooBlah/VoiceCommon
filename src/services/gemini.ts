@@ -59,6 +59,10 @@ export interface BuildInstructionOptions {
   lastSessionDate?: Date;
   /** The name the storyteller prefers to be addressed by, if already known. */
   preferredName?: string;
+  /** Current date/time in the storyteller's locale (e.g. "Wednesday, April 8, 2026 at 2:30 PM"). */
+  currentDateTime?: string;
+  /** Start dates of the most recent completed sessions, for temporal context. */
+  recentSessionDates?: Date[];
 }
 
 /**
@@ -81,7 +85,7 @@ function formatTimeAgo(date: Date): string {
 }
 
 export function buildSystemInstruction(options: BuildInstructionOptions): string {
-  const { dossier, questions, familyTree, promptPhotos, completedSessionCount, previousSessionSummary, lastSessionDate, preferredName } = options;
+  const { dossier, questions, familyTree, promptPhotos, completedSessionCount, previousSessionSummary, lastSessionDate, preferredName, currentDateTime, recentSessionDates } = options;
   const isFirstSession = completedSessionCount === 0;
   // Use the storyteller's preferred name if known; fall back to their full name.
   const name = preferredName ?? dossier.storytellerName;
@@ -185,6 +189,18 @@ ENDING THE SESSION:
 - Keep the closing to one or two sentences. Do not over-explain or over-thank.
 - Do not call 'endSession' unless the storyteller has explicitly asked to stop. A brief pause or "hmm" is not a signal to end.
 
+TIME AWARENESS:
+- Current date and time: ${currentDateTime ?? 'Unknown'}
+${recentSessionDates && recentSessionDates.length > 0
+  ? `- Previous sessions held on: ${recentSessionDates.map((d) => d.toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })).join('; ')}`
+  : ''}
+- Use this when the storyteller references recent dates ("last week", "a few months ago") to understand their temporal context.
+
+KNOWLEDGE TOOLS:
+- If the storyteller mentions a historical event, person, or place you're not sure about, call 'searchWikipedia' silently to look it up. Use the result to ask more informed follow-up questions — do NOT read the Wikipedia text aloud.
+- If the storyteller mentions a specific location and you want geographic context (where it is, how far from somewhere else), call 'searchPlace' or 'getDistanceBetweenPlaces'. Use the result naturally in conversation — do NOT recite coordinates.
+- These tools are for YOUR context only. The storyteller does not need to know you used them.
+
 KNOWLEDGE BASE:
 - Story Queue: ${JSON.stringify(questions.map((q) => ({ id: q.id, text: q.text, status: q.status, findings: q.findings })))}
 - Family Tree: ${JSON.stringify(familyTree ?? dossier.familyTree ?? [])}
@@ -216,6 +232,8 @@ export interface BuildTalkInstructionOptions {
   familyTree?: FamilyMember[];
   talkContext: TalkContext;
   preferredName?: string;
+  /** Current date/time in the storyteller's locale. */
+  currentDateTime?: string;
 }
 
 /**
@@ -229,7 +247,7 @@ export interface BuildTalkInstructionOptions {
  * The AI has one tool for capturing interesting information: `recordFact`.
  */
 export function buildTalkSystemInstruction(options: BuildTalkInstructionOptions): string {
-  const { dossier, familyTree, talkContext, preferredName } = options;
+  const { dossier, familyTree, talkContext, preferredName, currentDateTime } = options;
   const name = preferredName ?? dossier.storytellerName;
 
   const { recentTranscripts, eventTitles, miscFactTexts } = talkContext;
@@ -284,6 +302,14 @@ ENDING THE CONVERSATION:
 - When ${name} signals they are done (e.g. "I'm tired", "that's all for today", "let's wrap up"), speak a warm closing sentence out loud, then call 'endTalk'.
 - Example: "It's been wonderful chatting with you, ${name}. Thank you for sharing all of that."
 - Do not call 'endTalk' on a brief pause or mid-thought. Only when ${name} is clearly finished.
+
+TIME AWARENESS:
+- Current date and time: ${currentDateTime ?? 'Unknown'}
+- Use this if ${name} references recent dates ("last week", "a few months ago", "I was just thinking").
+
+KNOWLEDGE TOOLS:
+- If ${name} mentions a historical person, event, or place you want to know more about, call 'searchWikipedia' silently. Do NOT read the result aloud.
+- For geographic context (where a place is, how far away), call 'searchPlace' or 'getDistanceBetweenPlaces'. Use the info naturally — do NOT recite coordinates.
 
 PRIOR CONTEXT — WHAT YOU ALREADY KNOW ABOUT ${name.toUpperCase()}:
 

@@ -138,6 +138,9 @@ export const TranscriptViewer: React.FC = () => {
   // Edit history modal
   const [historyEntry, setHistoryEntry] = useState<TranscriptEntry | null>(null);
 
+  // Clean transcript toggle (#99)
+  const [showClean, setShowClean] = useState(true);
+
   useEffect(() => {
     if (!familyId || !dossierId || !sessionId) return;
 
@@ -235,6 +238,7 @@ export const TranscriptViewer: React.FC = () => {
 
   const canEdit = isAdmin || isStoryteller;
   const displayEntries = editedEntries ?? entries;
+  const hasCleanText = displayEntries.some((e) => e.cleanText);
 
   if (loading) {
     return (
@@ -354,6 +358,24 @@ export const TranscriptViewer: React.FC = () => {
 
       {/* Transcript */}
       <div className="bg-white rounded-3xl border border-slate-200 p-8 space-y-6 shadow-sm">
+        {hasCleanText && (
+          <div className="flex justify-end">
+            <div className="flex items-center gap-1 bg-slate-100 rounded-full p-1 text-xs font-semibold">
+              <button
+                onClick={() => setShowClean(false)}
+                className={`px-3 py-1 rounded-full transition-colors ${!showClean ? 'bg-white text-slate-700 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+              >
+                Literal
+              </button>
+              <button
+                onClick={() => setShowClean(true)}
+                className={`px-3 py-1 rounded-full transition-colors ${showClean ? 'bg-white text-slate-700 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+              >
+                Clean
+              </button>
+            </div>
+          </div>
+        )}
         {displayEntries.length === 0 ? (
           <p className="text-slate-400 italic text-center py-8">
             No transcript entries for this session.
@@ -444,7 +466,7 @@ export const TranscriptViewer: React.FC = () => {
                         </div>
                       </div>
                     ) : (
-                      entry.text
+                      showClean ? (entry.cleanText ?? entry.text) : entry.text
                     )}
                   </div>
 
