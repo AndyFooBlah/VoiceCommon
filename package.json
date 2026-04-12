@@ -1,11 +1,28 @@
 {
-  "name": "legacybot",
-  "private": true,
-  "version": "0.0.0",
+  "name": "@andyfooblah/voicecommon",
+  "version": "0.1.0",
+  "description": "Reusable framework for building voice AI web applications powered by Google Gemini Live and Firebase.",
   "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/lib.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/lib.d.ts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com",
+    "access": "restricted"
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:lib": "vite build --config vite.lib.config.ts",
     "preview": "vite preview",
     "lint": "eslint src --ext .ts,.tsx",
     "test": "vitest run",
@@ -13,12 +30,17 @@
     "deploy": "vite build && firebase deploy",
     "deploy:preview": "vite build && firebase hosting:channel:deploy preview"
   },
+  "peerDependencies": {
+    "@google/genai": ">=1.0.0",
+    "firebase": ">=12.0.0",
+    "react": ">=19.0.0",
+    "react-dom": ">=19.0.0"
+  },
   "dependencies": {
-    "@google/genai": "^1.38.0",
-    "firebase": "^12.9.0",
-    "jspdf": "^4.1.0",
-    "react": "^19.2.3",
-    "react-dom": "^19.2.3",
+    "@google/genai": ">=1.0.0",
+    "firebase": ">=12.0.0",
+    "react": ">=19.0.0",
+    "react-dom": ">=19.0.0",
     "react-router-dom": "^7.13.0"
   },
   "devDependencies": {
@@ -41,6 +63,7 @@
     "tailwindcss": "^4.2.0",
     "typescript": "~5.8.2",
     "vite": "^6.2.0",
+    "vite-plugin-dts": "^3.9.1",
     "vitest": "^4.0.18"
   }
 }

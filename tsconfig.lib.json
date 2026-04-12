@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "allowImportingTsExtensions": false,
+    "declaration": true,
+    "declarationDir": "dist",
+    "emitDeclarationOnly": true,
+    "outDir": "dist"
+  },
+  "include": ["src/lib.ts", "src/services/**/*.ts", "src/hooks/**/*.ts", "src/types.ts"]
+}

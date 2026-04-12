@@ -23,8 +23,7 @@
  */
 
 import { FunctionDeclaration, Type } from '@google/genai';
-
-const MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string | undefined;
+import { getConfig } from '../config';
 
 // ---------------------------------------------------------------------------
 // Tool declarations
@@ -71,6 +70,7 @@ export const distanceTool: FunctionDeclaration = {
 // ---------------------------------------------------------------------------
 
 async function geocode(query: string): Promise<{ lat: number; lng: number; formatted: string } | null> {
+  const MAPS_API_KEY = getConfig().mapsApiKey;
   if (!MAPS_API_KEY) return null;
   const res = await fetch(
     `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(query)}&key=${MAPS_API_KEY}`,
@@ -83,7 +83,7 @@ async function geocode(query: string): Promise<{ lat: number; lng: number; forma
 
 /** Look up a place and return a human-readable description. */
 export async function searchPlace(query: string): Promise<string> {
-  if (!MAPS_API_KEY) return 'Maps information is not available (no API key configured).';
+  if (!getConfig().mapsApiKey) return 'Maps information is not available (no API key configured).';
   try {
     const result = await geocode(query);
     if (!result) return `Could not find a location matching "${query}".`;
@@ -95,7 +95,7 @@ export async function searchPlace(query: string): Promise<string> {
 
 /** Calculate the straight-line distance between two places. */
 export async function getDistanceBetweenPlaces(from: string, to: string): Promise<string> {
-  if (!MAPS_API_KEY) return 'Maps information is not available (no API key configured).';
+  if (!getConfig().mapsApiKey) return 'Maps information is not available (no API key configured).';
   try {
     const [fromResult, toResult] = await Promise.all([geocode(from), geocode(to)]);
     if (!fromResult) return `Could not find a location matching "${from}".`;

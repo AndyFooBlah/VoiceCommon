@@ -27,6 +27,7 @@
 
 import { useState, useRef, useCallback } from 'react';
 import { GoogleGenAI, LiveServerMessage, Modality, Type, FunctionDeclaration } from '@google/genai';
+import { getConfig } from '../services/config';
 import { Timestamp } from 'firebase/firestore';
 import { Message, ConnectionStatus, TranscriptEntry } from '../types';
 import { useAudioMixer } from './useAudioMixer';
@@ -285,8 +286,7 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
       scheduleTimeRef.current = 0;
 
       // Connect to Gemini Live
-      const apiKey = import.meta.env.VITE_GEMINI_API_KEY as string;
-      const ai = new GoogleGenAI({ apiKey });
+      const ai = new GoogleGenAI({ apiKey: getConfig().geminiApiKey });
 
       const allTools = [
         ...tools,

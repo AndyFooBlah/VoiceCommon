@@ -13,69 +13,52 @@
 // limitations under the License.
 
 /**
- * Firebase SDK initialization.
+ * Firebase SDK initialization for VoiceCommon.
  *
- * This module initializes the Firebase app and exports the core service
- * instances used throughout LegacyBot:
- *   - auth:    Firebase Authentication (Google + Email/Password sign-in)
- *   - db:      Cloud Firestore (Dossiers, sessions, transcripts, questions)
- *   - storage: Cloud Storage for Firebase (archived session audio)
+ * Firebase is initialized lazily — service exports (`auth`, `db`, `storage`,
+ * `functions`) are assigned when `_initFirebase()` is called by
+ * `initializeVoiceCommon()` in config.ts. This allows VoiceCommon to be
+ * used as an npm package without Vite environment variables.
  *
- * All Firebase config values are read from Vite environment variables
- * (prefixed with VITE_) defined in .env.local. See the project README
- * for required environment variable setup.
- *
- * References: design.md §1.1, §3.1 | GitHub Issue #1
+ * All usages of these exports are inside function bodies, so live bindings
+ * will have been assigned by the time any hook or service is first called.
  */
 
-import { initializeApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
-import { getStorage } from 'firebase/storage';
-import { getFunctions } from 'firebase/functions';
+import { initializeApp, type FirebaseApp } from 'firebase/app';
+import { getAuth, type Auth } from 'firebase/auth';
+import { getFirestore, type Firestore } from 'firebase/firestore';
+import { getStorage, type FirebaseStorage } from 'firebase/storage';
+import { getFunctions, type Functions } from 'firebase/functions';
 
-/**
- * Validates that all required Firebase config values are present.
- * Fails fast at startup rather than producing cryptic errors later.
- */
-const REQUIRED_ENV_VARS = [
-  'VITE_FIREBASE_API_KEY',
-  'VITE_FIREBASE_AUTH_DOMAIN',
-  'VITE_FIREBASE_PROJECT_ID',
-  'VITE_FIREBASE_STORAGE_BUCKET',
-  'VITE_FIREBASE_APP_ID',
-] as const;
-
-const missing = REQUIRED_ENV_VARS.filter((key) => !import.meta.env[key]);
-if (missing.length > 0) {
-  throw new Error(
-    `Missing required Firebase environment variables: ${missing.join(', ')}. ` +
-      'Copy .env.example to .env.local and fill in your Firebase config values.',
-  );
+/** Firebase project configuration passed to `initializeVoiceCommon()`. */
+export interface FirebaseConfig {
+  apiKey: string;
+  authDomain: string;
+  projectId: string;
+  storageBucket: string;
+  messagingSenderId?: string;
+  appId: string;
 }
 
-const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID,
-};
+// Definite-assignment exports — populated by _initFirebase() before first use.
+// eslint-disable-next-line prefer-const
+export let auth!: Auth;
+// eslint-disable-next-line prefer-const
+export let db!: Firestore;
+// eslint-disable-next-line prefer-const
+export let storage!: FirebaseStorage;
+// eslint-disable-next-line prefer-const
+export let functions!: Functions;
 
-/** The root Firebase application instance. */
-const app = initializeApp(firebaseConfig);
-
-/** Firebase Authentication — used for Google & Email/Password sign-in. */
-export const auth = getAuth(app);
-
-/** Cloud Firestore — stores Dossiers, questions, sessions, and transcripts. */
-export const db = getFirestore(app);
-
-/** Cloud Storage for Firebase — stores archived session audio (WebM/Opus). */
-export const storage = getStorage(app);
-
-/** Cloud Functions for Firebase — used for server-side callables (memoir generation, etc.). */
-export const functions = getFunctions(app);
-
-export default app;
+/**
+ * Initialize Firebase and assign the service exports.
+ * Called internally by `initializeVoiceCommon()` — do not call directly.
+ */
+export function _initFirebase(config: FirebaseConfig): FirebaseApp {
+  const app = initializeApp(config);
+  auth = getAuth(app);
+  db = getFirestore(app);
+  storage = getStorage(app);
+  functions = getFunctions(app);
+  return app;
+}

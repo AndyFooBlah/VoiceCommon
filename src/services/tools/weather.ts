@@ -22,8 +22,7 @@
  */
 
 import { FunctionDeclaration, Type } from '@google/genai';
-
-const MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string | undefined;
+import { getConfig } from '../config';
 
 /** Gemini function declaration for the weather tool. */
 export const weatherTool: FunctionDeclaration = {
@@ -43,6 +42,7 @@ export const weatherTool: FunctionDeclaration = {
 
 /** Execute the weather tool. Returns a human-readable weather summary. */
 export async function getWeather(location: string): Promise<string> {
+  const MAPS_API_KEY = getConfig().mapsApiKey;
   if (!MAPS_API_KEY) return 'Weather information is not available (no API key configured).';
 
   try {
