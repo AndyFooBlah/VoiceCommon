@@ -333,10 +333,10 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
       const worklet = new AudioWorkletNode(inputCtx, 'pcm-processor');
       source.connect(worklet);
 
-      worklet.port.onmessage = (e: MessageEvent<Float32Array>) => {
+      worklet.port.onmessage = (e: MessageEvent<{ channelData: Float32Array }>) => {
         if (!liveSessionRef.current) return;
         // Convert Float32 samples to Int16, then to Uint8Array for base64 encoding
-        const float32 = e.data;
+        const float32 = e.data.channelData;
         const int16 = new Int16Array(float32.length);
         for (let i = 0; i < float32.length; i++) {
           int16[i] = Math.max(-32768, Math.min(32767, float32[i] * 32768));
