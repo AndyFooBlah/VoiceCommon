@@ -24,6 +24,9 @@ export { initializeVoiceCommon, getConfig } from './services/config';
 export type { VoiceCommonConfig } from './services/config';
 export type { FirebaseConfig } from './services/firebase';
 
+// Firebase service instances (populated after initializeVoiceCommon())
+export { auth, db, storage, functions } from './services/firebase';
+
 // Core types
 export * from './types';
 
