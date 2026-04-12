@@ -39,7 +39,7 @@ import {
   syncTranscriptToFirestore,
 } from '../services/storage';
 
-const GEMINI_MODEL = 'gemini-2.5-flash-preview-native-audio-dialog';
+const GEMINI_MODEL = 'gemini-3.1-flash-live-preview';
 
 /** Maximum seconds of audio lookahead before triggering a runaway-loop reset. */
 const MAX_AUDIO_LOOKAHEAD_S = 30;
