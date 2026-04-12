@@ -76,7 +76,12 @@ export interface UseSessionOptions {
 export interface UseSessionReturn {
   messages: Message[];
   connectionStatus: ConnectionStatus;
-  startSession: () => Promise<void>;
+  /**
+   * Start a new session. Accepts an optional instruction override so callers
+   * that build the instruction just before calling startSession can bypass
+   * the React state propagation delay (stale-closure problem).
+   */
+  startSession: (overrideInstruction?: string) => Promise<void>;
   stopSession: () => Promise<void>;
   isRecording: boolean;
   sessionId: string | null;
@@ -310,7 +315,7 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
   // Session lifecycle
   // ---------------------------------------------------------------------------
 
-  const startSession = useCallback(async () => {
+  const startSession = useCallback(async (overrideInstruction?: string) => {
     if (isRecording) {
       console.log('[Session] startSession called but already recording — ignoring');
       return;
@@ -320,9 +325,12 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
     transcriptRef.current = [];
     messageIndexRef.current = 0;
 
+    // Use the override if provided (avoids stale-closure when the caller builds
+    // the instruction and calls startSession in the same tick as setState).
+    const instructionToUse = overrideInstruction ?? systemInstruction;
+
     try {
       console.log('[Session] Starting session for user:', userId);
-      setConnectionStatus(ConnectionStatus.CONNECTING);
 
       // Create Firestore session
       console.log('[Session] Creating Firestore session...');
@@ -359,13 +367,14 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
         model: GEMINI_MODEL,
         modalities: ['AUDIO'],
         toolCount: allTools.length,
-        systemInstructionLength: systemInstruction.length,
+        systemInstructionLength: instructionToUse.length,
       });
+      console.log('[Session] System instruction:\n', instructionToUse);
 
       const liveSession = await ai.live.connect({
         model: GEMINI_MODEL,
         config: {
-          systemInstruction: { parts: [{ text: systemInstruction }] },
+          systemInstruction: { parts: [{ text: instructionToUse }] },
           // Native audio models (gemini-3.1-flash-live-preview) ONLY support AUDIO modality.
           // Including TEXT causes the server to close the WebSocket immediately.
           responseModalities: [Modality.AUDIO],
