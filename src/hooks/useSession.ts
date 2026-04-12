@@ -480,14 +480,20 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
       };
 
       // Trigger the bot to take the first turn.
-      // Native audio models (gemini-3.1-flash-live-preview) don't accept text
-      // via sendClientContent — they only process audio input. Instead, send
-      // activityEnd via sendRealtimeInput to signal "user turn complete" with
-      // no audio, which causes the model to respond with its opening greeting.
+      // For native audio models, we simulate a complete (silent) user turn:
+      //   activityStart → 100ms silence → activityEnd
+      // The VAD sees a completed turn with no speech and triggers the model
+      // to respond immediately with its opening greeting.
       if (autoGreet) {
-        console.log('[Session] Sending auto-greet trigger (activityEnd)...');
+        console.log('[Session] Sending auto-greet trigger (silent turn)...');
         try {
+          // 100ms of silence at 16kHz = 1600 Int16 samples = 3200 bytes
+          const silence = new Uint8Array(1600 * 2); // all zeros
+          const silenceB64 = encode(silence);
+          liveSession.sendRealtimeInput({ activityStart: {} });
+          liveSession.sendRealtimeInput({ audio: { data: silenceB64, mimeType: 'audio/pcm;rate=16000' } });
           liveSession.sendRealtimeInput({ activityEnd: {} });
+          console.log('[Session] Auto-greet trigger sent.');
         } catch (err) {
           console.error('[Session] Auto-greet trigger failed:', err);
         }
