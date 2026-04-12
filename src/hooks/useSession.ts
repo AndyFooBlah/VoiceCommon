@@ -26,7 +26,7 @@
  */
 
 import { useState, useRef, useCallback } from 'react';
-import { GoogleGenAI, LiveServerMessage, Modality, Type, FunctionDeclaration } from '@google/genai';
+import { GoogleGenAI, LiveServerMessage, Modality, Type, FunctionDeclaration, ThinkingLevel } from '@google/genai';
 import { getConfig } from '../services/config';
 import { Timestamp } from 'firebase/firestore';
 import { Message, ConnectionStatus, TranscriptEntry } from '../types';
@@ -303,7 +303,7 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
           systemInstruction: { parts: [{ text: systemInstruction }] },
           responseModalities: [Modality.AUDIO, Modality.TEXT],
           inputAudioTranscription: {},
-          thinkingConfig: { thinkingBudget: 0, includeThoughts: false },
+          thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL },
           tools: [{ functionDeclarations: allTools }],
         },
         callbacks: {
@@ -314,9 +314,10 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
             setConnectionStatus(ConnectionStatus.ERROR);
           },
           onclose: () => {
-            if (connectionStatus === ConnectionStatus.CONNECTED) {
-              setConnectionStatus(ConnectionStatus.DISCONNECTED);
-            }
+            // Null the session ref immediately so the AudioWorklet stops
+            // trying to send PCM to a closed WebSocket.
+            liveSessionRef.current = null;
+            setConnectionStatus(ConnectionStatus.DISCONNECTED);
           },
         },
       });
