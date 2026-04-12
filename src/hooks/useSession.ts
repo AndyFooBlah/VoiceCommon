@@ -325,11 +325,28 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
       setConnectionStatus(ConnectionStatus.CONNECTED);
       setIsRecording(true);
 
-      // Start streaming microphone PCM to Gemini via AudioWorklet
+      // Start streaming microphone PCM to Gemini via AudioWorklet.
+      // The worklet code is inlined as a Blob URL so no static file is needed.
       const inputCtx = mixer.inputContext!;
       const micStream = mixer.stream!;
       const source = inputCtx.createMediaStreamSource(micStream);
-      await inputCtx.audioWorklet.addModule('/pcm-processor.js');
+      const workletCode = `
+        class PCMProcessor extends AudioWorkletProcessor {
+          process(inputs) {
+            const input = inputs[0];
+            if (input && input[0] && input[0].length > 0) {
+              const copy = new Float32Array(input[0]);
+              this.port.postMessage({ channelData: copy }, [copy.buffer]);
+            }
+            return true;
+          }
+        }
+        registerProcessor('pcm-processor', PCMProcessor);
+      `;
+      const workletBlob = new Blob([workletCode], { type: 'application/javascript' });
+      const workletUrl = URL.createObjectURL(workletBlob);
+      await inputCtx.audioWorklet.addModule(workletUrl);
+      URL.revokeObjectURL(workletUrl);
       const worklet = new AudioWorkletNode(inputCtx, 'pcm-processor');
       source.connect(worklet);
 
