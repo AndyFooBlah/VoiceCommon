@@ -165,16 +165,45 @@ public/
 
 ## Firestore data model
 
-```
-users/{uid}
-  email, displayName, createdAt, timezone
+#### `users/{uid}`
 
-sessions/{sessionId}
-  userId, startTime, endTime, audioUrl, status, durationSeconds
+| Field | Type | Description |
+|-------|------|-------------|
+| `email` | `string` | User's email address |
+| `displayName` | `string` | Display name from auth provider |
+| `createdAt` | `Timestamp` | Account creation time |
+| `timezone` | `string?` | IANA timezone (e.g. `"America/Los_Angeles"`), set from browser |
 
-sessions/{sessionId}/transcript/entries
-  { entries: TranscriptEntry[] }
+#### `sessions/{sessionId}`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `userId` | `string` | Firebase UID of the session owner |
+| `startTime` | `Timestamp` | When the session started |
+| `endTime` | `Timestamp \| null` | When the session ended; null while active |
+| `audioUrl` | `string` | GCS download URL for the archived audio (empty until upload completes) |
+| `status` | `"active" \| "completed" \| "interrupted"` | Session lifecycle state |
+| `durationSeconds` | `number` | Total session duration |
+
+#### `sessions/{sessionId}/transcript/entries`
+
+A single document with an `entries` array, written in full on each sync:
+
 ```
+{ entries: TranscriptEntry[] }
+```
+
+Each `TranscriptEntry`:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `role` | `"user" \| "bot" \| "tool"` | Who produced this turn |
+| `text` | `string` | Transcript text, or `[toolName]` for tool turns |
+| `timestamp` | `Timestamp` | When this turn was recorded |
+| `messageIndex` | `number?` | 0-based position in the session |
+| `toolName` | `string?` | Present when `role === "tool"` |
+| `toolArgs` | `Record<string, unknown>?` | Arguments passed to the tool |
+| `toolResult` | `string?` | Truncated tool result (≤ 500 chars) |
 
 ## Cloud Storage layout
 
