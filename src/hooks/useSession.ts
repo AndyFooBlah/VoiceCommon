@@ -31,7 +31,7 @@ import { getConfig } from '../services/config';
 import { Timestamp } from 'firebase/firestore';
 import { Message, ConnectionStatus, TranscriptEntry } from '../types';
 import { useAudioMixer } from './useAudioMixer';
-import { encode, decode, decodeAudioData } from '../services/audioUtils';
+import { encode } from '../services/audioUtils';
 import {
   createSession,
   finalizeSession,
@@ -108,7 +108,29 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
   const audioContextRef = useRef<AudioContext | null>(null);
   const scheduleTimeRef = useRef(0);
 
+  // Worklet refs for proper cleanup
+  const workletNodeRef = useRef<AudioWorkletNode | null>(null);
+  const workletSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+
   const mixer = useAudioMixer();
+
+  // ---------------------------------------------------------------------------
+  // Worklet cleanup
+  // ---------------------------------------------------------------------------
+
+  const disconnectWorklet = useCallback(() => {
+    console.log('[Session] Disconnecting audio worklet...');
+    if (workletNodeRef.current) {
+      try { workletNodeRef.current.port.onmessage = null; } catch (e) { console.warn('[Session] Error clearing worklet onmessage:', e); }
+      try { workletNodeRef.current.disconnect(); } catch (e) { console.warn('[Session] Error disconnecting worklet node:', e); }
+      workletNodeRef.current = null;
+    }
+    if (workletSourceRef.current) {
+      try { workletSourceRef.current.disconnect(); } catch (e) { console.warn('[Session] Error disconnecting worklet source:', e); }
+      workletSourceRef.current = null;
+    }
+    console.log('[Session] Audio worklet disconnected.');
+  }, []);
 
   // ---------------------------------------------------------------------------
   // Transcript helpers
@@ -136,7 +158,10 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
     };
     transcriptRef.current = [...transcriptRef.current, entry];
     if (sessionRef.current) {
-      syncTranscriptToFirestore(sessionRef.current, transcriptRef.current).catch(console.error);
+      console.log(`[Session] Syncing transcript to Firestore (session=${sessionRef.current}, entries=${transcriptRef.current.length})`);
+      syncTranscriptToFirestore(sessionRef.current, transcriptRef.current).catch((err) => {
+        console.error('[Session] Transcript sync failed:', err);
+      });
     }
   }, []);
 
@@ -160,6 +185,7 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
     const now = ctx.currentTime;
     const startAt = Math.max(now, scheduleTimeRef.current);
     if (startAt - now > MAX_AUDIO_LOOKAHEAD_S) {
+      console.warn('[Session] Audio lookahead exceeded MAX — resetting schedule time');
       scheduleTimeRef.current = now;
       return;
     }
@@ -191,13 +217,29 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
       }
     }
 
-    // Text output — accumulate into bot turn
+    // Output audio transcription (new in Gemini 3.1)
+    if (msg.serverContent?.outputTranscription?.text) {
+      const text = msg.serverContent.outputTranscription.text;
+      console.log('[Session] Output transcription chunk:', text);
+      if (text.trim()) {
+        setMessages((prev) => {
+          const last = prev[prev.length - 1];
+          if (last?.role === 'bot') {
+            return [...prev.slice(0, -1), { ...last, text: last.text + text }];
+          }
+          return [...prev, { id: crypto.randomUUID(), role: 'bot', text, timestamp: new Date() }];
+        });
+      }
+    }
+
+    // Text output — accumulate into bot turn (fallback for text-capable models)
     if (msg.serverContent?.modelTurn?.parts) {
       const textParts = msg.serverContent.modelTurn.parts
         .filter((p) => p.text)
         .map((p) => p.text!)
         .join('');
       if (textParts) {
+        console.log('[Session] Text part from modelTurn:', textParts);
         setMessages((prev) => {
           const last = prev[prev.length - 1];
           if (last?.role === 'bot') {
@@ -210,6 +252,7 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
 
     // Turn complete — flush bot turn to transcript
     if (msg.serverContent?.turnComplete) {
+      console.log('[Session] Turn complete — flushing bot turn to transcript');
       setMessages((prev) => {
         const last = prev[prev.length - 1];
         if (last?.role === 'bot' && last.text.trim()) {
@@ -222,6 +265,7 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
     // User speech (input transcription)
     if (msg.serverContent?.inputTranscription?.text) {
       const text = msg.serverContent.inputTranscription.text;
+      console.log('[Session] Input transcription:', text);
       if (text.trim()) {
         addMessage('user', text);
         appendToTranscript('user', text);
@@ -233,8 +277,10 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
       for (const call of msg.toolCall.functionCalls) {
         const name = call.name ?? '';
         const args = (call.args ?? {}) as Record<string, unknown>;
+        console.log(`[Session] Tool call: ${name}`, args);
 
         if (name === 'endSession') {
+          console.log('[Session] endSession tool called — signaling session end request');
           onSessionEndRequest?.();
           return;
         }
@@ -243,8 +289,10 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
         if (onToolCall) {
           try {
             result = await onToolCall(name, args);
+            console.log(`[Session] Tool result for ${name}:`, result.slice(0, 200));
           } catch (err) {
             result = `Tool error: ${String(err)}`;
+            console.error(`[Session] Tool ${name} threw:`, err);
           }
         }
 
@@ -263,29 +311,39 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
   // ---------------------------------------------------------------------------
 
   const startSession = useCallback(async () => {
-    if (isRecording) return;
+    if (isRecording) {
+      console.log('[Session] startSession called but already recording — ignoring');
+      return;
+    }
     setError(null);
     setMessages([]);
     transcriptRef.current = [];
     messageIndexRef.current = 0;
 
     try {
+      console.log('[Session] Starting session for user:', userId);
       setConnectionStatus(ConnectionStatus.CONNECTING);
 
       // Create Firestore session
+      console.log('[Session] Creating Firestore session...');
       const sId = await createSession(userId);
       sessionRef.current = sId;
       setSessionId(sId);
       sessionStartRef.current = new Date();
+      console.log('[Session] Firestore session created:', sId);
 
       // Start audio mixer (captures mic + bot audio for archival)
+      console.log('[Session] Starting audio mixer...');
       await mixer.start();
+      console.log('[Session] Audio mixer started. inputContext:', mixer.inputContext?.state, 'playbackContext:', mixer.playbackContext?.state);
 
       // Reuse the mixer's playback AudioContext (24kHz) for bot audio scheduling
       audioContextRef.current = mixer.playbackContext ?? new AudioContext({ sampleRate: 24000 });
       scheduleTimeRef.current = 0;
+      console.log('[Session] AudioContext for playback — sampleRate:', audioContextRef.current.sampleRate, 'state:', audioContextRef.current.state);
 
       // Connect to Gemini Live
+      console.log('[Session] Connecting to Gemini Live model:', GEMINI_MODEL);
       const ai = new GoogleGenAI({ apiKey: getConfig().geminiApiKey });
 
       const allTools = [
@@ -297,25 +355,42 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
         } as FunctionDeclaration,
       ];
 
+      console.log('[Session] Gemini config:', {
+        model: GEMINI_MODEL,
+        modalities: ['AUDIO'],
+        toolCount: allTools.length,
+        systemInstructionLength: systemInstruction.length,
+      });
+
       const liveSession = await ai.live.connect({
         model: GEMINI_MODEL,
         config: {
           systemInstruction: { parts: [{ text: systemInstruction }] },
-          responseModalities: [Modality.AUDIO, Modality.TEXT],
+          // Native audio models (gemini-3.1-flash-live-preview) ONLY support AUDIO modality.
+          // Including TEXT causes the server to close the WebSocket immediately.
+          responseModalities: [Modality.AUDIO],
           inputAudioTranscription: {},
+          outputAudioTranscription: {},  // New in Gemini 3.1
           thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL },
           tools: [{ functionDeclarations: allTools }],
         },
         callbacks: {
-          onmessage: (msg: LiveServerMessage) => { handleServerMessage(msg).catch(console.error); },
+          onmessage: (msg: LiveServerMessage) => {
+            handleServerMessage(msg).catch((err) => console.error('[Session] handleServerMessage error:', err));
+          },
           onerror: (err: ErrorEvent) => {
-            console.error('[Session] Gemini error:', err);
+            console.error('[Session] Gemini WebSocket error:', err);
             setError('Connection error — please try again.');
             setConnectionStatus(ConnectionStatus.ERROR);
+            disconnectWorklet();
+            liveSessionRef.current = null;
           },
-          onclose: () => {
-            // Null the session ref immediately so the AudioWorklet stops
-            // trying to send PCM to a closed WebSocket.
+          onclose: (event?: any) => {
+            const code = event?.code ?? 'unknown';
+            const reason = event?.reason ? `"${event.reason}"` : '(no reason)';
+            const wasClean = event?.wasClean ?? 'unknown';
+            console.log(`[Session] Gemini connection closed — code=${code} reason=${reason} wasClean=${wasClean}`);
+            disconnectWorklet();
             liveSessionRef.current = null;
             setConnectionStatus(ConnectionStatus.DISCONNECTED);
           },
@@ -323,14 +398,17 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
       });
 
       liveSessionRef.current = liveSession;
+      console.log('[Session] Gemini Live connected successfully');
       setConnectionStatus(ConnectionStatus.CONNECTED);
       setIsRecording(true);
 
       // Start streaming microphone PCM to Gemini via AudioWorklet.
       // The worklet code is inlined as a Blob URL so no static file is needed.
+      console.log('[Session] Setting up AudioWorklet for microphone capture...');
       const inputCtx = mixer.inputContext!;
       const micStream = mixer.stream!;
-      const source = inputCtx.createMediaStreamSource(micStream);
+      console.log('[Session] inputContext state:', inputCtx.state, 'sampleRate:', inputCtx.sampleRate);
+
       const workletCode = `
         class PCMProcessor extends AudioWorkletProcessor {
           process(inputs) {
@@ -346,11 +424,21 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
       `;
       const workletBlob = new Blob([workletCode], { type: 'application/javascript' });
       const workletUrl = URL.createObjectURL(workletBlob);
+      console.log('[Session] Loading AudioWorklet module from Blob URL...');
       await inputCtx.audioWorklet.addModule(workletUrl);
       URL.revokeObjectURL(workletUrl);
+      console.log('[Session] AudioWorklet module loaded');
+
+      const source = inputCtx.createMediaStreamSource(micStream);
       const worklet = new AudioWorkletNode(inputCtx, 'pcm-processor');
       source.connect(worklet);
 
+      // Store refs for cleanup
+      workletSourceRef.current = source;
+      workletNodeRef.current = worklet;
+      console.log('[Session] AudioWorklet connected — microphone streaming active');
+
+      let pcmFrameCount = 0;
       worklet.port.onmessage = (e: MessageEvent<{ channelData: Float32Array }>) => {
         if (!liveSessionRef.current) return;
         // Convert Float32 samples to Int16, then to Uint8Array for base64 encoding
@@ -360,44 +448,67 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
           int16[i] = Math.max(-32768, Math.min(32767, float32[i] * 32768));
         }
         const pcm16 = encode(new Uint8Array(int16.buffer));
-        liveSessionRef.current.sendRealtimeInput({
-          audio: { data: pcm16, mimeType: 'audio/pcm;rate=16000' },
-        });
+
+        pcmFrameCount++;
+        if (pcmFrameCount <= 5 || pcmFrameCount % 100 === 0) {
+          console.log(`[Session] Sending PCM frame #${pcmFrameCount} — samples=${float32.length}, bytes=${int16.byteLength}`);
+        }
+
+        try {
+          liveSessionRef.current.sendRealtimeInput({
+            audio: { data: pcm16, mimeType: 'audio/pcm;rate=16000' },
+          });
+        } catch (err) {
+          console.error('[Session] sendRealtimeInput failed:', err);
+        }
       };
     } catch (err) {
       console.error('[Session] Start error:', err);
       setError(`Failed to start session: ${String(err)}`);
       setConnectionStatus(ConnectionStatus.ERROR);
     }
-  }, [isRecording, userId, systemInstruction, tools, mixer, onToolCall, onSessionEndRequest]);
+  }, [isRecording, userId, systemInstruction, tools, mixer, onToolCall, onSessionEndRequest, disconnectWorklet]);
 
   const stopSession = useCallback(async () => {
-    if (!isRecording) return;
+    if (!isRecording) {
+      console.log('[Session] stopSession called but not recording — ignoring');
+      return;
+    }
+    console.log('[Session] Stopping session...');
     setIsRecording(false);
     setConnectionStatus(ConnectionStatus.DISCONNECTED);
 
     try {
+      disconnectWorklet();
+
       liveSessionRef.current?.close();
       liveSessionRef.current = null;
+      console.log('[Session] Gemini Live session closed');
 
       audioContextRef.current = null;
 
+      console.log('[Session] Stopping audio mixer and collecting recording...');
       const audioBlob = await mixer.stop();
       const duration = sessionStartRef.current
         ? Math.round((Date.now() - sessionStartRef.current.getTime()) / 1000)
         : 0;
+      console.log(`[Session] Recording stopped — duration=${duration}s, blobSize=${audioBlob?.size ?? 0}`);
 
       let audioUrl: string | undefined;
       if (audioBlob && sessionRef.current) {
+        console.log('[Session] Uploading audio to GCS...');
         try {
           audioUrl = await archiveAudioToGCS(audioBlob, userId, sessionRef.current);
+          console.log('[Session] Audio uploaded:', audioUrl);
         } catch (err) {
           console.error('[Session] Audio upload failed:', err);
         }
       }
 
       if (sessionRef.current) {
+        console.log('[Session] Finalizing Firestore session...');
         await finalizeSession(sessionRef.current, 'completed', duration, audioUrl);
+        console.log('[Session] Session finalized');
       }
     } catch (err) {
       console.error('[Session] Stop error:', err);
@@ -405,7 +516,7 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
         await finalizeSession(sessionRef.current, 'interrupted', 0).catch(console.error);
       }
     }
-  }, [isRecording, userId, mixer]);
+  }, [isRecording, userId, mixer, disconnectWorklet]);
 
   return {
     messages,
