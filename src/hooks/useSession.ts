@@ -480,15 +480,14 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
       };
 
       // Trigger the bot to take the first turn.
-      // sendClientContent with a hidden text turn causes the model to respond
-      // immediately, following the greeting instructions in the system prompt.
+      // Native audio models (gemini-3.1-flash-live-preview) don't accept text
+      // via sendClientContent — they only process audio input. Instead, send
+      // activityEnd via sendRealtimeInput to signal "user turn complete" with
+      // no audio, which causes the model to respond with its opening greeting.
       if (autoGreet) {
-        console.log('[Session] Sending auto-greet trigger...');
+        console.log('[Session] Sending auto-greet trigger (activityEnd)...');
         try {
-          liveSession.sendClientContent({
-            turns: [{ role: 'user', parts: [{ text: '[session started]' }] }],
-            turnComplete: true,
-          });
+          liveSession.sendRealtimeInput({ activityEnd: {} });
         } catch (err) {
           console.error('[Session] Auto-greet trigger failed:', err);
         }
