@@ -88,7 +88,7 @@ describe('useAuth — auth state', () => {
     expect(unsub).toHaveBeenCalled();
   });
 
-  it('creates user profile with familyIds when auth state changes to signed-in', async () => {
+  it('creates user profile when auth state changes to signed-in', async () => {
     const fakeUser = { uid: 'u1', email: 'a@b.com', displayName: 'Alice' };
     mockFirestore.getDoc.mockResolvedValueOnce({ exists: () => false });
     mockAuth.onAuthStateChanged.mockImplementation((_auth: any, cb: any) => {
@@ -100,7 +100,8 @@ describe('useAuth — auth state', () => {
 
     await waitFor(() => expect(mockFirestore.setDoc).toHaveBeenCalledTimes(1));
     const profileData = mockFirestore.setDoc.mock.calls[0][1];
-    expect(profileData.familyIds).toEqual([]);
+    expect(profileData.email).toBe('a@b.com');
+    expect(profileData.displayName).toBe('Alice');
   });
 
   it('does not overwrite existing user profile when timezone matches', async () => {

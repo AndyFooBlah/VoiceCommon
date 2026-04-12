@@ -1,172 +1,40 @@
 /**
- * Firestore Security Rules for LegacyBot.
- * Family-based access control with admin and storyteller roles.
+ * Firestore Security Rules for VoiceCommon.
+ *
+ * Simple user-scoped access control:
+ *   - users/{uid}: readable and writable only by the owning user
+ *   - sessions/{sessionId}: readable and writable only by the session owner
+ *   - sessions/{sessionId}/transcript/entries: same as session
  */
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // --- Helper functions ---
-
     function isAuthenticated() {
       return request.auth != null;
     }
 
-    function getMember(familyId, uid) {
-      return get(/databases/$(database)/documents/families/$(familyId)/members/$(uid));
-    }
-
-    function isFamilyMember(familyId) {
-      return isAuthenticated() && exists(/databases/$(database)/documents/families/$(familyId)/members/$(request.auth.uid));
-    }
-
-    function memberRoles(familyId) {
-      return getMember(familyId, request.auth.uid).data.roles;
-    }
-
-    function isFamilyAdmin(familyId) {
-      return isFamilyMember(familyId) && 'admin' in memberRoles(familyId);
-    }
-
-    function isFamilyStoryteller(familyId) {
-      return isFamilyMember(familyId) && 'storyteller' in memberRoles(familyId);
-    }
-
-    function getDossierStoryteller(familyId, dossierId) {
-      return get(/databases/$(database)/documents/families/$(familyId)/dossiers/$(dossierId)).data.storytellerUid;
-    }
-
-    function isOwnDossier(familyId, dossierId) {
-      return getDossierStoryteller(familyId, dossierId) == request.auth.uid;
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
     }
 
     // --- Users ---
     match /users/{uid} {
-      allow read, write: if isAuthenticated() && request.auth.uid == uid;
+      allow read, write: if isOwner(uid);
     }
 
-    // --- Families ---
-    match /families/{familyId} {
-      allow create: if isAuthenticated();
-      allow read: if isFamilyMember(familyId);
-      allow update, delete: if isFamilyAdmin(familyId);
+    // --- Sessions ---
+    match /sessions/{sessionId} {
+      allow create: if isAuthenticated()
+        && request.resource.data.userId == request.auth.uid;
+      allow read, update: if isAuthenticated()
+        && resource.data.userId == request.auth.uid;
 
-      // --- Members ---
-      match /members/{memberId} {
-        allow read: if isFamilyMember(familyId);
-        allow create, update, delete: if isFamilyAdmin(familyId);
-        // User can create their own member doc (invite acceptance)
-        allow create: if isAuthenticated() && request.auth.uid == memberId;
+      // --- Transcript ---
+      match /transcript/{docId} {
+        allow read, write: if isAuthenticated()
+          && get(/databases/$(database)/documents/sessions/$(sessionId)).data.userId == request.auth.uid;
       }
-
-      // --- Dossiers ---
-      match /dossiers/{dossierId} {
-        allow read, write: if isFamilyAdmin(familyId);
-        allow read, write: if isFamilyStoryteller(familyId)
-          && resource.data.storytellerUid == request.auth.uid;
-        // Allow storyteller to claim an unassigned dossier (invite acceptance)
-        allow update: if isFamilyStoryteller(familyId)
-          && resource.data.storytellerUid == null
-          && request.resource.data.storytellerUid == request.auth.uid;
-
-        // --- Questions (Story Queue) ---
-        // Storytellers may read their own queue but not write — questions are
-        // created by admins (manual) or Cloud Functions (gap analysis).
-        // Cloud Functions use the Admin SDK which bypasses these rules.
-        match /questions/{questionId} {
-          allow read, write: if isFamilyAdmin(familyId);
-          allow read: if isFamilyStoryteller(familyId) && isOwnDossier(familyId, dossierId);
-        }
-
-        // --- Dossier-level AI analysis (e.g. gap analysis) ---
-        // Written exclusively by Cloud Functions (Admin SDK bypasses rules).
-        // Admins may read/write for tooling; storytellers may read their own.
-        match /analysis/{docId} {
-          allow read, write: if isFamilyAdmin(familyId);
-          allow read: if isFamilyStoryteller(familyId) && isOwnDossier(familyId, dossierId);
-        }
-
-        // --- Events (extracted from transcripts) ---
-        match /events/{eventId} {
-          allow read, write: if isFamilyAdmin(familyId);
-          allow read, write: if isFamilyStoryteller(familyId) && isOwnDossier(familyId, dossierId);
-        }
-
-        // --- Audio clips ---
-        match /clips/{clipId} {
-          allow read, write: if isFamilyAdmin(familyId);
-          allow read: if isFamilyStoryteller(familyId) && isOwnDossier(familyId, dossierId);
-          allow create: if isFamilyStoryteller(familyId) && isOwnDossier(familyId, dossierId);
-        }
-
-        // --- Miscellaneous Facts (from "Talk About My Family" conversations) ---
-        // Written by the storyteller's client during a talk session.
-        // Admins can read all facts; storytellers can read and create their own.
-        match /miscFacts/{factId} {
-          allow read, write: if isFamilyAdmin(familyId);
-          allow read, create: if isFamilyStoryteller(familyId) && isOwnDossier(familyId, dossierId);
-        }
-
-        // --- Prompt photos ---
-        match /promptPhotos/{photoId} {
-          allow read, write: if isFamilyAdmin(familyId);
-          allow read: if isFamilyStoryteller(familyId) && isOwnDossier(familyId, dossierId);
-        }
-
-        // --- Media attachments ---
-        match /media/{mediaId} {
-          allow read, write: if isFamilyAdmin(familyId);
-          allow read: if isFamilyStoryteller(familyId) && isOwnDossier(familyId, dossierId);
-          allow create: if isFamilyStoryteller(familyId) && isOwnDossier(familyId, dossierId);
-        }
-
-        // --- Memoirs ---
-        match /memoirs/{memoirId} {
-          allow read, write: if isFamilyAdmin(familyId);
-          allow read: if isFamilyStoryteller(familyId) && isOwnDossier(familyId, dossierId);
-        }
-
-        // --- Sessions ---
-        match /sessions/{sessionId} {
-          allow read, write: if isFamilyAdmin(familyId);
-          allow read: if isFamilyStoryteller(familyId) && isOwnDossier(familyId, dossierId);
-          allow create: if isFamilyStoryteller(familyId) && isOwnDossier(familyId, dossierId)
-            && request.resource.data.storytellerUid == request.auth.uid;
-          allow update: if isFamilyStoryteller(familyId) && resource.data.storytellerUid == request.auth.uid;
-
-          // --- Transcript ---
-          match /transcript/{docId} {
-            allow read, write: if isFamilyAdmin(familyId);
-            allow read, write: if isFamilyStoryteller(familyId) && isOwnDossier(familyId, dossierId);
-          }
-
-          // --- Post-session analysis (engagement, suggestions) ---
-          match /analysis/{docId} {
-            allow read, write: if isFamilyAdmin(familyId);
-            allow read, write: if isFamilyStoryteller(familyId) && isOwnDossier(familyId, dossierId);
-          }
-        }
-      }
-
-      // --- Events (family-level, Phase 3) ---
-      match /events/{eventId} {
-        allow read: if isFamilyMember(familyId);
-        allow create, update, delete: if isFamilyAdmin(familyId);
-        // Storytellers can create family events via post-session analysis
-        allow create: if isFamilyStoryteller(familyId);
-      }
-    }
-
-    // --- Invitations ---
-    match /invitations/{inviteId} {
-      allow create: if isAuthenticated() && isFamilyAdmin(request.resource.data.familyId);
-      allow read: if isAuthenticated()
-        && (resource.data.email == request.auth.token.email
-            || isFamilyAdmin(resource.data.familyId));
-      allow update: if isAuthenticated()
-        && resource.data.email == request.auth.token.email
-        && request.resource.data.status == 'accepted';
-      allow delete: if isAuthenticated() && isFamilyAdmin(resource.data.familyId);
     }
   }
 }

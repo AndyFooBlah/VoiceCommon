@@ -14,47 +14,21 @@
 
 /**
  * Layout — the app shell with navigation and auth guard.
- * Extended with family context and role-based navigation.
- *   - Admin nav shows: Family, Sign Out
- *   - Storyteller nav shows: Sign Out
- *   - Hidden during live sessions for distraction-free experience
+ *
+ * Renders the top navigation bar with the VoiceCommon logo, a link to
+ * session history, and a sign-out button. Shows the LoginScreen for
+ * unauthenticated users.
  */
 
-import React, { useRef, useEffect } from 'react';
-import { Outlet, useNavigate, useLocation, useParams } from 'react-router-dom';
+import React from 'react';
+import { Outlet, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
-import { useCurrentRoles } from '../../hooks/useFamily';
 import { LoginScreen } from '../auth/LoginScreen';
 import { Logo } from './Logo';
 
 export const Layout: React.FC = () => {
   const { user, loading, signInWithGoogle, signInWithEmail, signUpWithEmail, signOut } = useAuth();
   const navigate = useNavigate();
-  const location = useLocation();
-
-  // Redirect to / on sign-in so FamilySelector always handles post-login routing.
-  // Without this, a user who opens a bookmarked URL (e.g. a session page) would land
-  // directly on that page after login instead of the role-appropriate home screen.
-  const showedLoginRef = useRef(false);
-  useEffect(() => {
-    if (!loading && !user) {
-      showedLoginRef.current = true;
-    }
-  }, [loading, user]);
-  useEffect(() => {
-    if (!loading && user && showedLoginRef.current) {
-      showedLoginRef.current = false;
-      if (!location.pathname.startsWith('/invite')) {
-        navigate('/', { replace: true });
-      }
-    }
-  }, [loading, user, navigate, location.pathname]);
-
-  // Extract familyId from URL if present
-  const familyIdMatch = location.pathname.match(/^\/family\/([^/]+)/);
-  const familyId = familyIdMatch?.[1];
-
-  const { isAdmin, isStoryteller } = useCurrentRoles(familyId, user?.uid);
 
   if (loading) {
     return (
@@ -65,66 +39,44 @@ export const Layout: React.FC = () => {
   }
 
   if (!user) {
-    // Extract invite email from URL if on the invite page
-    const inviteEmail = location.pathname === '/invite'
-      ? new URLSearchParams(location.search).get('email') ?? undefined
-      : undefined;
-
     return (
       <LoginScreen
         onGoogleSignIn={signInWithGoogle}
         onEmailSignIn={signInWithEmail}
         onEmailSignUp={signUpWithEmail}
-        inviteEmail={inviteEmail}
       />
     );
   }
 
-  const isInSession = location.pathname.includes('/session');
-
   return (
     <div className="min-h-screen bg-slate-50">
-      {!isInSession && (
-        <nav className="bg-white border-b border-slate-200 px-6 py-3 flex items-center justify-between">
-          <button
-            onClick={() => familyId ? navigate(`/family/${familyId}`) : navigate('/')}
-            className="flex items-center gap-2 hover:opacity-80 transition-opacity"
-          >
-            <Logo size={28} />
-            <h1 className="text-xl font-bold text-slate-800 tracking-tight font-display">
-              BiographyBot
-            </h1>
-          </button>
+      <nav className="bg-white border-b border-slate-200 px-6 py-3 flex items-center justify-between">
+        <button
+          onClick={() => navigate('/sessions')}
+          className="flex items-center gap-2 hover:opacity-80 transition-opacity"
+        >
+          <Logo size={28} />
+          <h1 className="text-xl font-bold text-slate-800 tracking-tight">VoiceCommon</h1>
+        </button>
 
-          <div className="flex items-center gap-4">
-            {familyId && isAdmin && (
-              <button
-                onClick={() => navigate(`/family/${familyId}`)}
-                className="text-sm text-slate-500 hover:text-slate-700 font-medium transition-colors"
-              >
-                Family
-              </button>
-            )}
-            {familyId && isStoryteller && (
-              <button
-                onClick={() => navigate(`/family/${familyId}/storyteller`)}
-                className="text-sm text-slate-500 hover:text-slate-700 font-medium transition-colors"
-              >
-                My Sessions
-              </button>
-            )}
-            <span className="text-sm text-slate-500">
-              {user.displayName ?? user.email}
-            </span>
-            <button
-              onClick={signOut}
-              className="text-sm text-slate-400 hover:text-slate-600 font-medium transition-colors"
-            >
-              Sign Out
-            </button>
-          </div>
-        </nav>
-      )}
+        <div className="flex items-center gap-4">
+          <button
+            onClick={() => navigate('/sessions')}
+            className="text-sm text-slate-500 hover:text-slate-700 font-medium transition-colors"
+          >
+            Sessions
+          </button>
+          <span className="text-sm text-slate-400">
+            {user.displayName ?? user.email}
+          </span>
+          <button
+            onClick={signOut}
+            className="text-sm text-slate-400 hover:text-slate-600 font-medium transition-colors"
+          >
+            Sign Out
+          </button>
+        </div>
+      </nav>
 
       <Outlet />
     </div>

@@ -13,22 +13,16 @@
 // limitations under the License.
 
 /**
- * LoginScreen — the authentication entry point for LegacyBot.
+ * LoginScreen — the authentication entry point for VoiceCommon.
  *
- * Displays a branded login form with three sign-in options:
+ * Displays a branded login form with two sign-in options:
  *   1. Google OAuth (one-click popup)
- *   2. Email/Password sign-in (existing accounts)
- *   3. Email/Password sign-up (new accounts)
+ *   2. Email/Password sign-in or sign-up
  *
  * Sign-in and sign-up are separate flows because Firebase SDK v10+
  * returns the same error code (auth/invalid-credential) for both
  * "user doesn't exist" and "wrong password", making it impossible
  * to auto-register reliably from a single button.
- *
- * This screen is shown to unauthenticated users via the auth guard in
- * Layout.tsx. Once signed in, the user is redirected to the Dossier list.
- *
- * References: product_requirements.md §3.5 | GitHub Issue #2
  */
 
 import React, { useState } from 'react';
@@ -38,21 +32,18 @@ interface LoginScreenProps {
   onGoogleSignIn: () => Promise<void>;
   onEmailSignIn: (email: string, password: string) => Promise<void>;
   onEmailSignUp: (email: string, password: string) => Promise<void>;
-  /** Pre-fill email and start in signup mode (used for invite links). */
-  inviteEmail?: string;
 }
 
 export const LoginScreen: React.FC<LoginScreenProps> = ({
   onGoogleSignIn,
   onEmailSignIn,
   onEmailSignUp,
-  inviteEmail,
 }) => {
-  const [email, setEmail] = useState(inviteEmail ?? '');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [mode, setMode] = useState<'signin' | 'signup'>(inviteEmail ? 'signup' : 'signin');
+  const [mode, setMode] = useState<'signin' | 'signup'>('signin');
 
   async function handleGoogleSignIn() {
     setError(null);
@@ -112,30 +103,13 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
           <div className="flex items-center justify-center gap-3">
             <Logo size={44} />
             <h1 className="text-4xl font-bold text-slate-800 tracking-tight font-display">
-              BiographyBot
+              VoiceCommon
             </h1>
           </div>
-          {inviteEmail ? (
-            <p className="text-slate-500 text-sm">
-              Create an account to accept your invitation.
-            </p>
-          ) : (
-            <p className="text-slate-400 italic text-sm">
-              Tell your family's story.
-            </p>
-          )}
+          <p className="text-slate-400 italic text-sm">
+            Voice AI, simply.
+          </p>
         </div>
-
-        {inviteEmail && (
-          <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 text-center">
-            <p className="text-sm text-emerald-700 font-medium">
-              You've been invited to join a family as a storyteller.
-            </p>
-            <p className="text-xs text-emerald-600 mt-1">
-              Set a password below to create your account.
-            </p>
-          </div>
-        )}
 
         {/* Google Sign-In */}
         <button

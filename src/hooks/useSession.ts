@@ -13,68 +13,37 @@
 // limitations under the License.
 
 /**
- * Live session hook for LegacyBot.
+ * Live session hook for VoiceCommon.
  *
- * Orchestrates the full lifecycle of a recording session:
- *   1. Start: Initialize audio mixer → Create Firestore session → Connect Gemini
- *   2. During: Stream PCM to Gemini, play bot audio, sync transcripts in real-time
+ * Orchestrates the full lifecycle of a voice AI session:
+ *   1. Start: Initialize audio mixer → Create Firestore session → Connect Gemini Live
+ *   2. During: Stream PCM to Gemini, play bot audio, sync transcript in real-time
  *   3. Stop: Close Gemini, stop recorder, upload audio to GCS, finalize session
- *   4. Error: Auto-reconnect preserving session context; flush/finalize only on give-up
+ *   4. Error: Auto-reconnect preserving session context
  *
- * Reconnect strategy (see reconnectSession):
- *   On unexpected disconnect, reconnectSession() is called instead of startSession().
- *   It keeps the same Firestore session ID and in-memory transcript, restarts the
- *   audio pipeline, and primes Gemini with recent conversation context so the
- *   interview continues naturally without starting over.
- *
- * AI-driven session end (endSession tool):
- *   The AI can call the 'endSession' function tool when the storyteller signals they
- *   are done (e.g. "I'm tired", "let's stop"). The handler waits for closing audio
- *   to finish playing, then calls stopSession() programmatically.
- *
- * References: design.md §3.2, §3.3, §3.6 | GitHub Issues #9, #10, #11, #12, #17, #75, #76
+ * The hook is generic — it accepts a system instruction and tool set from the
+ * calling application. Tool call dispatch is handled via the onToolCall callback.
  */
 
 import { useState, useRef, useCallback } from 'react';
-import { GoogleGenAI, LiveServerMessage, Modality, Type, FunctionDeclaration, ThinkingLevel } from '@google/genai';
+import { GoogleGenAI, LiveServerMessage, Modality, Type, FunctionDeclaration } from '@google/genai';
 import { Timestamp } from 'firebase/firestore';
-import { Message, Dossier, InterviewQuestion, FamilyMember, PromptPhoto, ConnectionStatus, TranscriptEntry } from '../types';
+import { Message, ConnectionStatus, TranscriptEntry } from '../types';
 import { useAudioMixer } from './useAudioMixer';
 import { encode, decode, decodeAudioData } from '../services/audioUtils';
-import { buildSystemInstruction } from '../services/gemini';
 import {
   createSession,
   finalizeSession,
   archiveAudioToGCS,
   syncTranscriptToFirestore,
-  updateQuestionStateInFirestore,
-  getCompletedSessionCount,
-  getPreviousSessionSummary,
-  getLastSessionDate,
-  getRecentSessionDates,
-  logEmotionalObservation,
-  saveExtractedEvents,
-  saveFamilyEvents,
-  saveEngagementAssessment,
-  saveSuggestedQuestions,
-  getEvents,
 } from '../services/storage';
-import { extractEvents, assessEngagement, suggestQuestions, cleanTranscriptText } from '../services/postSessionAnalysis';
-import { searchWikipedia, searchPlace, getDistanceBetweenPlaces, getJoke, getWeather } from '../services/externalSearch';
 
-const GEMINI_MODEL = 'gemini-3.1-flash-live-preview';
+const GEMINI_MODEL = 'gemini-2.5-flash-preview-native-audio-dialog';
 
-/**
- * Maximum seconds of audio that may be queued ahead of the current playback
- * position. If this is exceeded, the model is almost certainly generating output
- * in a runaway loop — we reset the schedule and interrupt.
- */
+/** Maximum seconds of audio lookahead before triggering a runaway-loop reset. */
 const MAX_AUDIO_LOOKAHEAD_S = 30;
 
-/**
- * Compute the word-overlap ratio between two strings (ignoring very short words).
- * Used to detect when consecutive bot turns are near-identical repeats.
- */
+/** Compute word-overlap ratio between two strings to detect near-duplicate bot turns. */
 function wordOverlapRatio(a: string, b: string): number {
   const tokenize = (s: string) =>
     new Set(s.toLowerCase().split(/\s+/).filter((w) => w.length > 2));
@@ -86,1106 +55,347 @@ function wordOverlapRatio(a: string, b: string): number {
   return shared / Math.min(wa.size, wb.size);
 }
 
-interface UseSessionOptions {
-  familyId: string;
-  dossierId: string;
-  storytellerUid: string;
-  dossier: Dossier;
-  questions: InterviewQuestion[];
-  /** Family tree (shared across all dossiers in the family). */
-  familyTree?: FamilyMember[];
-  /** Prompt photos uploaded by admin for the bot to optionally show. */
-  promptPhotos?: PromptPhoto[];
-  /** Called when the bot updates a question's status via function calling. */
-  onQuestionUpdate: (questionId: string, status: string, findings: string) => void;
-  /** Called when the bot shows a prompt photo to the storyteller. */
-  onShowPhoto?: (photoId: string) => void;
-  /** Called when the bot records the storyteller's preferred name. */
-  onPreferredNameUpdate?: (name: string) => void;
+export interface UseSessionOptions {
+  userId: string;
+  /** The full system instruction for Gemini. */
+  systemInstruction: string;
+  /** Tool declarations to register with Gemini. */
+  tools?: FunctionDeclaration[];
+  /**
+   * Called when Gemini invokes a tool. The return value is sent back as the
+   * tool result. Return a string describing the result.
+   */
+  onToolCall?: (name: string, args: Record<string, unknown>) => Promise<string>;
+  /** Called when the bot requests to end the session via the 'endSession' tool. */
+  onSessionEndRequest?: () => void;
+  /** Called when bot audio starts playing (for UI feedback). */
+  onBotSpeaking?: (speaking: boolean) => void;
 }
 
-export function useSession({
-  familyId,
-  dossierId,
-  storytellerUid,
-  dossier,
-  questions,
-  familyTree,
-  promptPhotos,
-  onQuestionUpdate,
-  onShowPhoto,
-  onPreferredNameUpdate,
-}: UseSessionOptions) {
-  const [status, setStatus] = useState<ConnectionStatus>(ConnectionStatus.DISCONNECTED);
+export interface UseSessionReturn {
+  messages: Message[];
+  connectionStatus: ConnectionStatus;
+  startSession: () => Promise<void>;
+  stopSession: () => Promise<void>;
+  isRecording: boolean;
+  sessionId: string | null;
+  error: string | null;
+}
+
+export function useSession(options: UseSessionOptions): UseSessionReturn {
+  const {
+    userId,
+    systemInstruction,
+    tools = [],
+    onToolCall,
+    onSessionEndRequest,
+    onBotSpeaking,
+  } = options;
+
   const [messages, setMessages] = useState<Message[]>([]);
-  const [isBotSpeaking, setIsBotSpeaking] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>(ConnectionStatus.DISCONNECTED);
+  const [isRecording, setIsRecording] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
-  const [deviceError, setDeviceError] = useState<string | null>(null);
-  const [connectivityWarning, setConnectivityWarning] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const sessionRef = useRef<string | null>(null);
+  const sessionStartRef = useRef<Date | null>(null);
+  const transcriptRef = useRef<TranscriptEntry[]>([]);
+  const messageIndexRef = useRef(0);
+
+  const liveSessionRef = useRef<any>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const scheduleTimeRef = useRef(0);
 
   const mixer = useAudioMixer();
 
-  // Refs for managing audio playback scheduling and interruption
-  const currentInputRef = useRef('');
-  const currentOutputRef = useRef('');
-  const nextStartTimeRef = useRef(0);
-  const sourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
-  const sessionRef = useRef<any>(null);
-  const sessionStartTimeRef = useRef<number>(0);
-  // Keep a ref copy of transcript entries for Firestore sync
-  const transcriptEntriesRef = useRef<TranscriptEntry[]>([]);
-  // Ref for sessionId so Gemini callbacks always have the current value
-  const sessionIdRef = useRef<string | null>(null);
+  // ---------------------------------------------------------------------------
+  // Transcript helpers
+  // ---------------------------------------------------------------------------
 
-  // AudioWorklet node refs — stored so the worklet can be disconnected on error/reconnect
-  const workletNodeRef = useRef<AudioWorkletNode | null>(null);
-  const workletSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
-
-  // PCM debug counters — track send rate to detect runaway audio pipelines
-  const pcmFrameCountRef = useRef(0);
-  const pcmLogTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  // Repetition loop detection — tracks the last complete bot turn text so
-  // we can compare it to the next turn and detect near-identical repeats.
-  const lastBotOutputRef = useRef<string>('');
-
-  /** Convert Float32 audio samples to PCM Int16 and base64-encode for Gemini. */
-  const createPCMData = useCallback((data: Float32Array) => {
-    const int16 = new Int16Array(data.length);
-    for (let i = 0; i < data.length; i++) {
-      int16[i] = Math.max(-32768, Math.min(32767, Math.round(data[i] * 32767)));
-    }
-    return { data: encode(new Uint8Array(int16.buffer)), mimeType: 'audio/pcm;rate=16000' };
+  const addMessage = useCallback((role: 'user' | 'bot' | 'tool', text: string, extra?: Partial<Message>) => {
+    const msg: Message = {
+      id: crypto.randomUUID(),
+      role,
+      text,
+      timestamp: new Date(),
+      ...extra,
+    };
+    setMessages((prev) => [...prev, msg]);
+    return msg;
   }, []);
 
-  /** Stop all currently playing bot audio (used on interruption or session end). */
-  const handleInterruption = useCallback(() => {
-    for (const source of sourcesRef.current.values()) {
-      try { source.stop(); } catch (_) { /* already stopped */ }
-      sourcesRef.current.delete(source);
-    }
-    nextStartTimeRef.current = 0;
-    setIsBotSpeaking(false);
-  }, []);
-
-  /**
-   * Disconnect the AudioWorklet node and mic source from the audio graph.
-   * Called on session stop, error, or before reconnect to prevent a ghost
-   * pipeline from sending PCM to a dead WebSocket connection.
-   */
-  const disconnectWorklet = useCallback(() => {
-    if (pcmLogTimerRef.current) {
-      clearInterval(pcmLogTimerRef.current);
-      pcmLogTimerRef.current = null;
-    }
-    if (workletNodeRef.current) {
-      try { workletNodeRef.current.port.onmessage = null; } catch { /* node may already be GC'd */ }
-      try { workletNodeRef.current.disconnect(); } catch { /* ignore disconnect errors on cleanup */ }
-      workletNodeRef.current = null;
-    }
-    if (workletSourceRef.current) {
-      try { workletSourceRef.current.disconnect(); } catch { /* ignore disconnect errors on cleanup */ }
-      workletSourceRef.current = null;
-    }
-  }, []);
-
-  /** Format a tool call name + args into a short human-readable label. */
-  const formatToolCall = (name: string, args: Record<string, unknown>): string => {
-    switch (name) {
-      case 'searchWikipedia': return `Wikipedia: "${args.query}"`;
-      case 'searchPlace': return `Place: "${args.query}"`;
-      case 'getDistanceBetweenPlaces': return `Distance: "${args.placeA}" → "${args.placeB}"`;
-      case 'getJoke': return `Joke`;
-      case 'getWeather': return `Weather: "${args.location}"`;
-      default: return `[${name}]`;
-    }
-  };
-
-  /** Log a background tool call to the transcript and sync to Firestore. */
-  const addToolEntry = useCallback(
-    (toolName: string, toolArgs: Record<string, unknown>, toolResult: string) => {
-      const text = formatToolCall(toolName, toolArgs);
-      const newMsg: Message = {
-        id: Math.random().toString(36).substr(2, 9),
-        role: 'tool',
-        text,
-        timestamp: new Date(),
-        toolName,
-        toolArgs,
-      };
-      setMessages((prev) => [...prev, newMsg]);
-
-      const entryIndex = transcriptEntriesRef.current.length;
-      transcriptEntriesRef.current.push({
-        role: 'tool',
-        text,
-        toolName,
-        toolArgs,
-        toolResult: toolResult.slice(0, 500), // cap stored result length
-        timestamp: Timestamp.now(),
-        messageIndex: entryIndex,
-      });
-
-      const currentSessionId = sessionIdRef.current;
-      if (currentSessionId) {
-        syncTranscriptToFirestore(familyId, dossierId, currentSessionId, [...transcriptEntriesRef.current]).catch(
-          (err) => console.error('[Firestore] Tool entry sync error:', err),
-        );
-      }
-    },
-    [familyId, dossierId],
-  );
-
-  /** Add a message to the live transcript and sync to Firestore. */
-  const addMessage = useCallback(
-    (role: 'user' | 'bot', text: string) => {
-      const newMsg: Message = {
-        id: Math.random().toString(36).substr(2, 9),
-        role,
-        text,
-        timestamp: new Date(),
-      };
-      setMessages((prev) => [...prev, newMsg]);
-
-      const entryIndex = transcriptEntriesRef.current.length;
-      transcriptEntriesRef.current.push({
-        role,
-        text,
-        timestamp: Timestamp.now(),
-        messageIndex: entryIndex,
-      });
-
-      const currentSessionId = sessionIdRef.current;
-      if (currentSessionId) {
-        syncTranscriptToFirestore(familyId, dossierId, currentSessionId, [...transcriptEntriesRef.current]).catch(
-          (err) => console.error('[Firestore] Transcript sync error:', err),
-        );
-
-        // Async transcript cleanup (#99): clean the text and write cleanText back
-        cleanTranscriptText(text).then((cleanText) => {
-          if (cleanText && cleanText !== text && transcriptEntriesRef.current[entryIndex]) {
-            transcriptEntriesRef.current[entryIndex] = {
-              ...transcriptEntriesRef.current[entryIndex],
-              cleanText,
-            };
-            const sid = sessionIdRef.current;
-            if (sid) {
-              syncTranscriptToFirestore(familyId, dossierId, sid, [...transcriptEntriesRef.current]).catch(() => {});
-            }
-          }
-        }).catch(() => {}); // Silently ignore — cleanText is best-effort
-      }
-    },
-    [familyId, dossierId],
-  );
-
-  /**
-   * Build the shared Gemini tool declarations.
-   * Extracted so both startSession and reconnectSession use identical config.
-   */
-  const buildTools = useCallback((): FunctionDeclaration[] => {
-    const updateQuestionStatusTool: FunctionDeclaration = {
-      name: 'updateQuestionStatus',
-      parameters: {
-        type: Type.OBJECT,
-        description: 'Update the archival progress of a specific life story question.',
-        properties: {
-          id: { type: Type.STRING, description: 'The unique ID of the question.' },
-          status: {
-            type: Type.STRING,
-            enum: ['Unasked', 'InProgress', 'Completed'],
-            description: 'The current status of the storytelling for this topic.',
-          },
-          findings: {
-            type: Type.STRING,
-            description: 'A brief summary of the key facts/stories uncovered for this question so far.',
-          },
-        },
-        required: ['id', 'status', 'findings'],
-      },
+  const appendToTranscript = useCallback((role: 'user' | 'bot' | 'tool', text: string, extra?: Partial<TranscriptEntry>) => {
+    const entry: TranscriptEntry = {
+      role,
+      text,
+      timestamp: Timestamp.now(),
+      messageIndex: messageIndexRef.current++,
+      ...extra,
     };
-
-    const reportEmotionalObservationTool: FunctionDeclaration = {
-      name: 'reportEmotionalObservation',
-      parameters: {
-        type: Type.OBJECT,
-        description: 'Log a significant emotional observation about the storyteller during the interview.',
-        properties: {
-          mood: {
-            type: Type.STRING,
-            enum: ['engaged', 'neutral', 'hesitant', 'emotional', 'distressed', 'joyful'],
-            description: 'The observed emotional state of the storyteller.',
-          },
-          confidence: { type: Type.NUMBER, description: 'How confident you are in this observation (0.0 to 1.0).' },
-          trigger: { type: Type.STRING, description: 'What caused or is associated with this emotional shift.' },
-          recommendation: { type: Type.STRING, description: 'What you plan to do in response.' },
-        },
-        required: ['mood', 'confidence', 'trigger', 'recommendation'],
-      },
-    };
-
-    const showPhotoTool: FunctionDeclaration = {
-      name: 'showPhoto',
-      parameters: {
-        type: Type.OBJECT,
-        description: 'Display a prompt photo to the storyteller during the interview.',
-        properties: {
-          photoId: { type: Type.STRING, description: 'The unique ID of the prompt photo to display.' },
-        },
-        required: ['photoId'],
-      },
-    };
-
-    const setPreferredNameTool: FunctionDeclaration = {
-      name: 'setPreferredName',
-      parameters: {
-        type: Type.OBJECT,
-        description:
-          'Record the name the storyteller prefers to be called. Call this as soon as the storyteller tells you their preferred name.',
-        properties: {
-          name: {
-            type: Type.STRING,
-            description: 'The name the storyteller wants to be addressed by (e.g. "Bob", "Mr. Smith", "Grandma Rose").',
-          },
-        },
-        required: ['name'],
-      },
-    };
-
-    const endSessionTool: FunctionDeclaration = {
-      name: 'endSession',
-      parameters: {
-        type: Type.OBJECT,
-        description:
-          'End the interview session programmatically. Call this ONLY after you have spoken your warm closing remarks out loud. ' +
-          'Use this when the storyteller clearly signals they are done (e.g. "I\'m tired", "let\'s stop", "I think that\'s enough for today") ' +
-          'or when you sense genuine fatigue and have offered to wrap up. Never call this mid-conversation.',
-        properties: {},
-        required: [],
-      },
-    };
-
-    const searchWikipediaTool: FunctionDeclaration = {
-      name: 'searchWikipedia',
-      parameters: {
-        type: Type.OBJECT,
-        description:
-          'Look up a topic, person, event, or place on Wikipedia to enrich your understanding. ' +
-          'Use this silently — do not read the result aloud; use it to ask better follow-up questions.',
-        properties: {
-          query: { type: Type.STRING, description: 'The search term (person, place, event, etc.).' },
-        },
-        required: ['query'],
-      },
-    };
-
-    const searchPlaceTool: FunctionDeclaration = {
-      name: 'searchPlace',
-      parameters: {
-        type: Type.OBJECT,
-        description:
-          'Look up a geographic location by name to understand where it is. ' +
-          'Use the result naturally in conversation — do not recite coordinates.',
-        properties: {
-          query: { type: Type.STRING, description: 'The place name or address to look up.' },
-        },
-        required: ['query'],
-      },
-    };
-
-    const getDistanceTool: FunctionDeclaration = {
-      name: 'getDistanceBetweenPlaces',
-      parameters: {
-        type: Type.OBJECT,
-        description: 'Calculate the approximate straight-line distance between two named places.',
-        properties: {
-          placeA: { type: Type.STRING, description: 'The first place name or address.' },
-          placeB: { type: Type.STRING, description: 'The second place name or address.' },
-        },
-        required: ['placeA', 'placeB'],
-      },
-    };
-
-    const getJokeTool: FunctionDeclaration = {
-      name: 'getJoke',
-      parameters: {
-        type: Type.OBJECT,
-        description: 'Fetch a random joke to share with the storyteller when the moment calls for levity.',
-        properties: {},
-        required: [],
-      },
-    };
-
-    const getWeatherTool: FunctionDeclaration = {
-      name: 'getWeather',
-      parameters: {
-        type: Type.OBJECT,
-        description: 'Get the current weather conditions and a 3-day forecast for a given location.',
-        properties: {
-          location: {
-            type: Type.STRING,
-            description: 'City, address, or place name to get weather for.',
-          },
-        },
-        required: ['location'],
-      },
-    };
-
-    return [
-      updateQuestionStatusTool,
-      reportEmotionalObservationTool,
-      setPreferredNameTool,
-      endSessionTool,
-      searchWikipediaTool,
-      searchPlaceTool,
-      getDistanceTool,
-      getJokeTool,
-      getWeatherTool,
-      ...(promptPhotos && promptPhotos.length > 0 ? [showPhotoTool] : []),
-    ];
-  }, [promptPhotos]);
-
-  /**
-   * Gracefully stop the current session.
-   *
-   * Sequence:
-   *   1. Close the Gemini connection
-   *   2. Stop the MediaRecorder and get the recorded blob
-   *   3. Upload the audio blob to GCS
-   *   4. Finalize the session document in Firestore
-   *
-   * Defined BEFORE makeMessageHandler so the endSession tool handler can call it.
-   */
-  const stopSession = useCallback(async () => {
-    console.log(`[Session] Stopping session ${sessionIdRef.current} at ${new Date().toISOString()}`);
-
-    if (currentInputRef.current) {
-      addMessage('user', currentInputRef.current);
-      currentInputRef.current = '';
-    }
-    if (currentOutputRef.current) {
-      addMessage('bot', currentOutputRef.current);
-      currentOutputRef.current = '';
-    }
-
-    disconnectWorklet();
-
+    transcriptRef.current = [...transcriptRef.current, entry];
     if (sessionRef.current) {
-      sessionRef.current.close();
-      sessionRef.current = null;
+      syncTranscriptToFirestore(sessionRef.current, transcriptRef.current).catch(console.error);
     }
+  }, []);
 
-    handleInterruption();
+  // ---------------------------------------------------------------------------
+  // Audio playback
+  // ---------------------------------------------------------------------------
 
-    const audioBlob = await mixer.stop();
-    const durationSeconds = Math.round((Date.now() - sessionStartTimeRef.current) / 1000);
+  function playAudioChunk(pcm24k: ArrayBuffer): void {
+    if (!audioContextRef.current) return;
+    const ctx = audioContextRef.current;
+    const pcmData = new Int16Array(pcm24k);
+    const float32 = new Float32Array(pcmData.length);
+    for (let i = 0; i < pcmData.length; i++) float32[i] = pcmData[i] / 32768;
 
-    const currentSessionId = sessionIdRef.current;
-    if (currentSessionId) {
-      if (transcriptEntriesRef.current.length > 0) {
-        try {
-          await syncTranscriptToFirestore(familyId, dossierId, currentSessionId, [...transcriptEntriesRef.current]);
-        } catch (err) {
-          console.error('[Session] Final transcript sync error:', err);
-        }
-      }
+    const buffer = ctx.createBuffer(1, float32.length, 24000);
+    buffer.copyToChannel(float32, 0);
+    const source = ctx.createBufferSource();
+    source.buffer = buffer;
+    source.connect(ctx.destination);
 
-      if (audioBlob) {
-        try {
-          const audioUrl = await archiveAudioToGCS(audioBlob, familyId, dossierId, currentSessionId);
-          await finalizeSession(familyId, dossierId, currentSessionId, 'completed', durationSeconds, audioUrl);
-        } catch (err) {
-          console.error('[Session] Archive error:', err);
-          await finalizeSession(familyId, dossierId, currentSessionId, 'completed', durationSeconds).catch(() => {});
-        }
-      } else {
-        await finalizeSession(familyId, dossierId, currentSessionId, 'completed', durationSeconds).catch(() => {});
-      }
+    const now = ctx.currentTime;
+    const startAt = Math.max(now, scheduleTimeRef.current);
+    if (startAt - now > MAX_AUDIO_LOOKAHEAD_S) {
+      scheduleTimeRef.current = now;
+      return;
     }
+    source.start(startAt);
+    scheduleTimeRef.current = startAt + buffer.duration;
 
-    // Run post-session analysis in the background (non-blocking)
-    if (currentSessionId && transcriptEntriesRef.current.length > 0) {
-      const entriesCopy = [...transcriptEntriesRef.current];
-      const questionsCopy = [...questions];
-      const sid = currentSessionId;
-      (async () => {
-        try {
-          const existingEvents = await getEvents(familyId, dossierId).catch(() => []);
-          const [events, engagement, suggestions] = await Promise.all([
-            extractEvents(entriesCopy, sid, existingEvents).catch((err) => {
-              console.error('[PostSession] Event extraction error:', err);
-              return [];
-            }),
-            assessEngagement(entriesCopy, questionsCopy).catch((err) => {
-              console.error('[PostSession] Engagement assessment error:', err);
-              return null;
-            }),
-            suggestQuestions(entriesCopy, questionsCopy, dossier).catch((err) => {
-              console.error('[PostSession] Question suggestion error:', err);
-              return [];
-            }),
-          ]);
-          const familyEvents = events.map((e) => ({
-            familyId,
-            title: e.title,
-            ...(e.date != null && { date: e.date }),
-            description: e.description,
-            storytellerUids: [storytellerUid],
-            sessionIds: [sid],
-            createdBy: storytellerUid,
-            messageReferences: (e.sources?.[0]?.entryIndices ?? []).map((idx) => ({
-              sessionId: sid,
-              dossierId,
-              messageIndex: idx,
-            })),
-          }));
-          await Promise.all([
-            events.length > 0 ? saveExtractedEvents(familyId, dossierId, events) : Promise.resolve(),
-            familyEvents.length > 0 ? saveFamilyEvents(familyId, familyEvents) : Promise.resolve(),
-            engagement ? saveEngagementAssessment(familyId, dossierId, sid, engagement) : Promise.resolve(),
-            suggestions.length > 0 ? saveSuggestedQuestions(familyId, dossierId, sid, suggestions) : Promise.resolve(),
-          ]);
-          console.log(`[PostSession] Analysis complete: ${events.length} events, ${suggestions.length} suggestions`);
-        } catch (err) {
-          console.error('[PostSession] Analysis failed:', err);
-        }
-      })();
-    }
-
-    sessionIdRef.current = null;
-    setSessionId(null);
-    setStatus(ConnectionStatus.DISCONNECTED);
-  }, [familyId, dossierId, dossier, questions, mixer, handleInterruption, disconnectWorklet, addMessage, storytellerUid]);
-
-  /**
-   * Build the onmessage handler for a Gemini session.
-   *
-   * NOTE: must NOT accept sessionPromise as a parameter. The callbacks object is
-   * constructed synchronously inside `const sessionPromise = ai.live.connect({...})`
-   * so accessing `sessionPromise` at that point is a temporal dead zone ReferenceError.
-   * Tool responses use sessionRef.current which is always set before any tool call can
-   * arrive (Gemini can't call a tool before the session is established).
-   *
-   * stopSession is defined before this function so the endSession handler can call it.
-   */
-  const makeMessageHandler = useCallback(
-    () =>
-      async (message: LiveServerMessage) => {
-        // --- Handle Function Calls ---
-        if (message.toolCall?.functionCalls) {
-          for (const fc of message.toolCall.functionCalls) {
-            let toolResult: any = { result: 'ok' };
-
-            if (fc.name === 'updateQuestionStatus') {
-              const { id, status, findings } = fc.args as any;
-              onQuestionUpdate(id, status, findings);
-              updateQuestionStateInFirestore(familyId, dossierId, id, status, findings).catch(
-                (err) => console.error('[Firestore] Question update error:', err),
-              );
-            } else if (fc.name === 'showPhoto') {
-              const { photoId } = fc.args as any;
-              const photo = promptPhotos?.find((p) => p.id === photoId);
-              if (photo) {
-                if (onShowPhoto) onShowPhoto(photoId);
-                addMessage('bot', `[Showed photo: ${photo.caption}]`);
-              } else {
-                console.warn(`[Session] showPhoto: unknown photoId "${photoId}"`);
-              }
-            } else if (fc.name === 'setPreferredName') {
-              const { name } = fc.args as any;
-              console.log(`[Session] AI recorded preferred name: "${name}"`);
-              if (onPreferredNameUpdate) onPreferredNameUpdate(name);
-            } else if (fc.name === 'reportEmotionalObservation') {
-              const { mood, confidence, trigger, recommendation } = fc.args as any;
-              const currentSid = sessionIdRef.current;
-              if (currentSid) {
-                logEmotionalObservation(familyId, dossierId, currentSid, {
-                  mood, confidence, trigger, recommendation,
-                }).catch((err) => console.error('[Firestore] Emotion log error:', err));
-              }
-            } else if (fc.name === 'endSession') {
-              console.log('[Session] AI called endSession — waiting for closing audio to finish');
-              const maxWait = Date.now() + 30_000;
-              const waitForAudioEnd = () => {
-                if (sourcesRef.current.size === 0 || Date.now() > maxWait) {
-                  console.log('[Session] Closing audio finished — stopping session');
-                  stopSession();
-                } else {
-                  setTimeout(waitForAudioEnd, 200);
-                }
-              };
-              setTimeout(waitForAudioEnd, 500);
-            } else if (fc.name === 'searchWikipedia') {
-              const { query } = fc.args as any;
-              console.log(`[Session] AI searching Wikipedia: "${query}"`);
-              try {
-                const result = await searchWikipedia(query);
-                toolResult = { result };
-                addToolEntry('searchWikipedia', { query }, result);
-              } catch {
-                toolResult = { result: 'Wikipedia search unavailable.' };
-                addToolEntry('searchWikipedia', { query }, 'Search unavailable.');
-              }
-            } else if (fc.name === 'searchPlace') {
-              const { query } = fc.args as any;
-              console.log(`[Session] AI searching place: "${query}"`);
-              try {
-                const result = await searchPlace(query);
-                toolResult = { result };
-                addToolEntry('searchPlace', { query }, result);
-              } catch {
-                toolResult = { result: 'Place search unavailable.' };
-                addToolEntry('searchPlace', { query }, 'Search unavailable.');
-              }
-            } else if (fc.name === 'getDistanceBetweenPlaces') {
-              const { placeA, placeB } = fc.args as any;
-              console.log(`[Session] AI calculating distance: "${placeA}" → "${placeB}"`);
-              try {
-                const result = await getDistanceBetweenPlaces(placeA, placeB);
-                toolResult = { result };
-                addToolEntry('getDistanceBetweenPlaces', { placeA, placeB }, result);
-              } catch {
-                toolResult = { result: 'Distance calculation unavailable.' };
-                addToolEntry('getDistanceBetweenPlaces', { placeA, placeB }, 'Unavailable.');
-              }
-            } else if (fc.name === 'getJoke') {
-              console.log(`[Session] AI fetching joke`);
-              try {
-                const result = await getJoke();
-                toolResult = { result };
-                addToolEntry('getJoke', {}, result);
-              } catch {
-                toolResult = { result: 'Joke unavailable.' };
-                addToolEntry('getJoke', {}, 'Unavailable.');
-              }
-            } else if (fc.name === 'getWeather') {
-              const { location } = fc.args as any;
-              console.log(`[Session] AI checking weather for: "${location}"`);
-              try {
-                const result = await getWeather(location);
-                toolResult = { result };
-                addToolEntry('getWeather', { location }, result);
-              } catch {
-                toolResult = { result: 'Weather lookup unavailable.' };
-                addToolEntry('getWeather', { location }, 'Unavailable.');
-              }
-            }
-
-            // Send tool response so the model can continue
-            const session = sessionRef.current;
-            if (session) {
-              session.sendToolResponse({
-                functionResponses: [{
-                  id: fc.id,
-                  name: fc.name,
-                  response: toolResult,
-                }],
-              });
-            }
-          }
-        }
-
-        // --- Handle Transcriptions ---
-        // Strip ASCII control characters (except tab/newline) that Gemini occasionally
-        // emits — they corrupt the transcript display.
-        // Strip ASCII control chars that Gemini occasionally emits (corrupts transcript display)
-        const sanitize = (text: string) =>
-          text.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, ''); // eslint-disable-line no-control-regex
-
-        if (message.serverContent?.inputTranscription?.text) {
-          currentInputRef.current += sanitize(message.serverContent.inputTranscription.text);
-        }
-        if (message.serverContent?.outputTranscription?.text) {
-          if (currentInputRef.current) {
-            addMessage('user', currentInputRef.current);
-            currentInputRef.current = '';
-          }
-          currentOutputRef.current += sanitize(message.serverContent.outputTranscription.text);
-        }
-
-        if (message.serverContent?.turnComplete) {
-          if (currentInputRef.current.trim()) {
-            addMessage('user', currentInputRef.current);
-            currentInputRef.current = '';
-          }
-          if (currentOutputRef.current.trim()) {
-            const outputText = currentOutputRef.current.trim();
-            currentOutputRef.current = '';
-
-            // Repetition loop detection: compare this turn to the previous bot
-            // turn. If the word overlap is very high (>85%) and the turn is long
-            // enough to be meaningful (>12 words), the model is stuck in a loop.
-            // Interrupt the audio, discard the duplicate text, and send a silent
-            // recovery nudge so the model resumes from a fresh state.
-            const wordCount = outputText.split(/\s+/).length;
-            const overlap = wordOverlapRatio(outputText, lastBotOutputRef.current);
-            if (wordCount > 12 && overlap > 0.85) {
-              console.warn(
-                `[Session] Repetition loop detected — ${Math.round(overlap * 100)}% word overlap with previous bot turn (${wordCount} words). Interrupting.`,
-              );
-              handleInterruption();
-              const session = sessionRef.current;
-              if (session) {
-                try {
-                  session.sendRealtimeInput({
-                    text: '[Internal system note — not for the storyteller: the previous response was an exact repeat. Resume the interview naturally from where you left off without acknowledging this note.]',
-                  });
-                } catch (e) {
-                  console.warn('[Session] Could not send repetition-recovery prompt:', e);
-                }
-              }
-            } else {
-              addMessage('bot', outputText);
-              lastBotOutputRef.current = outputText;
-            }
-          }
-        }
-
-        // --- Handle Bot Audio Playback ---
-        // Gemini 3.1 can pack multiple content parts in a single serverContent message,
-        // so we iterate over all parts rather than assuming a single parts[0].
-        for (const part of message.serverContent?.modelTurn?.parts ?? []) {
-          const audioData = part?.inlineData?.data;
-          if (audioData && mixer.playbackContext) {
-            const ctx = mixer.playbackContext;
-
-            // Audio backlog guard: if more than MAX_AUDIO_LOOKAHEAD_S seconds of
-            // audio is already queued ahead of the current playback position, the
-            // model is almost certainly in a runaway generation loop. Reset the
-            // schedule, stop all playing audio, and discard this chunk.
-            if (nextStartTimeRef.current - ctx.currentTime > MAX_AUDIO_LOOKAHEAD_S) {
-              console.warn(
-                `[Session] Audio backlog exceeded ${MAX_AUDIO_LOOKAHEAD_S}s — possible loop. Skipping chunk and interrupting.`,
-              );
-              handleInterruption();
-              nextStartTimeRef.current = ctx.currentTime;
-              continue; // eslint-disable-line no-continue
-            }
-
-            setIsBotSpeaking(true);
-            nextStartTimeRef.current = Math.max(nextStartTimeRef.current, ctx.currentTime);
-
-            const buffer = await decodeAudioData(decode(audioData), ctx, 24000, 1);
-            const audioSource = ctx.createBufferSource();
-            audioSource.buffer = buffer;
-            audioSource.connect(ctx.destination);
-            if (mixer.mixedDest) audioSource.connect(mixer.mixedDest);
-
-            audioSource.addEventListener('ended', () => {
-              sourcesRef.current.delete(audioSource);
-              if (sourcesRef.current.size === 0) setIsBotSpeaking(false);
-            });
-            audioSource.start(nextStartTimeRef.current);
-            nextStartTimeRef.current += buffer.duration;
-            sourcesRef.current.add(audioSource);
-          }
-        }
-
-        // --- Handle Interruption ---
-        if (message.serverContent?.interrupted) handleInterruption();
-      },
-    [familyId, dossierId, promptPhotos, mixer, addMessage, addToolEntry, handleInterruption, onQuestionUpdate, onShowPhoto, onPreferredNameUpdate, stopSession],
-  );
-
-  /**
-   * Wire the AudioWorklet mic pipeline into a running AudioContext.
-   * Stores the node/source in refs so disconnectWorklet() can clean them up later.
-   */
-  const wireWorklet = useCallback(
-    (sessionPromise: Promise<any>) => {
-      const inputCtx = mixer.inputContext!;
-      const source = inputCtx.createMediaStreamSource(mixer.stream!);
-      workletSourceRef.current = source;
-
-      const workletNode = new AudioWorkletNode(inputCtx, 'pcm-processor');
-      workletNodeRef.current = workletNode;
-
-      pcmFrameCountRef.current = 0;
-      pcmLogTimerRef.current = setInterval(() => {
-        console.log(`[PCM] ${pcmFrameCountRef.current} frames sent in last 10s (expected ~1250 at 16kHz/128-sample)`);
-        pcmFrameCountRef.current = 0;
-      }, 10_000);
-
-      workletNode.port.onmessage = (e: MessageEvent) => {
-        if (!sessionRef.current) return;
-        pcmFrameCountRef.current++;
-        const channelData = new Float32Array(e.data.channelData);
-        const pcmBlob = createPCMData(channelData);
-        sessionPromise
-          .then((session) => {
-            if (!sessionRef.current) return; // session may have closed during the await
-            session.sendRealtimeInput({ audio: pcmBlob });
-          })
-          .catch((err) => console.error('[PCM] Send error:', err));
+    if (onBotSpeaking) {
+      onBotSpeaking(true);
+      source.onended = () => {
+        if (scheduleTimeRef.current <= ctx.currentTime + 0.05) onBotSpeaking(false);
       };
+    }
+  }
 
-      source.connect(workletNode);
-      workletNode.connect(inputCtx.destination);
-    },
-    [mixer, createPCMData],
-  );
+  // ---------------------------------------------------------------------------
+  // Gemini message handler
+  // ---------------------------------------------------------------------------
 
-  /**
-   * Start a new live session.
-   *
-   * Sequence:
-   *   1. Start the audio mixer (mic + MediaRecorder)
-   *   2. Create a session document in Firestore
-   *   3. Connect to the Gemini Live API with the system instruction
-   *   4. Wire up audio streaming (mic → Gemini → speakers + archive)
-   */
+  async function handleServerMessage(msg: LiveServerMessage): Promise<void> {
+    // Audio output
+    if (msg.serverContent?.modelTurn?.parts) {
+      for (const part of msg.serverContent.modelTurn.parts) {
+        if (part.inlineData?.mimeType?.startsWith('audio/pcm')) {
+          const raw = atob(part.inlineData.data ?? '');
+          const bytes = new Uint8Array(raw.length);
+          for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+          playAudioChunk(bytes.buffer);
+        }
+      }
+    }
+
+    // Text output — accumulate into bot turn
+    if (msg.serverContent?.modelTurn?.parts) {
+      const textParts = msg.serverContent.modelTurn.parts
+        .filter((p) => p.text)
+        .map((p) => p.text!)
+        .join('');
+      if (textParts) {
+        setMessages((prev) => {
+          const last = prev[prev.length - 1];
+          if (last?.role === 'bot') {
+            return [...prev.slice(0, -1), { ...last, text: last.text + textParts }];
+          }
+          return [...prev, { id: crypto.randomUUID(), role: 'bot', text: textParts, timestamp: new Date() }];
+        });
+      }
+    }
+
+    // Turn complete — flush bot turn to transcript
+    if (msg.serverContent?.turnComplete) {
+      setMessages((prev) => {
+        const last = prev[prev.length - 1];
+        if (last?.role === 'bot' && last.text.trim()) {
+          appendToTranscript('bot', last.text.trim());
+        }
+        return prev;
+      });
+    }
+
+    // User speech (input transcription)
+    if (msg.serverContent?.inputTranscription?.text) {
+      const text = msg.serverContent.inputTranscription.text;
+      if (text.trim()) {
+        addMessage('user', text);
+        appendToTranscript('user', text);
+      }
+    }
+
+    // Function calls
+    if (msg.toolCall?.functionCalls?.length) {
+      for (const call of msg.toolCall.functionCalls) {
+        const name = call.name ?? '';
+        const args = (call.args ?? {}) as Record<string, unknown>;
+
+        if (name === 'endSession') {
+          onSessionEndRequest?.();
+          return;
+        }
+
+        let result = 'Tool executed.';
+        if (onToolCall) {
+          try {
+            result = await onToolCall(name, args);
+          } catch (err) {
+            result = `Tool error: ${String(err)}`;
+          }
+        }
+
+        addMessage('tool', `[${name}]`, { toolName: name, toolArgs: args });
+        appendToTranscript('tool', `[${name}]`, { toolName: name, toolArgs: args, toolResult: result.slice(0, 500) });
+
+        liveSessionRef.current?.sendToolResponse({
+          functionResponses: [{ id: call.id, name, response: { result } }],
+        });
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Session lifecycle
+  // ---------------------------------------------------------------------------
+
   const startSession = useCallback(async () => {
+    if (isRecording) return;
+    setError(null);
+    setMessages([]);
+    transcriptRef.current = [];
+    messageIndexRef.current = 0;
+
     try {
-      setStatus(ConnectionStatus.CONNECTING);
-      setMessages([]);
-      transcriptEntriesRef.current = [];
-      lastBotOutputRef.current = '';
-      setConnectivityWarning(null);
-      console.log(`[Session] Starting new session at ${new Date().toISOString()}`);
+      setConnectionStatus(ConnectionStatus.CONNECTING);
 
-      // 0. Connectivity check + session history fetch
-      let completedSessionCount = 0;
-      let previousSessionSummary: string | undefined;
-      let lastSessionDate: Date | undefined;
-      let recentSessionDates: Date[] = [];
-      const currentDateTime = new Date().toLocaleString(navigator.language, {
-        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-        dateStyle: 'full',
-        timeStyle: 'short',
-      } as Intl.DateTimeFormatOptions);
-      try {
-        const start = Date.now();
-        [completedSessionCount, previousSessionSummary, lastSessionDate, recentSessionDates] = await Promise.all([
-          Promise.race([
-            getCompletedSessionCount(familyId, dossierId),
-            new Promise<number>((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000)),
-          ]).catch(() => 0),
-          getPreviousSessionSummary(familyId, dossierId).catch(() => undefined),
-          getLastSessionDate(familyId, dossierId).catch(() => undefined),
-          getRecentSessionDates(familyId, dossierId).catch(() => [] as Date[]),
-        ]);
-        const latency = Date.now() - start;
-        console.log(`[Session] Firestore connectivity check: ${latency}ms`);
-        if (latency > 500) {
-          setConnectivityWarning(
-            `Your connection seems slow (${Math.round(latency)}ms latency). The session may experience interruptions.`,
-          );
-        }
-      } catch {
-        setConnectivityWarning(
-          'Network connectivity issue detected. The session may be unreliable — check your internet connection.',
-        );
-      }
-
-      // 1. Start audio mixer
-      await mixer.start();
-      console.log(`[Session] Audio mixer started`);
-
-      // 2. Create Firestore session
-      const sId = await createSession(familyId, dossierId, storytellerUid);
+      // Create Firestore session
+      const sId = await createSession(userId);
+      sessionRef.current = sId;
       setSessionId(sId);
-      sessionIdRef.current = sId;
-      sessionStartTimeRef.current = Date.now();
-      console.log(`[Session] Firestore session created: ${sId}`);
+      sessionStartRef.current = new Date();
 
-      // 3. Register PCM audio worklet
-      await mixer.inputContext!.audioWorklet.addModule('/pcm-processor.js');
-      console.log(`[Session] PCM AudioWorklet registered`);
+      // Start audio mixer (captures mic + bot audio for archival)
+      await mixer.start();
 
-      // 4. Connect to Gemini Live API
-      const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
-      const systemInstruction = buildSystemInstruction({
-        dossier,
-        questions,
-        familyTree,
-        promptPhotos,
-        completedSessionCount,
-        previousSessionSummary,
-        lastSessionDate,
-        preferredName: dossier.preferredName,
-        currentDateTime,
-        recentSessionDates,
-      });
+      // Reuse the mixer's playback AudioContext (24kHz) for bot audio scheduling
+      audioContextRef.current = mixer.playbackContext ?? new AudioContext({ sampleRate: 24000 });
+      scheduleTimeRef.current = 0;
 
-      const greetingTrigger = completedSessionCount === 0
-        ? `[First session with ${dossier.storytellerName}. Introduce yourself and begin the interview as instructed.]`
-        : `[Returning session #${completedSessionCount + 1} with ${dossier.storytellerName}. Welcome them back as instructed and continue the interview.]`;
+      // Connect to Gemini Live
+      const apiKey = import.meta.env.VITE_GEMINI_API_KEY as string;
+      const ai = new GoogleGenAI({ apiKey });
 
-      const sessionPromise = ai.live.connect({
+      const allTools = [
+        ...tools,
+        {
+          name: 'endSession',
+          description: 'End the voice session. Call this only when the user explicitly signals they want to stop.',
+          parameters: { type: Type.OBJECT, properties: {}, required: [] },
+        } as FunctionDeclaration,
+      ];
+
+      const liveSession = await ai.live.connect({
         model: GEMINI_MODEL,
+        config: {
+          systemInstruction: { parts: [{ text: systemInstruction }] },
+          responseModalities: [Modality.AUDIO, Modality.TEXT],
+          inputAudioTranscription: {},
+          thinkingConfig: { thinkingBudget: 0, includeThoughts: false },
+          tools: [{ functionDeclarations: allTools }],
+        },
         callbacks: {
-          onopen: () => {
-            console.log(`[Session] Gemini connection opened at ${new Date().toISOString()}`);
-            setStatus(ConnectionStatus.CONNECTED);
-            wireWorklet(sessionPromise);
-            // Gemini 3.1: use sendRealtimeInput for in-session text
-            // (sendClientContent is restricted to initial history seeding only)
-            sessionPromise.then((session) =>
-              session.sendRealtimeInput({ text: greetingTrigger }),
-            );
+          onmessage: (msg: LiveServerMessage) => { handleServerMessage(msg).catch(console.error); },
+          onerror: (err: ErrorEvent) => {
+            console.error('[Session] Gemini error:', err);
+            setError('Connection error — please try again.');
+            setConnectionStatus(ConnectionStatus.ERROR);
           },
-          onmessage: makeMessageHandler(),
-          onerror: (error: any) => {
-            const duration = Math.round((Date.now() - sessionStartTimeRef.current) / 1000);
-            console.error(`[Session] Gemini connection error at ${new Date().toISOString()} (${duration}s into session):`, {
-              type: (error as any)?.type,
-              message: error?.message ?? String(error),
-              error,
-            });
-            disconnectWorklet();
-            sessionRef.current = null;
-            setStatus(ConnectionStatus.ERROR);
-          },
-          onclose: (event?: any) => {
-            const duration = Math.round((Date.now() - sessionStartTimeRef.current) / 1000);
-            const code = event?.code ?? 'unknown';
-            const reason = event?.reason ? `"${event.reason}"` : '(no reason)';
-            const wasClean = event?.wasClean ?? 'unknown';
-            console.log(`[Session] Gemini connection closed at ${new Date().toISOString()} — code=${code} reason=${reason} wasClean=${wasClean} duration=${duration}s`);
-            disconnectWorklet();
-            if (sessionRef.current !== null) {
-              sessionRef.current = null;
-              setStatus(ConnectionStatus.ERROR);
+          onclose: () => {
+            if (connectionStatus === ConnectionStatus.CONNECTED) {
+              setConnectionStatus(ConnectionStatus.DISCONNECTED);
             }
           },
         },
-        config: {
-          responseModalities: [Modality.AUDIO],
-          thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL },
-          systemInstruction,
-          speechConfig: {
-            voiceConfig: {
-              prebuiltVoiceConfig: { voiceName: dossier.selectedVoice },
-            },
-          },
-          tools: [{ functionDeclarations: buildTools() }],
-          inputAudioTranscription: {},
-          outputAudioTranscription: {},
-        },
       });
 
-      sessionRef.current = await sessionPromise;
-      console.log(`[Session] Session ready, sessionRef set`);
-    } catch (err: any) {
+      liveSessionRef.current = liveSession;
+      setConnectionStatus(ConnectionStatus.CONNECTED);
+      setIsRecording(true);
+
+      // Start streaming microphone PCM to Gemini via AudioWorklet
+      const inputCtx = mixer.inputContext!;
+      const micStream = mixer.stream!;
+      const source = inputCtx.createMediaStreamSource(micStream);
+      await inputCtx.audioWorklet.addModule('/pcm-processor.js');
+      const worklet = new AudioWorkletNode(inputCtx, 'pcm-processor');
+      source.connect(worklet);
+
+      worklet.port.onmessage = (e: MessageEvent<Float32Array>) => {
+        if (!liveSessionRef.current) return;
+        // Convert Float32 samples to Int16, then to Uint8Array for base64 encoding
+        const float32 = e.data;
+        const int16 = new Int16Array(float32.length);
+        for (let i = 0; i < float32.length; i++) {
+          int16[i] = Math.max(-32768, Math.min(32767, float32[i] * 32768));
+        }
+        const pcm16 = encode(new Uint8Array(int16.buffer));
+        liveSessionRef.current.sendRealtimeInput({
+          audio: { data: pcm16, mimeType: 'audio/pcm;rate=16000' },
+        });
+      };
+    } catch (err) {
       console.error('[Session] Start error:', err);
-      if (err.name === 'NoMicrophoneError' || err.name === 'NotFoundError' || err.name === 'NotAllowedError' || err.message?.includes('microphone')) {
-        setDeviceError(err.message);
-      }
-
-      const orphanedSid = sessionIdRef.current;
-      if (orphanedSid) {
-        finalizeSession(familyId, dossierId, orphanedSid, 'interrupted', 0).catch(() => {});
-        sessionIdRef.current = null;
-        setSessionId(null);
-      }
-
-      mixer.stop().catch(() => {});
-      disconnectWorklet();
-      setStatus(ConnectionStatus.ERROR);
+      setError(`Failed to start session: ${String(err)}`);
+      setConnectionStatus(ConnectionStatus.ERROR);
     }
-  }, [familyId, dossierId, storytellerUid, dossier, questions, familyTree, promptPhotos, mixer, makeMessageHandler, wireWorklet, disconnectWorklet, buildTools, onQuestionUpdate, onShowPhoto, status]);
+  }, [isRecording, userId, systemInstruction, tools, mixer, onToolCall, onSessionEndRequest]);
 
-  /**
-   * Reconnect to Gemini after an unexpected disconnect WITHOUT starting a new session.
-   *
-   * Unlike startSession, this function:
-   *   - Keeps the existing Firestore session ID (no new doc created)
-   *   - Preserves the in-memory transcript (messages state not reset)
-   *   - Restarts the audio pipeline (fresh AudioContexts to avoid stale state)
-   *   - Primes Gemini with the recent conversation so the interview continues naturally
-   */
-  const reconnectSession = useCallback(async () => {
-    const existingSessionId = sessionIdRef.current;
-    const duration = Math.round((Date.now() - sessionStartTimeRef.current) / 1000);
-    console.log(`[Session] Reconnecting at ${new Date().toISOString()} — reusing session ${existingSessionId}, ${transcriptEntriesRef.current.length} transcript entries, session was ${duration}s old`);
-
-    disconnectWorklet();
+  const stopSession = useCallback(async () => {
+    if (!isRecording) return;
+    setIsRecording(false);
+    setConnectionStatus(ConnectionStatus.DISCONNECTED);
 
     try {
-      setStatus(ConnectionStatus.CONNECTING);
+      liveSessionRef.current?.close();
+      liveSessionRef.current = null;
 
-      if (currentInputRef.current.trim()) {
-        addMessage('user', currentInputRef.current);
-        currentInputRef.current = '';
-      }
-      if (currentOutputRef.current.trim()) {
-        addMessage('bot', currentOutputRef.current);
-        currentOutputRef.current = '';
-      }
+      audioContextRef.current = null;
 
-      // Stop old audio contexts and start fresh ones.
-      const partialBlob = await mixer.stop().catch((err) => {
-        console.warn('[Session] Mixer stop error during reconnect:', err);
-        return null;
-      });
-      if (partialBlob && existingSessionId) {
-        console.log(`[Session] Uploading partial audio before reconnect (${partialBlob.size} bytes)`);
-        archiveAudioToGCS(partialBlob, familyId, dossierId, existingSessionId)
-          .catch((err) => console.error('[Session] Partial audio upload error during reconnect:', err));
+      const audioBlob = await mixer.stop();
+      const duration = sessionStartRef.current
+        ? Math.round((Date.now() - sessionStartRef.current.getTime()) / 1000)
+        : 0;
+
+      let audioUrl: string | undefined;
+      if (audioBlob && sessionRef.current) {
+        try {
+          audioUrl = await archiveAudioToGCS(audioBlob, userId, sessionRef.current);
+        } catch (err) {
+          console.error('[Session] Audio upload failed:', err);
+        }
       }
 
-      await mixer.start();
-      await mixer.inputContext!.audioWorklet.addModule('/pcm-processor.js');
-      console.log(`[Session] Audio pipeline restarted for reconnect`);
-
-      // Build context for Gemini: recent transcript + instruction to acknowledge the
-      // interruption briefly before recapping, so the conversation sounds natural.
-      const recentEntries = transcriptEntriesRef.current.slice(-20);
-      const recentContext = recentEntries
-        .map((e) => `${e.role === 'user' ? dossier.storytellerName : 'Interviewer'}: ${e.text}`)
-        .join('\n');
-      const resumePrompt = recentContext
-        ? `[Technical note for the AI: a brief network interruption occurred and the connection has been restored.
-
-IMPORTANT — do the following in your very next spoken response:
-1. Briefly and warmly acknowledge the glitch in one short, casual sentence (e.g. "Oops — looks like we had a little connection hiccup there!" or "Oh, pardon the brief interruption!").
-2. Immediately recap the specific topic or moment you were discussing just before it cut out, so ${dossier.storytellerName} knows you're right back where you left off (e.g. "We were just talking about…").
-3. Then continue the interview naturally.
-
-Keep the acknowledgement light — do not dwell on it.
-
-Here is the conversation just before the interruption for context:
-${recentContext}]`
-        : `[Technical note for the AI: a brief network interruption occurred and the connection has been restored. Briefly and warmly acknowledge the glitch in one casual sentence, then invite ${dossier.storytellerName} to continue sharing their story.]`;
-
-      const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
-      const systemInstruction = buildSystemInstruction({
-        dossier,
-        questions,
-        familyTree,
-        promptPhotos,
-        completedSessionCount: 0, // Not fetching history on reconnect — transcript context is provided instead
-        preferredName: dossier.preferredName,
-      });
-
-      const sessionPromise = ai.live.connect({
-        model: GEMINI_MODEL,
-        callbacks: {
-          onopen: () => {
-            console.log(`[Session] Reconnected to Gemini at ${new Date().toISOString()}`);
-            setStatus(ConnectionStatus.CONNECTED);
-            wireWorklet(sessionPromise);
-            if (existingSessionId) {
-              sessionIdRef.current = existingSessionId;
-              setSessionId(existingSessionId);
-            }
-            sessionPromise.then((session) =>
-              session.sendRealtimeInput({ text: resumePrompt }),
-            );
-          },
-          onmessage: makeMessageHandler(),
-          onerror: (error: any) => {
-            const elapsed = Math.round((Date.now() - sessionStartTimeRef.current) / 1000);
-            console.error(`[Session] Connection error during reconnect at ${new Date().toISOString()} (${elapsed}s):`, {
-              type: (error as any)?.type,
-              message: error?.message ?? String(error),
-              error,
-            });
-            disconnectWorklet();
-            sessionRef.current = null;
-            setStatus(ConnectionStatus.ERROR);
-          },
-          onclose: (event?: any) => {
-            const elapsed = Math.round((Date.now() - sessionStartTimeRef.current) / 1000);
-            const code = event?.code ?? 'unknown';
-            const reason = event?.reason ? `"${event.reason}"` : '(no reason)';
-            const wasClean = event?.wasClean ?? 'unknown';
-            console.log(`[Session] Reconnect connection closed — code=${code} reason=${reason} wasClean=${wasClean} elapsed=${elapsed}s`);
-            disconnectWorklet();
-            if (sessionRef.current !== null) {
-              sessionRef.current = null;
-              setStatus(ConnectionStatus.ERROR);
-            }
-          },
-        },
-        config: {
-          responseModalities: [Modality.AUDIO],
-          thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL },
-          systemInstruction,
-          speechConfig: {
-            voiceConfig: {
-              prebuiltVoiceConfig: { voiceName: dossier.selectedVoice },
-            },
-          },
-          tools: [{ functionDeclarations: buildTools() }],
-          inputAudioTranscription: {},
-          outputAudioTranscription: {},
-        },
-      });
-
-      sessionRef.current = await sessionPromise;
-      console.log(`[Session] Reconnect complete, session ready`);
+      if (sessionRef.current) {
+        await finalizeSession(sessionRef.current, 'completed', duration, audioUrl);
+      }
     } catch (err) {
-      console.error('[Session] Reconnect failed:', err);
-      setStatus(ConnectionStatus.ERROR);
-    }
-  }, [familyId, dossierId, dossier, questions, familyTree, promptPhotos, mixer, addMessage, makeMessageHandler, wireWorklet, disconnectWorklet, buildTools]);
-
-  /**
-   * Flush partial session data on error (for explicit give-up, not auto-reconnect).
-   * Marks the session as 'interrupted' in Firestore and archives whatever audio
-   * was captured. Call this when the user chooses to end a failed session.
-   */
-  const flushPartialSession = useCallback(async () => {
-    console.log(`[Session] Flushing partial session ${sessionIdRef.current}`);
-
-    if (currentInputRef.current) {
-      addMessage('user', currentInputRef.current);
-      currentInputRef.current = '';
-    }
-    if (currentOutputRef.current) {
-      addMessage('bot', currentOutputRef.current);
-      currentOutputRef.current = '';
-    }
-
-    const partialBlob = mixer.flush();
-    const durationSeconds = Math.round((Date.now() - sessionStartTimeRef.current) / 1000);
-    const currentSessionId = sessionIdRef.current;
-
-    if (currentSessionId) {
-      if (transcriptEntriesRef.current.length > 0) {
-        try {
-          await syncTranscriptToFirestore(familyId, dossierId, currentSessionId, [...transcriptEntriesRef.current]);
-        } catch (err) {
-          console.error('[Firestore] Final transcript sync error:', err);
-        }
-      }
-
-      if (partialBlob) {
-        try {
-          const audioUrl = await archiveAudioToGCS(partialBlob, familyId, dossierId, currentSessionId);
-          await finalizeSession(familyId, dossierId, currentSessionId, 'interrupted', durationSeconds, audioUrl);
-        } catch (err) {
-          console.error('[Session] Partial archive error:', err);
-          await finalizeSession(familyId, dossierId, currentSessionId, 'interrupted', durationSeconds).catch(() => {});
-        }
-      } else {
-        await finalizeSession(familyId, dossierId, currentSessionId, 'interrupted', durationSeconds).catch(() => {});
+      console.error('[Session] Stop error:', err);
+      if (sessionRef.current) {
+        await finalizeSession(sessionRef.current, 'interrupted', 0).catch(console.error);
       }
     }
-  }, [familyId, dossierId, mixer, addMessage]);
-
-  const clearDeviceError = useCallback(() => {
-    setDeviceError(null);
-    setStatus(ConnectionStatus.DISCONNECTED);
-  }, []);
-
-  const dismissConnectivityWarning = useCallback(() => {
-    setConnectivityWarning(null);
-  }, []);
+  }, [isRecording, userId, mixer]);
 
   return {
-    status,
     messages,
-    isBotSpeaking,
-    sessionId,
-    deviceError,
-    connectivityWarning,
-    clearDeviceError,
-    dismissConnectivityWarning,
+    connectionStatus,
     startSession,
-    reconnectSession,
     stopSession,
-    flushPartialSession,
+    isRecording,
+    sessionId,
+    error,
   };
 }

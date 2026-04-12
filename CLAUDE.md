@@ -1,4 +1,4 @@
-# LegacyBot — Claude Code Instructions
+# VoiceCommon — Claude Code Instructions
 
 ## After any material change
 
@@ -11,7 +11,6 @@ Before considering a task complete, ensure all of the following are done:
 2. **Docs** — update `design.md` if architecture, data model, or data flow changed
 3. **Commit** — commit all changed files with a descriptive message
 4. **Push** — push to `origin/main`
-5. **Issues** — close the relevant GitHub issue(s) with a comment referencing the commit
 
 ## Dev commands
 
@@ -27,11 +26,18 @@ firebase deploy --only firestore:rules,storage
 
 ## Architecture notes
 
-### Firebase Auth custom claims (`familyIds`)
-Storage security rules cannot query Firestore. Family membership is propagated into the Firebase Auth token as a `familyIds: string[]` custom claim, set by the `onMemberWritten` Cloud Function (Firestore trigger on `families/{familyId}/members/{memberId}`). Clients must call `user.getIdToken(true)` after joining a family before accessing Cloud Storage.
+### Flat session data model
+Sessions are stored at `sessions/{sessionId}` — a flat top-level collection keyed on the Firestore-generated session ID. Access control is by `userId` field. Transcripts are stored as a subcollection at `sessions/{sessionId}/transcript/entries`.
 
-### Story Queue is the source of truth for questions
-`saveGapAnalysis()` in `functions/src/analysis.ts` writes AI-generated questions directly into the `questions` subcollection (with `source: 'gapAnalysis'`). The Story Queue UI reads from `questions`, not from `analysis/gapAnalysis`. Stale Unasked gap questions are deleted before new ones are written.
+### Audio archival path
+Session audio is stored in Cloud Storage at `sessions/{userId}/{sessionId}.webm`. Storage rules enforce that only the owning user can read or write.
+
+### Tool integrations
+Built-in tools live in `src/services/tools/`. Each module exports:
+- A `FunctionDeclaration` compatible with the Gemini Live API
+- An async implementation function
+
+Register tools via `allTools` from `src/services/gemini.ts`, or compose a custom subset.
 
 ### ESLint config
 Flat config (`eslint.config.js`). Notable intentional rule overrides:

@@ -13,19 +13,12 @@
 // limitations under the License.
 
 /**
- * Core type definitions for LegacyBot.
+ * Core type definitions for VoiceCommon.
  *
- * These interfaces mirror the Firestore data model:
- *
- *   families/{familyId}                                        → Family
- *   families/{familyId}/members/{uid}                          → FamilyMemberRecord
- *   families/{familyId}/dossiers/{dossierId}                   → Dossier
- *   families/{familyId}/dossiers/{dossierId}/questions/{qId}   → InterviewQuestion
- *   families/{familyId}/dossiers/{dossierId}/sessions/{sId}    → SessionMetadata
- *   .../sessions/{sId}/transcript (single doc)                 → TranscriptEntry[]
- *   families/{familyId}/dossiers/{dossierId}/miscFacts/{fId}   → MiscFact
- *   users/{uid}                                                → UserProfile
- *   invitations/{inviteId}                                     → Invitation
+ * Firestore data model:
+ *   users/{uid}                                     → UserProfile
+ *   sessions/{sessionId}                            → SessionMetadata
+ *   sessions/{sessionId}/transcript/entries         → { entries: TranscriptEntry[] }
  */
 
 import { Timestamp } from 'firebase/firestore';
@@ -39,136 +32,7 @@ export interface UserProfile {
   email: string;
   displayName: string;
   createdAt: Timestamp;
-  familyIds: string[];
-}
-
-// ---------------------------------------------------------------------------
-// Family & Roles
-// ---------------------------------------------------------------------------
-
-/** Valid roles within a family. A member can have both roles. */
-export type UserRole = 'admin' | 'storyteller';
-
-/** Firestore document at families/{familyId}. */
-export interface Family {
-  id?: string;
-  name: string;
-  familyTree: FamilyMember[];
-  createdAt: Timestamp;
-  createdBy: string; // uid of the creator
-}
-
-/**
- * Firestore document at families/{familyId}/members/{uid}.
- * Named FamilyMemberRecord to avoid clash with the FamilyMember type (family tree).
- */
-export interface FamilyMemberRecord {
-  roles: UserRole[];
-  email: string;
-  displayName: string;
-  joinedAt: Timestamp;
-  invitedBy: string; // uid of who invited them
-  notifyOnSessionComplete?: boolean; // opt-in email when storyteller completes a session
-}
-
-// ---------------------------------------------------------------------------
-// Invitations
-// ---------------------------------------------------------------------------
-
-export type InvitationStatus = 'pending' | 'accepted';
-
-/** Firestore document at invitations/{inviteId}. */
-export interface Invitation {
-  id?: string;
-  familyId: string;
-  email: string; // lowercased
-  roles: UserRole[];
-  dossierIds: string[]; // dossiers to link if storyteller
-  invitedBy: string; // uid
-  status: InvitationStatus;
-  createdAt: Timestamp;
-}
-
-// ---------------------------------------------------------------------------
-// Dossier & Storyteller
-// ---------------------------------------------------------------------------
-
-/** Valid relationship types in the family tree. */
-export type RelationType =
-  | 'Parent'
-  | 'Spouse'
-  | 'Child'
-  | 'Sibling'
-  | 'Friend'
-  | 'Pet Owner'
-  | 'Pet';
-
-/** Type of family tree member (person or pet). */
-export type MemberType = 'person' | 'pet';
-
-/**
- * A single entry in the family tree (relational model).
- * Each member can have relationships to other members.
- * Supports people, pets, and friends.
- */
-export interface FamilyMember {
-  id: string; // unique ID for this family tree entry
-  name: string; // legacy single-name field; prefer firstName + lastName
-  firstName?: string;
-  lastName?: string;
-  linkedMemberUid?: string; // optional link to actual family member account
-  relations: Array<{
-    type: RelationType;
-    toMemberId: string; // references another FamilyMember.id
-  }>;
-  notes?: string;
-  memberType: MemberType; // 'person' or 'pet'
-}
-
-/** The three interviewer personality modes the Archivist can choose from. */
-export type PersonalityMode = 'empathetic' | 'investigative' | 'casual';
-
-/** Available Gemini voice presets. */
-export type VoicePreset = 'Kore' | 'Puck' | 'Charon' | 'Fenrir' | 'Zephyr';
-
-/**
- * Firestore document at families/{familyId}/dossiers/{dossierId}.
- * Represents the complete context for interviewing one Storyteller.
- */
-export interface Dossier {
-  id?: string; // Firestore document ID (set on read, not stored in doc)
-  storytellerUid: string | null; // linked family member uid, or null if unlinked
-  storytellerName: string; // Required — the bot greets them by name
-  preferredName?: string; // How the storyteller prefers to be addressed (pre-set by archivist or confirmed by AI during session)
-  storytellerContext: string; // Free-text bio, background, etc.
-  historicalContext: string;
-  familyTree: FamilyMember[];
-  selectedVoice: VoicePreset;
-  personality: PersonalityMode;
-  interviewerNotes: string; // admin instructions for the AI interviewer
-  createdAt: Timestamp;
-  updatedAt: Timestamp;
-}
-
-// ---------------------------------------------------------------------------
-// Story Queue (Questions)
-// ---------------------------------------------------------------------------
-
-/** Tracks whether a question has been asked, is being explored, or is done. */
-export type QuestionStatus = 'Unasked' | 'InProgress' | 'Completed';
-
-/**
- * Firestore document at users/{uid}/dossiers/{dossierId}/questions/{questionId}.
- * Each question represents a topic in the Archivist's "Story Queue."
- */
-export interface InterviewQuestion {
-  id?: string; // Firestore document ID
-  text: string;
-  status: QuestionStatus;
-  findings: string; // AI-generated summary of what has been learned
-  order: number; // Controls display order in the queue
-  createdAt: Timestamp;
-  updatedAt: Timestamp;
+  timezone?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -179,195 +43,34 @@ export interface InterviewQuestion {
 export type SessionStatus = 'active' | 'completed' | 'interrupted';
 
 /**
- * Firestore document at families/{familyId}/dossiers/{dossierId}/sessions/{sessionId}.
- * Tracks metadata for a single recording session.
+ * Firestore document at sessions/{sessionId}.
+ * Tracks metadata for a single voice session.
  */
 export interface SessionMetadata {
-  id?: string; // Firestore document ID
-  storytellerUid: string; // who conducted the session
+  id?: string;
+  userId: string;
+  title?: string;            // Optional user-provided or auto-generated title
   startTime: Timestamp;
   endTime: Timestamp | null;
-  audioUrl: string; // GCS download URL, set after upload
+  audioUrl: string;          // GCS download URL, set after upload
   status: SessionStatus;
   durationSeconds: number;
-}
-
-/** A single version record in a message's edit history. */
-export interface TranscriptEditHistoryEntry {
-  text: string;         // text after this edit was applied
-  editedBy: string;     // uid of the editor
-  editedByName: string; // display name of the editor
-  editedAt: Timestamp;
 }
 
 /** A single turn in the conversation transcript. */
 export interface TranscriptEntry {
   role: 'user' | 'bot' | 'tool';
-  text: string;         // current (display) text
-  cleanText?: string;   // AI-cleaned version (corrected transcription errors, removed fillers)
+  text: string;
   timestamp: Timestamp;
-  messageIndex?: number;   // 0-based position in the session transcript
-  originalText?: string;   // original AI transcription, set on first edit
-  editHistory?: TranscriptEditHistoryEntry[]; // ordered list of edits
+  messageIndex?: number;     // 0-based position in the session transcript
   /** Tool call metadata — present when role === 'tool'. */
   toolName?: string;
   toolArgs?: Record<string, unknown>;
-  toolResult?: string;  // truncated result for audit purposes
+  toolResult?: string;       // truncated result for audit purposes
 }
 
 // ---------------------------------------------------------------------------
-// Events (extracted from transcripts — #35)
-// ---------------------------------------------------------------------------
-
-/** Firestore document at families/{familyId}/dossiers/{dossierId}/events/{eventId}. */
-export interface StoryEvent {
-  id?: string;
-  title: string;
-  description: string;
-  date: string | null; // ISO date or fuzzy ("summer 1962", "early 1970s")
-  datePrecision: 'exact' | 'month' | 'year' | 'decade' | 'approximate';
-  location: string | null;
-  themes: string[];
-  people: string[];
-  sources: EventSource[];
-  createdAt: Timestamp;
-  updatedAt: Timestamp;
-}
-
-export interface EventSource {
-  sessionId: string;
-  entryIndices: number[];
-  audioTimestamp?: number;
-}
-
-// ---------------------------------------------------------------------------
-// Engagement Assessment (#45)
-// ---------------------------------------------------------------------------
-
-/** Firestore document at .../sessions/{sessionId}/analysis/engagement. */
-export interface SessionEngagement {
-  speakingRatio: number; // 0-1, storyteller's share of words
-  avgResponseLength: number; // average words per storyteller turn
-  topicEngagement: Record<string, number>; // per-question engagement score 0-100
-  sentiment: 'positive' | 'neutral' | 'guarded' | 'distressed';
-  comfortScore: number; // 0-100 composite score
-  flags: string[]; // e.g. "topic_avoidance:military", "short_responses"
-  analyzedAt: Timestamp;
-}
-
-// ---------------------------------------------------------------------------
-// Events (Phase 3)
-// ---------------------------------------------------------------------------
-
-/**
- * Firestore document at families/{familyId}/events/{eventId}.
- * Events are independent entities that can be referenced from multiple
- * sessions and tagged by multiple storytellers.
- */
-export interface FamilyEvent {
-  id?: string; // Firestore document ID
-  familyId: string;
-  title: string; // e.g., "Marriage of Ralph and Margaret"
-  date?: string; // flexible format: "June 15, 1952" or "Summer 1952"
-  description: string;
-  storytellerUids: string[]; // storytellers who mentioned this event
-  sessionIds: string[]; // sessions where this event was discussed
-  messageReferences?: Array<{ sessionId: string; dossierId: string; messageIndex: number }>; // specific messages that mention this event
-  createdAt: Timestamp;
-  updatedAt: Timestamp;
-  createdBy: string; // uid of admin who created it
-}
-
-// ---------------------------------------------------------------------------
-// AI-Suggested Questions (#41)
-// ---------------------------------------------------------------------------
-
-export interface SuggestedQuestion {
-  text: string;
-  rationale: string;
-}
-
-// ---------------------------------------------------------------------------
-// Memoir (#36)
-// ---------------------------------------------------------------------------
-
-/** Firestore document at families/{familyId}/dossiers/{dossierId}/memoirs/{memoirId}. */
-export interface Memoir {
-  id?: string;
-  title: string;
-  status: 'generating' | 'draft' | 'review' | 'published';
-  generatedBy: string; // uid of admin who triggered generation
-  chapters: MemoirChapter[];
-  createdAt: Timestamp;
-  updatedAt: Timestamp;
-}
-
-export interface MemoirChapter {
-  title: string;
-  content: string; // markdown
-  eventIds: string[];
-  citations: ChapterCitation[];
-  order: number;
-}
-
-export interface ChapterCitation {
-  sessionId: string;
-  entryIndex: number;
-  quote: string;
-}
-
-// ---------------------------------------------------------------------------
-// Media Attachments (#39)
-// ---------------------------------------------------------------------------
-
-/** Firestore document at families/{familyId}/dossiers/{dossierId}/media/{mediaId}. */
-export interface MediaItem {
-  id?: string;
-  filename: string;
-  storageUrl: string; // Firebase Storage download URL
-  thumbnailUrl?: string;
-  mimeType: string;
-  sizeBytes: number;
-  caption: string;
-  date: string | null; // ISO date or fuzzy
-  people: string[];
-  eventIds: string[]; // linked StoryEvent IDs
-  uploadedBy: string; // uid
-  createdAt: Timestamp;
-}
-
-// ---------------------------------------------------------------------------
-// Prompt Photos (#54)
-// ---------------------------------------------------------------------------
-
-/** Firestore document at families/{familyId}/dossiers/{dossierId}/promptPhotos/{photoId}. */
-export interface PromptPhoto {
-  id?: string;
-  storageUrl: string; // Firebase Storage download URL
-  caption: string; // Leading question or caption for the bot to use
-  uploadedBy: string; // uid
-  createdAt: Timestamp;
-}
-
-// ---------------------------------------------------------------------------
-// Audio Clips (#42)
-// ---------------------------------------------------------------------------
-
-/** Firestore document at families/{familyId}/dossiers/{dossierId}/clips/{clipId}. */
-export interface AudioClip {
-  id?: string;
-  sessionId: string;
-  title: string;
-  startSeconds: number;
-  endSeconds: number;
-  clipUrl: string; // Firebase Storage download URL for the extracted clip
-  eventIds: string[]; // linked StoryEvent IDs
-  createdBy: string; // uid
-  createdAt: Timestamp;
-}
-
-// ---------------------------------------------------------------------------
-// Message (used by the live UI — not directly persisted as-is)
+// In-memory message (live session UI)
 // ---------------------------------------------------------------------------
 
 /** In-memory message for the live transcript feed during a session. */
@@ -376,31 +79,8 @@ export interface Message {
   role: 'user' | 'bot' | 'tool';
   text: string;
   timestamp: Date;
-  /** Tool call metadata — present when role === 'tool'. */
   toolName?: string;
   toolArgs?: Record<string, unknown>;
-}
-
-// ---------------------------------------------------------------------------
-// Miscellaneous Facts (#95 — Talk About My Family)
-// ---------------------------------------------------------------------------
-
-/**
- * Firestore document at families/{familyId}/dossiers/{dossierId}/miscFacts/{factId}.
- *
- * Captured during a "Talk About My Family" conversation when the AI learns
- * something new or hears a correction to information from prior sessions.
- * These are not part of any session transcript — the talk conversation itself
- * is not recorded — but interesting facts can be saved here for future
- * reconciliation and reference.
- */
-export interface MiscFact {
-  id?: string;               // Firestore document ID (set on read, not stored in doc)
-  text: string;              // The fact or correction, as noted by the AI
-  isCorrection: boolean;     // True if this fact amends something from prior sessions
-  correctionNote?: string;   // What the fact corrects (e.g. "birth year was 1934, not 1936")
-  source: 'talk';            // Origin — always 'talk' for now
-  createdAt: Timestamp;
 }
 
 // ---------------------------------------------------------------------------

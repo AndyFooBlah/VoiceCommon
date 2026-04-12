@@ -1,316 +1,204 @@
-# LegacyBot
+# VoiceCommon
 
-> **Public name:** This app is publicly branded as **BiographyBot** and hosted at [biographybot.com](https://biographybot.com). The GitHub repository and internal codebase retain the name "LegacyBot" for historical continuity.
+A reusable framework for building voice AI web applications powered by Google Gemini Live and Firebase.
 
-A voice-first life story preservation app that helps families capture and archive the stories of their loved ones. BiographyBot uses the Google Gemini Live API to conduct empathetic, real-time voice interviews with storytellers, automatically transcribing and organizing their narratives.
-
-## How It Works
-
-1. **Create a Dossier** — Set up a storyteller profile with their name, background context, family tree, and a queue of interview questions.
-2. **Start a Session** — BiographyBot greets the storyteller by name and guides the conversation using the question queue, adapting naturally to wherever the story leads.
-3. **Review History** — Browse past sessions, read transcripts, listen to archived audio, and track question progress across interviews.
-
-## Key Features
-
-- Real-time voice conversation powered by Google Gemini Live API
-- Two user roles: **Archivist** (sets up dossiers, reviews sessions) and **Storyteller** (voice-only interview access)
-- Three interviewer personalities: empathetic, investigative, casual
-- Automatic question tracking with status updates via Gemini function calling
-- Audio archival in WebM/Opus format to Firebase Cloud Storage
-- Live transcript display during sessions
-- Per-message transcript editing with full edit history for both Archivists and Storytellers
-- Session history with audio playback, transcript review, and audio clip creation
-- Relational family tree with friends and pets, GEDCOM import
-- Events timeline — life events extracted from transcripts and linked to source messages
-- AI-generated memoirs from session transcripts, exported as PDF
-- Post-session engagement analysis and suggested follow-up questions
-- Media gallery for photos and documents
-- Family-based access control via Firebase Auth with invitation workflow
-- Partial session recovery (audio chunks saved every 10 seconds)
-
-## Tech Stack
-
-- **Frontend**: React 19, TypeScript, Vite 6, Tailwind CSS v4, React Router v7
-- **AI**: Google Gemini Live API (`@google/genai`)
-- **Backend**: Firebase (Authentication, Firestore, Cloud Storage, Cloud Functions)
-- **Audio**: Web Audio API, MediaRecorder API
-- **Testing**: Vitest, React Testing Library, jsdom
-
-## Project Structure
-
-```
-src/
-├── components/
-│   ├── auth/          # LoginScreen, AcceptInvite
-│   ├── dossier/       # DossierList, DossierEditor, StorytellerProfile
-│   ├── family/        # FamilyHome, FamilyPage, FamilySelector, FamilyEventDetail, InviteMember, MemberManagement
-│   ├── history/       # SessionList, TranscriptViewer, AudioPlayer, QuestionDashboard, EventsTimeline
-│   ├── media/         # MediaGallery
-│   ├── memoir/        # MemoirViewer
-│   ├── session/       # SessionView, TranscriptFeed, Visualizer
-│   ├── shared/        # Layout, ErrorBoundary, Logo
-│   └── storyteller/   # StorytellerDashboard
-├── hooks/             # useAuth, useFamily, useDossier, useSession, useAudioMixer, useEvents, useInvitations
-├── services/          # firebase, gemini, storage, audioUtils, memoirExport, postSessionAnalysis, gedcomParser, invitations, adminActions
-├── types.ts           # TypeScript interfaces
-└── App.tsx            # Router setup (11 routes)
-```
-
-## Documentation
-
-- [Product Requirements](product_requirements.md) — functional requirements, user stories, and UX goals
-- [Design Document](design.md) — architecture, data model, security rules, testing strategy, and roadmap
-
-## Getting Started
-
-### Prerequisites
-
-- Node.js 18+
-- A Firebase project with Authentication, Firestore, and Cloud Storage enabled
-- A Google Gemini API key
-
-### Setup
-
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/AndyFooBlah/LegacyBot.git
-   cd LegacyBot
-   ```
-
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
-
-3. Create your environment and Firebase config files:
-   ```bash
-   cp .env.example .env.local
-   cp .firebaserc.example .firebaserc
-   ```
-
-4. Fill in your Firebase, Gemini, and Maps credentials in `.env.local`, and your Firebase project ID in `.firebaserc`:
-   ```
-   VITE_FIREBASE_API_KEY=...
-   VITE_FIREBASE_AUTH_DOMAIN=...
-   VITE_FIREBASE_PROJECT_ID=...
-   VITE_FIREBASE_STORAGE_BUCKET=...
-   VITE_FIREBASE_MESSAGING_SENDER_ID=...
-   VITE_FIREBASE_APP_ID=...
-   VITE_GEMINI_API_KEY=...
-   VITE_GOOGLE_MAPS_API_KEY=...   # optional — enables Places, Distance, and Weather tools
-   ```
-   The Maps key requires the **Geocoding API** and **Maps Weather API** to be enabled on your Google Cloud project. Without it, the AI's geographic and weather tool calls will return a "not configured" message rather than real data. See [Prerequisites](#prerequisites) and the "Client-side API keys" section below for setup and security guidance.
-
-5. Deploy Firestore and Storage security rules to your Firebase project:
-   ```bash
-   firebase deploy --only firestore:rules,storage
-   ```
-
-6. Start the dev server:
-   ```bash
-   npm run dev
-   ```
-
-### Cloud Functions setup (email features)
-
-Invitation emails, session-complete notifications, and re-engagement digest emails are sent by Firebase Cloud Functions. The frontend works without this, but invitations and email nudges will be silent no-ops until it's configured.
-
-#### 1. Set SMTP environment variables
-
-Copy the example file and fill in your provider's details:
-
-```bash
-cp functions/.env.example functions/.env
-# edit functions/.env with your SMTP_HOST, SMTP_PORT, SMTP_USER, and APP_URL
-```
-
-Three providers are supported out of the box — pick one:
-
-| Provider | `SMTP_HOST` | `SMTP_PORT` | `SMTP_USER` | Notes |
-|----------|------------|------------|------------|-------|
-| **Gmail** | `smtp.gmail.com` | `587` | `you@gmail.com` | Requires an [App Password](https://myaccount.google.com/apppasswords) (2-Step Verification must be on) |
-| **Resend** *(recommended)* | `smtp.resend.com` | `587` | `resend` | Free tier covers most solo/team use; verify your sending domain at resend.com |
-| **iCloud Mail** | `smtp.mail.me.com` | `587` | `you@icloud.com` | Requires an [app-specific password](https://appleid.apple.com) |
-
-#### 2. Store the password as a Firebase secret
-
-`SMTP_PASS` must be stored as a Firebase secret, **not** in `functions/.env`:
-
-```bash
-firebase functions:secrets:set SMTP_PASS
-# paste your App Password / API key / app-specific password when prompted
-```
-
-#### 3. Deploy the functions
-
-```bash
-firebase deploy --only functions
-```
-
-> **Development note:** If SMTP is not configured, functions that send email log a warning and return without error — no crash, no data loss. You can develop and test locally without email configured.
-
-### Running Tests
-
-```bash
-npm test            # single run
-npm run test:watch  # watch mode
-```
-
-## Continuous Integration
-
-GitHub Actions runs automatically on every push to `main` and on every pull request targeting `main`. The workflow is defined in [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
-
-### What CI checks
-
-| Step | Command | Purpose |
-|------|---------|---------|
-| Install | `npm ci` | Clean install from lockfile |
-| Type check | `npx tsc --noEmit` | Catch type errors without emitting files |
-| Tests | `npm test` | Run all 334 unit and integration tests |
-
-CI uses Node 20 on Ubuntu with npm caching enabled for fast installs. A concurrency group ensures that only one run per branch is active at a time — pushing again cancels the previous in-progress run.
-
-### Contributing workflow
-
-1. **Create a feature branch** from `main`:
-   ```bash
-   git checkout -b feature/my-change
-   ```
-
-2. **Make changes and run checks locally** before pushing:
-   ```bash
-   npx tsc --noEmit && npm test
-   ```
-
-3. **Push and open a pull request** against `main`. CI runs automatically and reports pass/fail status on the PR.
-
-4. **Merge when CI is green.** If you have GitHub Pro (or the repo is public), enable the "Require status checks to pass" branch protection rule for the `Lint, Type Check & Test` check to enforce this.
-
-### Adding new tests
-
-- Place test files in `src/__tests__/` mirroring the source structure (e.g. `src/__tests__/hooks/useAuth.test.ts` tests `src/hooks/useAuth.ts`)
-- Firebase and Web Audio API mocks are set up globally in `src/__tests__/setup.ts` — no per-test boilerplate needed
-- See [design.md §5](design.md) for the full testing strategy, priority tiers, and mocking approach
-
-## Privacy & Security
-
-BiographyBot stores deeply personal information — life stories, family histories, health details, and childhood memories. Deploying it responsibly requires understanding exactly where that data goes, who can access it, and under what conditions it may be used by third-party services.
-
-### Keeping credentials out of your repository
-
-All secret values must be kept in `.env.local`, which is listed in `.gitignore` and must **never be committed**. The `.env.example` file shows the required variable names with empty values — it is safe to commit, but contains no secrets.
-
-**Before each commit, verify no credentials are staged:**
-```bash
-git diff --cached | grep -i "VITE_\|apiKey\|secret"
-```
-
-Additional safeguards:
-- Enable [GitHub secret scanning](https://docs.github.com/en/code-security/secret-scanning/about-secret-scanning) on the repository — it will alert you if a key is accidentally pushed.
-- Restrict each Firebase API key in the [Google Cloud Console](https://console.cloud.google.com/apis/credentials) to only the HTTP referrers and APIs it needs.
-- Never log environment variables or pass them to client-side error reporters.
-- Rotate any key that you suspect was exposed; Firebase and Gemini keys can both be regenerated in their respective consoles without data loss.
-
-### Where user data is stored
-
-#### Firebase Cloud Firestore
-Firestore holds all structured application data: family records, dossiers, session metadata, transcripts, events, memoirs, and question progress. Data is **encrypted at rest (AES-256) and in transit (TLS)** by default. You control retention — there is no automatic expiry unless you configure TTL policies. After account deletion, Google removes data within 180 days.
-
-The region your Firestore database is hosted in is set at creation time. If you want data to stay in a specific geography (e.g., the EU), you must select that region when creating the database — it cannot be changed later. See [available locations](https://cloud.google.com/about/locations/).
-
-#### Firebase Cloud Storage
-Cloud Storage holds audio recordings (WebM/Opus) and uploaded media files. The same encryption-at-rest and in-transit protections apply. Recordings persist until explicitly deleted; there is no automatic expiry. As with Firestore, the storage bucket's region is fixed at creation.
-
-#### Firebase Authentication
-Auth stores user account records (email, hashed password, sign-in history). Unlike Firestore and Cloud Storage, **Firebase Auth always processes data in the United States** — there is no regional configuration option. If strict EU data residency is a requirement, this is a material constraint.
-
-#### Google Gemini Live API
-This is the most important service to understand from a privacy standpoint.
-
-During a session, the real-time audio stream and conversation turns are sent to Google's Gemini Live API. **What Google does with that data depends on which pricing tier you are on:**
-
-| Tier | Used to train Gemini? | Human review of conversations? |
-|------|-----------------------|--------------------------------|
-| **Free (no billing enabled)** | **Yes** — Google explicitly reserves the right to use prompts and responses to improve and develop its products | **Yes** — de-identified conversations can be reviewed by human annotators |
-| **Paid (billing enabled, pay-as-you-go)** | **No** — Google acts only as a data processor under its Cloud Data Processing Addendum | Only for abuse/safety violation investigation |
-
-> **This is the most critical configuration decision for a production deployment.** If your GCP project has no billing account attached, your users' voice conversations and transcripts may be used to train future versions of Gemini. Enable billing and use the pay-as-you-go tier to opt out of this. At typical usage volumes the cost is low, and the privacy protection is significant given the sensitive nature of the content.
-
-To check your current tier: visit the [Google AI Studio](https://aistudio.google.com) and confirm that your project has an active billing account in the [GCP Console](https://console.cloud.google.com/billing).
-
-On the paid tier, conversation data is retained only transiently for abuse detection purposes and is not stored long-term by Google.
-
-### Data residency and the Cloud Data Processing Addendum
-
-When billing is enabled, Google's [Cloud Data Processing Addendum (CDPA)](https://cloud.google.com/terms/data-processing-terms) applies. Under the CDPA, Google acts as a data processor rather than a data controller — it processes data only on your documented instructions. This is the contractual basis for GDPR compliance.
-
-If you are operating in the EU or processing data from EU residents, confirm that your Firestore and Cloud Storage regions are set to an EU location. Firebase Auth's US-only processing should be reviewed against your applicable data protection obligations.
-
-### Summary of data flows
-
-```
-Storyteller voice → Gemini Live API (transient, paid tier = not retained or used for training)
-                  → useAudioMixer → WebM/Opus file → Firebase Cloud Storage (persists until deleted)
-
-Gemini transcription → useSession → Firestore transcript/entries (persists until deleted)
-
-Family data, dossiers, events, memoirs → Firestore (persists until deleted)
-
-User accounts → Firebase Authentication (US only)
-```
-
-### Client-side API keys and the Maps Platform key
-
-Several `VITE_` environment variables are embedded in the browser bundle at build time. This is standard for Vite-based SPAs, but it means the values are visible to anyone who inspects the JavaScript — they are not secrets in the traditional sense.
-
-#### Keys embedded in the bundle
-
-| Variable | Used for | Risk if leaked |
-|---|---|---|
-| `VITE_FIREBASE_API_KEY` | Firebase client SDK initialisation | Low — this key only identifies the project; access is gated by Firebase security rules and Auth |
-| `VITE_GEMINI_API_KEY` | Gemini Live API (real-time voice sessions) | High — can be used to make Gemini API calls billed to your account |
-| `VITE_GOOGLE_MAPS_API_KEY` | Geocoding, Places, and Weather lookups during sessions | Medium — can be used to make Maps Platform API calls billed to your account |
-
-#### Mitigations in place
-
-- **HTTP referrer restriction** — both the Gemini and Maps keys should be restricted in the [Google Cloud Console](https://console.cloud.google.com/apis/credentials) to only accept requests from `biographybot.com/*`. This prevents the key from being used from a different origin even if extracted from the bundle.
-- **API restriction** — the Maps key should be restricted to only the APIs it needs: Geocoding API and Maps Weather API. The Gemini key scope is managed separately via API quotas.
-- **Billing alerts** — set a budget alert in [Google Cloud Billing](https://console.cloud.google.com/billing) so unexpected usage is caught quickly.
-
-#### Why not use a server-side proxy?
-
-The more secure alternative is to proxy all Maps and Gemini calls through a Firebase Cloud Function, keeping the keys entirely server-side and never exposing them in the browser. This was considered and intentionally deferred for the following reasons:
-
-1. **Latency** — Maps lookups happen mid-conversation inside a Gemini Live voice session. Routing them through a Cloud Function would add a round-trip, making the tool-call response noticeably slower.
-2. **Cost** — Every Maps/Gemini call via a proxy adds a Cloud Function invocation cost on top of the API cost.
-3. **Complexity** — A proxy introduces an additional network hop, error surface, and deployment step for what is currently a simple client-side fetch.
-4. **Referrer restriction is effective enough at this scale** — For a family-use app with a known production domain, an HTTP referrer restriction prevents nearly all automated abuse. Referrer headers can be spoofed by determined attackers, but the financial incentive to abuse a family history app is low.
-
-This decision should be revisited if the app is ever opened to arbitrary public usage or if API spend reaches a level where abuse would be financially significant. At that point, a Cloud Function proxy or [Firebase App Check](https://firebase.google.com/docs/app-check) are the recommended next steps.
-
-### Relevant terms of service and privacy documentation
-
-| Service | Link |
-|---------|------|
-| Gemini API Terms of Service | [ai.google.dev/gemini-api/terms](https://ai.google.dev/gemini-api/terms) |
-| Google Cloud Data Processing Addendum | [cloud.google.com/terms/data-processing-terms](https://cloud.google.com/terms/data-processing-terms) |
-| Firebase Privacy and Security | [firebase.google.com/support/privacy](https://firebase.google.com/support/privacy) |
-| Firebase Data Processing Terms | [firebase.google.com/terms/data-processing-terms](https://firebase.google.com/terms/data-processing-terms) |
-| Google Privacy Policy | [policies.google.com/privacy](https://policies.google.com/privacy) |
-| Google Cloud compliance certifications | [cloud.google.com/security/compliance/services-in-scope](https://cloud.google.com/security/compliance/services-in-scope) |
+> **Origin:** VoiceCommon was started as a way to extract reusable common functionality from [LegacyBot](https://github.com/AndyFooBlah/LegacyBot), a voice-first life story preservation app. The patterns for real-time voice sessions, transcript archival, audio recording, and AI tool integrations have been generalized here into a clean framework that any voice AI app can build on.
 
 ---
 
-## Built With AI
+## What VoiceCommon provides
 
-BiographyBot was developed collaboratively with several AI coding assistants across different phases of the project.
+- **Gemini Live integration** — real-time bidirectional voice sessions with Google's Gemini Live API, including PCM audio streaming, bot audio playback scheduling, and connection lifecycle management
+- **Firebase authentication** — Google OAuth and email/password sign-in, with user profile creation in Firestore
+- **Session archival** — automatic recording of mixed user+bot audio to Cloud Storage (WebM/Opus), real-time transcript sync to Firestore
+- **Built-in tool integrations** — weather, maps/distance, jokes, and Wikipedia search, each usable as a Gemini function tool
+- **Example application** — a working 3-page app (login, session history, new session) demonstrating the full framework
 
-| AI | Model | Role |
-|----|-------|------|
-| Google AI Studio | Gemini 3.0 | Built the initial UI and application scaffold |
-| Claude Code | Opus 4.5, Opus 4.6, Sonnet 4.6 | Feature development, architecture, testing, and ongoing iteration |
-| Gemini CLI | Gemini 3.1 Pro | Feature development and iteration |
+---
+
+## Example app pages
+
+| Route | Page | Description |
+|-------|------|-------------|
+| `/` | → `/sessions` | Redirect |
+| `/sessions` | Session History | List of past voice sessions with status and duration |
+| `/sessions/new` | New Session | Live voice session with real-time transcript and waveform |
+| `/sessions/:id` | Transcript Viewer | Past session transcript and audio playback |
+
+---
+
+## Getting started
+
+### Prerequisites
+
+- Node.js 22+
+- A Firebase project (Firestore, Authentication, Cloud Storage enabled)
+- A Google Gemini API key from [Google AI Studio](https://aistudio.google.com)
+- (Optional) A Google Maps API key for weather and location tools
+
+### 1. Clone and install
+
+```bash
+git clone https://github.com/AndyFooBlah/VoiceCommon.git
+cd VoiceCommon
+npm install
+```
+
+### 2. Configure environment
+
+```bash
+cp .env.example .env
+# Edit .env with your Firebase and Gemini credentials
+```
+
+### 3. Set up Firebase
+
+```bash
+cp .firebaserc.example .firebaserc
+# Edit .firebaserc with your Firebase project ID
+firebase deploy --only firestore:rules,storage
+```
+
+### 4. Run the dev server
+
+```bash
+npm run dev
+```
+
+---
+
+## Building your own app on VoiceCommon
+
+### Custom system instruction
+
+Replace the default assistant with your own by calling `buildSessionInstruction` with your own `assistantName` and `appContext`:
+
+```typescript
+import { buildSessionInstruction } from './services/gemini';
+
+const instruction = buildSessionInstruction({
+  assistantName: 'Nova',
+  appContext: 'You are a customer service agent for Acme Corp...',
+  currentDateTime: new Date().toLocaleString(),
+});
+```
+
+Or skip `buildSessionInstruction` entirely and pass your own string directly to `useSession`.
+
+### Custom tools
+
+Add tools alongside the built-in set, or replace them:
+
+```typescript
+import { useSession } from './hooks/useSession';
+import { allTools } from './services/gemini';
+import type { FunctionDeclaration } from '@google/genai';
+
+const myTool: FunctionDeclaration = {
+  name: 'lookupOrder',
+  description: 'Look up a customer order by order number.',
+  parameters: { ... },
+};
+
+const { startSession, stopSession, messages } = useSession({
+  userId: user.uid,
+  systemInstruction: myInstruction,
+  tools: [...allTools, myTool],
+  onToolCall: async (name, args) => {
+    if (name === 'lookupOrder') return lookupOrder(args.orderNumber);
+    // fall through to built-in handlers...
+  },
+});
+```
+
+### Post-session processing
+
+The `onSessionCompleted` Cloud Function in `functions/src/index.ts` fires whenever a session transitions to `completed`. Add your own server-side logic there — transcript analysis, notifications, summaries, webhooks, etc.
+
+---
+
+## Project structure
+
+```
+src/
+├── services/
+│   ├── firebase.ts          # Firebase app initialization
+│   ├── gemini.ts            # Gemini Live session instruction builder + tool registry
+│   ├── storage.ts           # Firestore + GCS session/transcript persistence
+│   ├── audioUtils.ts        # PCM encoding, decoding, resampling
+│   └── tools/
+│       ├── weather.ts       # Weather tool (Google Maps Weather API)
+│       ├── maps.ts          # Place search + distance tool (Google Maps Geocoding)
+│       ├── jokes.ts         # Joke tool (JokeAPI)
+│       └── wikipedia.ts     # Wikipedia search tool
+├── hooks/
+│   ├── useAuth.ts           # Firebase auth state + sign-in/sign-out
+│   ├── useSession.ts        # Live session lifecycle (start, stream, stop, archive)
+│   └── useAudioMixer.ts     # Microphone + bot audio mixing for archival
+├── components/
+│   ├── auth/
+│   │   └── LoginScreen.tsx  # Login page (Google + email/password)
+│   ├── session/
+│   │   ├── SessionView.tsx  # New session page
+│   │   ├── TranscriptFeed.tsx  # Real-time transcript display
+│   │   └── Visualizer.tsx   # Animated waveform
+│   ├── history/
+│   │   ├── SessionList.tsx  # Session history page
+│   │   ├── TranscriptViewer.tsx  # Past session detail
+│   │   └── AudioPlayer.tsx  # Audio playback with seek bar
+│   └── shared/
+│       ├── Layout.tsx       # App shell with nav and auth guard
+│       ├── ErrorBoundary.tsx
+│       └── Logo.tsx
+├── types.ts                 # Core TypeScript interfaces
+└── App.tsx                  # Router
+
+functions/
+└── src/
+    └── index.ts             # Cloud Functions (onSessionCompleted hook)
+
+public/
+└── pcm-processor.js         # AudioWorklet for low-latency PCM streaming
+```
+
+---
+
+## Firestore data model
+
+```
+users/{uid}
+  email, displayName, createdAt, timezone
+
+sessions/{sessionId}
+  userId, startTime, endTime, audioUrl, status, durationSeconds
+
+sessions/{sessionId}/transcript/entries
+  { entries: TranscriptEntry[] }
+```
+
+## Cloud Storage layout
+
+```
+sessions/{userId}/{sessionId}.webm    # Session audio (mixed, WebM/Opus 128kbps)
+```
+
+---
+
+## Tech stack
+
+| Layer | Technology |
+|-------|-----------|
+| Frontend | React 19, TypeScript, Vite, Tailwind CSS v4 |
+| AI | Google Gemini Live API (`@google/genai`) |
+| Auth | Firebase Authentication |
+| Database | Cloud Firestore |
+| Storage | Firebase Cloud Storage |
+| Backend | Firebase Cloud Functions v2 (Node.js 22) |
+| Testing | Vitest, React Testing Library |
+| CI | GitHub Actions |
+
+---
 
 ## License
 
-Apache 2.0 — see [LICENSE](LICENSE) for details.
+Apache 2.0 — see [LICENSE](LICENSE).

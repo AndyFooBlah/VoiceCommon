@@ -13,363 +13,148 @@
 // limitations under the License.
 
 /**
- * SessionView — the live recording session screen.
+ * SessionView — the live voice session page.
  *
- * This is the Storyteller-facing view. It prioritizes simplicity:
- *   - One large Start/Stop button
- *   - Visual waveform feedback
- *   - Live transcript feed
- *   - "Live Archival Vault Active" indicator when recording
+ * Connects to Gemini Live, streams microphone audio, displays a real-time
+ * transcript, and archives the mixed audio to GCS when the session ends.
  *
- * The Archivist panel (Dossier editor) is accessible via a floating
- * button but hidden by default to keep the Storyteller's view clean.
- *
- * Error handling:
- *   - Connection errors show a reassuring message (not a stack trace)
- *   - Partial session data is flushed on disconnect
- *   - A "Reconnect" button is offered for recovery
- *
- * References: product_requirements.md §4 | GitHub Issues #17, #19
+ * The system instruction and tools are assembled here from the VoiceCommon
+ * framework defaults. Applications built on VoiceCommon can replace or extend
+ * this component with their own instruction and tool registrations.
  */
 
-import React, { useCallback, useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import React, { useState, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
-import { useFamily, useCurrentRoles } from '../../hooks/useFamily';
-import { useDossier } from '../../hooks/useDossier';
-import { useUnifiedSession } from '../../hooks/useUnifiedSession';
-import { getPromptPhotos } from '../../services/storage';
+import { useSession } from '../../hooks/useSession';
+import { buildSessionInstruction, allTools } from '../../services/gemini';
+import { getWeather } from '../../services/tools/weather';
+import { searchPlace, getDistanceBetweenPlaces } from '../../services/tools/maps';
+import { getJoke } from '../../services/tools/jokes';
+import { searchWikipedia } from '../../services/tools/wikipedia';
+import { ConnectionStatus } from '../../types';
 import { Visualizer } from './Visualizer';
 import { TranscriptFeed } from './TranscriptFeed';
-import { ConnectionStatus, PromptPhoto } from '../../types';
-import { Logo } from '../shared/Logo';
 
 export const SessionView: React.FC = () => {
-  const { familyId, dossierId } = useParams<{ familyId: string; dossierId: string }>();
-  const { user } = useAuth();
   const navigate = useNavigate();
-  const { family } = useFamily(familyId);
-  const { isAdmin } = useCurrentRoles(familyId, user?.uid);
-  const {
-    dossier,
-    questions,
-    loading: dossierLoading,
-    updateQuestion,
-    updateDossier,
-  } = useDossier(familyId, dossierId);
+  const { user } = useAuth();
+  const [isBotSpeaking, setIsBotSpeaking] = useState(false);
 
-  // Prompt photos
-  const [promptPhotos, setPromptPhotos] = useState<PromptPhoto[]>([]);
-  const [activePhoto, setActivePhoto] = useState<PromptPhoto | null>(null);
-
-  useEffect(() => {
-    if (!familyId || !dossierId) return;
-    getPromptPhotos(familyId, dossierId).then(setPromptPhotos).catch(console.error);
-  }, [familyId, dossierId]);
-
-  const handleShowPhoto = useCallback(
-    (photoId: string) => {
-      const photo = promptPhotos.find((p) => p.id === photoId);
-      if (photo) setActivePhoto(photo);
-    },
-    [promptPhotos],
-  );
-
-  /** Handler for Gemini function-calling question updates during a session. */
-  const handleQuestionUpdate = useCallback(
-    (questionId: string, status: string, findings: string) => {
-      updateQuestion(questionId, { status: status as any, findings });
-    },
-    [updateQuestion],
-  );
-
-  /** Handler for when the AI records the storyteller's preferred name. */
-  const handlePreferredNameUpdate = useCallback(
-    (name: string) => {
-      updateDossier({ preferredName: name });
-    },
-    [updateDossier],
-  );
-
-  // Auto-reconnect on the first unexpected disconnect without asking the user.
-  // If the auto-reconnect itself fails, fall through to the manual modal.
-  const [autoReconnectDone, setAutoReconnectDone] = useState(false);
-
-  const {
-    status,
-    messages,
-    isBotSpeaking,
-    sessionId,
-    deviceError,
-    connectivityWarning,
-    clearDeviceError,
-    dismissConnectivityWarning,
-    startSession,
-    reconnectSession,
-    stopSession,
-    flushPartialSession,
-  } = useUnifiedSession({
-    familyId: familyId ?? '',
-    dossierId: dossierId ?? '',
-    storytellerUid: user?.uid ?? '',
-    dossier: dossier!,
-    questions,
-    familyTree: family?.familyTree,
-    promptPhotos,
-    onQuestionUpdate: handleQuestionUpdate,
-    onShowPhoto: handleShowPhoto,
-    onPreferredNameUpdate: handlePreferredNameUpdate,
+  // Build a generic system instruction for this example app
+  const systemInstruction = buildSessionInstruction({
+    assistantName: 'Aria',
+    currentDateTime: new Date().toLocaleString(undefined, {
+      weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+      hour: '2-digit', minute: '2-digit',
+    }),
+    appContext: 'You are a helpful voice assistant. Be concise, warm, and natural.',
   });
 
-  useEffect(() => {
-    if (status === ConnectionStatus.ERROR && !deviceError && !autoReconnectDone) {
-      // Unexpected disconnect — reconnect without starting a new session.
-      // reconnectSession() keeps the existing session ID and transcript so
-      // the conversation continues naturally after the brief interruption.
-      // A short delay gives the browser a moment to settle (e.g. network re-up).
-      const timer = setTimeout(async () => {
-        setAutoReconnectDone(true);
-        await reconnectSession();
-      }, 500);
-      return () => clearTimeout(timer);
+  // Tool dispatcher — routes Gemini tool calls to implementations
+  const handleToolCall = useCallback(async (
+    name: string,
+    args: Record<string, unknown>,
+  ): Promise<string> => {
+    switch (name) {
+      case 'getWeather':
+        return getWeather(args.location as string);
+      case 'searchPlace':
+        return searchPlace(args.query as string);
+      case 'getDistanceBetweenPlaces':
+        return getDistanceBetweenPlaces(args.from as string, args.to as string);
+      case 'getJoke':
+        return getJoke(args.category as string | undefined);
+      case 'searchWikipedia':
+        return searchWikipedia(args.query as string);
+      default:
+        return `Unknown tool: ${name}`;
     }
-    if (status === ConnectionStatus.CONNECTED) {
-      setAutoReconnectDone(false); // Reset so the next disconnect auto-reconnects too
-    }
-  }, [status, deviceError, autoReconnectDone, reconnectSession]);
+  }, []);
 
-  if (dossierLoading || !dossier) {
-    return (
-      <div className="flex items-center justify-center h-screen bg-slate-50">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600" />
-      </div>
-    );
+  const { messages, connectionStatus, startSession, stopSession, isRecording, sessionId, error } =
+    useSession({
+      userId: user?.uid ?? '',
+      systemInstruction,
+      tools: allTools,
+      onToolCall: handleToolCall,
+      onSessionEndRequest: () => stopSession(),
+      onBotSpeaking: setIsBotSpeaking,
+    });
+
+  async function handleEndSession() {
+    await stopSession();
+    navigate('/sessions');
   }
 
-  return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-slate-50 p-6 space-y-8">
-      {/* Back link (role-aware) */}
-      <button
-        onClick={() => navigate(isAdmin
-          ? `/family/${familyId}/dossier/${dossierId}`
-          : `/family/${familyId}`
-        )}
-        className="absolute top-4 left-4 text-sm text-slate-400 hover:text-slate-600 transition-colors"
-      >
-        &larr; {isAdmin ? 'Back to Dossier' : 'Back to Home'}
-      </button>
+  const isConnected = connectionStatus === ConnectionStatus.CONNECTED;
+  const isConnecting = connectionStatus === ConnectionStatus.CONNECTING;
 
+  return (
+    <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-6 gap-8">
       {/* Header */}
-      <div className="text-center space-y-2">
-        <div className="flex items-center justify-center gap-3">
-          <Logo size={48} />
-          <h1 className="text-5xl font-bold text-slate-800 tracking-tighter font-display">
-            BiographyBot
-          </h1>
-        </div>
-        <p className="text-slate-400 font-medium italic">
-          Session with {dossier.storytellerName}
+      <div className="text-center space-y-1">
+        <h1 className="text-2xl font-bold text-white tracking-tight">Voice Session</h1>
+        <p className="text-slate-400 text-sm">
+          {isConnected ? 'Connected — speak naturally' : isConnecting ? 'Connecting...' : 'Ready to start'}
         </p>
       </div>
 
-      {/* Connectivity warning */}
-      {connectivityWarning && (
-        <div className="w-full max-w-2xl bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-start gap-3">
-          <svg className="w-5 h-5 text-amber-600 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
-          </svg>
-          <div className="flex-1">
-            <p className="text-sm text-amber-800">{connectivityWarning}</p>
-          </div>
-          <button
-            onClick={dismissConnectivityWarning}
-            className="text-amber-600 hover:text-amber-800 text-sm font-medium shrink-0"
-          >
-            Dismiss
-          </button>
-        </div>
-      )}
-
-      {/* Main session card */}
-      <div className="w-full max-w-2xl bg-white p-12 rounded-[3.5rem] shadow-2xl border border-slate-100 flex flex-col items-center space-y-12 relative overflow-hidden">
-        {/* Live recording indicator */}
-        {status === ConnectionStatus.CONNECTED && (
-          <div className="absolute top-6 right-6 flex items-center gap-2 px-3 py-1 bg-rose-50 border border-rose-100 rounded-full animate-pulse">
-            <div className="w-2 h-2 bg-rose-500 rounded-full" />
-            <span className="text-[10px] font-bold text-rose-600 uppercase tracking-widest">
-              Live Archival Vault Active
-            </span>
-          </div>
-        )}
-
-        <Visualizer
-          isActive={status === ConnectionStatus.CONNECTED}
-          isBotSpeaking={isBotSpeaking}
-        />
-
-        <div className="flex flex-col items-center gap-6 w-full">
-          {/* Start / End call button — phone metaphor */}
-          {status !== ConnectionStatus.CONNECTED ? (
-            <button
-              onClick={startSession}
-              disabled={status === ConnectionStatus.CONNECTING}
-              className="w-28 h-28 bg-green-500 rounded-full text-white shadow-2xl hover:bg-green-600 hover:scale-105 active:scale-95 transition-all flex items-center justify-center disabled:opacity-50"
-              aria-label="Start a conversation"
-            >
-              {status === ConnectionStatus.CONNECTING ? (
-                <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-white" />
-              ) : (
-                /* Phone handset — answer call */
-                <svg className="w-12 h-12" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z" />
-                </svg>
-              )}
-            </button>
-          ) : (
-            <button
-              onClick={stopSession}
-              className="w-28 h-28 bg-red-500 rounded-full text-white shadow-2xl hover:bg-red-600 transition-all flex items-center justify-center"
-              aria-label="End conversation"
-            >
-              {/* Rotated phone handset — hang up */}
-              <svg className="w-12 h-12 rotate-[135deg]" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z" />
-              </svg>
-            </button>
-          )}
-
-          <div className="text-center space-y-1">
-            <p className="text-xl font-bold text-slate-800">
-              {status === ConnectionStatus.CONNECTED
-                ? `Talking with ${dossier.storytellerName}…`
-                : status === ConnectionStatus.CONNECTING
-                  ? messages.length > 0
-                    ? 'Back in just a moment…'
-                    : `One moment, ${dossier.storytellerName}…`
-                  : `Ready to talk, ${dossier.storytellerName}?`}
-            </p>
-            <p className="text-sm text-slate-400">
-              {status === ConnectionStatus.CONNECTED
-                ? 'Every word and sound is being preserved.'
-                : status === ConnectionStatus.CONNECTING
-                  ? messages.length > 0
-                    ? 'Restoring the connection — please hold on.'
-                    : 'Your conversation will begin in just a moment.'
-                  : 'Press the green button to start a conversation.'}
-            </p>
-          </div>
-        </div>
+      {/* Waveform visualizer */}
+      <div className="w-full max-w-2xl">
+        <Visualizer isActive={isConnected} isBotSpeaking={isBotSpeaking} />
       </div>
 
-      {/* Live transcript feed */}
+      {/* Real-time transcript */}
       <TranscriptFeed messages={messages} sessionId={sessionId} />
 
-      {/* Prompt photo display */}
-      {activePhoto && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-[2rem] shadow-2xl max-w-lg w-full overflow-hidden">
-            <img
-              src={activePhoto.storageUrl}
-              alt={activePhoto.caption}
-              className="w-full max-h-[60vh] object-contain bg-slate-100"
-            />
-            <div className="p-6 space-y-3">
-              <p className="text-slate-600 text-sm italic">{activePhoto.caption}</p>
-              <button
-                onClick={() => setActivePhoto(null)}
-                className="w-full py-3 bg-slate-100 text-slate-600 rounded-2xl font-medium hover:bg-slate-200 transition-colors text-sm"
-              >
-                Close Photo
-              </button>
-            </div>
-          </div>
+      {/* Error display */}
+      {error && (
+        <div className="w-full max-w-md bg-red-900/30 border border-red-700 rounded-2xl px-5 py-3 text-center">
+          <p className="text-red-300 text-sm">{error}</p>
         </div>
       )}
 
-      {/* Device error dialog (microphone issues) */}
-      {status === ConnectionStatus.ERROR && deviceError && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/80 backdrop-blur-sm p-4 text-center">
-          <div className="bg-white p-8 rounded-[2rem] shadow-2xl max-w-md space-y-6">
-            <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mx-auto">
-              <svg className="w-8 h-8 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
-              </svg>
-            </div>
-            <h2 className="text-2xl font-bold text-slate-800">
-              Microphone Issue
-            </h2>
-            <p className="text-slate-500">
-              {deviceError}
-            </p>
-            <div className="flex flex-col gap-3">
-              <button
-                onClick={() => {
-                  clearDeviceError();
-                  startSession();
-                }}
-                className="w-full py-4 bg-green-500 text-white rounded-2xl font-bold hover:bg-green-600 transition-colors"
-              >
-                Try Again
-              </button>
-              <button
-                onClick={() => navigate(isAdmin
-                  ? `/family/${familyId}/dossier/${dossierId}`
-                  : `/family/${familyId}`
-                )}
-                className="w-full py-3 text-slate-500 font-medium hover:text-slate-700 transition-colors"
-              >
-                {isAdmin ? 'Back to Dossier' : 'Back to Home'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Controls */}
+      <div className="flex items-center gap-4">
+        {!isRecording ? (
+          <button
+            onClick={startSession}
+            disabled={isConnecting || !user}
+            className="px-10 py-4 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-2xl text-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-indigo-900/40"
+          >
+            {isConnecting ? 'Starting...' : 'Start Session'}
+          </button>
+        ) : (
+          <button
+            onClick={handleEndSession}
+            className="px-10 py-4 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-2xl text-lg transition-colors shadow-lg shadow-rose-900/40"
+          >
+            End Session
+          </button>
+        )}
 
-      {/* Reconnecting banner — auto-reconnect in progress (brief, no user action needed) */}
-      {status === ConnectionStatus.ERROR && !deviceError && !autoReconnectDone && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[100] bg-slate-800 text-white px-6 py-3 rounded-2xl shadow-xl flex items-center gap-3">
-          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white shrink-0" />
-          <span className="text-sm font-medium">Reconnecting…</span>
-        </div>
-      )}
+        {!isRecording && (
+          <button
+            onClick={() => navigate('/sessions')}
+            className="px-6 py-4 bg-slate-700 hover:bg-slate-600 text-slate-300 font-medium rounded-2xl text-sm transition-colors"
+          >
+            Cancel
+          </button>
+        )}
+      </div>
 
-      {/* Connection error dialog — shown only when auto-reconnect has already been attempted */}
-      {status === ConnectionStatus.ERROR && !deviceError && autoReconnectDone && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/80 backdrop-blur-sm p-4 text-center">
-          <div className="bg-white p-8 rounded-[2rem] shadow-2xl max-w-md space-y-6">
-            <h2 className="text-2xl font-bold text-slate-800">
-              Connection Interrupted
-            </h2>
-            <p className="text-slate-500">
-              Don&apos;t worry — everything you&apos;ve shared so far has been
-              saved. You can try reconnecting or end the session.
-            </p>
-            <div className="flex flex-col gap-3">
-              <button
-                onClick={async () => {
-                  setAutoReconnectDone(false);
-                  await reconnectSession();
-                }}
-                className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-bold hover:bg-indigo-700 transition-colors"
-              >
-                Try Again
-              </button>
-              <button
-                onClick={async () => {
-                  await flushPartialSession();
-                  navigate(isAdmin
-                    ? `/family/${familyId}/dossier/${dossierId}`
-                    : `/family/${familyId}`
-                  );
-                }}
-                className="w-full py-3 text-slate-500 font-medium hover:text-slate-700 transition-colors"
-              >
-                End Session
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Connection status indicator */}
+      <div className="flex items-center gap-2">
+        <div className={`w-2 h-2 rounded-full ${
+          isConnected ? 'bg-emerald-400 animate-pulse' :
+          isConnecting ? 'bg-amber-400 animate-pulse' :
+          'bg-slate-600'
+        }`} />
+        <span className="text-xs text-slate-500 font-mono uppercase tracking-wider">
+          {connectionStatus}
+        </span>
+      </div>
     </div>
   );
 };

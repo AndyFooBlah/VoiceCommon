@@ -13,7 +13,7 @@
 // limitations under the License.
 
 /**
- * Authentication hook for LegacyBot.
+ * Authentication hook for VoiceCommon.
  *
  * Wraps Firebase Auth state in a React hook that provides:
  *   - user:     The currently signed-in Firebase user (or null)
@@ -54,9 +54,9 @@ async function ensureUserProfile(user: User): Promise<void> {
       email: user.email ?? '',
       displayName: user.displayName ?? user.email ?? 'Anonymous',
       createdAt: Timestamp.now(),
-      familyIds: [],
+      timezone,
     };
-    await setDoc(userRef, { ...profile, timezone });
+    await setDoc(userRef, profile);
   } else {
     const existing = snapshot.data();
     if (existing.timezone !== timezone) {

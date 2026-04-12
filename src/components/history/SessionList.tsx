@@ -13,64 +13,55 @@
 // limitations under the License.
 
 /**
- * SessionList — browse past recording sessions for a Storyteller.
- * Displays all sessions for a given Dossier, sorted newest-first.
+ * SessionList — session history page.
+ *
+ * Lists all voice sessions for the current user, sorted newest-first.
+ * Clicking a session navigates to the transcript viewer.
  */
 
 import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { collection, query, orderBy, onSnapshot } from 'firebase/firestore';
+import { useNavigate } from 'react-router-dom';
+import { collection, query, where, orderBy, onSnapshot } from 'firebase/firestore';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../hooks/useAuth';
-import { useCurrentRoles } from '../../hooks/useFamily';
 import { SessionMetadata } from '../../types';
 
+function formatDuration(seconds: number): string {
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  if (mins === 0) return `${secs}s`;
+  return `${mins}m ${secs}s`;
+}
+
 export const SessionList: React.FC = () => {
-  const { familyId, dossierId } = useParams<{ familyId: string; dossierId: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { isAdmin } = useCurrentRoles(familyId, user?.uid);
   const [sessions, setSessions] = useState<SessionMetadata[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (!familyId || !dossierId) return;
+    if (!user) return;
 
-    const colRef = collection(
-      db,
-      'families',
-      familyId,
-      'dossiers',
-      dossierId,
-      'sessions',
+    const q = query(
+      collection(db, 'sessions'),
+      where('userId', '==', user.uid),
+      orderBy('startTime', 'desc'),
     );
-    const q = query(colRef, orderBy('startTime', 'desc'));
 
     const unsubscribe = onSnapshot(
       q,
       (snapshot) => {
-        const items = snapshot.docs.map((doc) => ({
-          ...doc.data(),
-          id: doc.id,
-        })) as SessionMetadata[];
-        setSessions(items);
+        setSessions(snapshot.docs.map((d) => ({ ...d.data(), id: d.id }) as SessionMetadata));
         setLoading(false);
       },
       (err) => {
-        console.error('SessionList snapshot error:', err);
+        console.error('[SessionList] snapshot error:', err);
         setLoading(false);
       },
     );
 
     return unsubscribe;
-  }, [familyId, dossierId]);
-
-  function formatDuration(seconds: number): string {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    if (mins === 0) return `${secs}s`;
-    return `${mins}m ${secs}s`;
-  }
+  }, [user]);
 
   if (loading) {
     return (
@@ -82,24 +73,24 @@ export const SessionList: React.FC = () => {
 
   return (
     <div className="max-w-3xl mx-auto p-8 space-y-6">
-      <div>
-        <button
-          onClick={() => navigate(isAdmin ? `/family/${familyId}/dossier/${dossierId}` : `/family/${familyId}`)}
-          className="text-sm text-indigo-600 font-medium hover:underline mb-1"
-        >
-          &larr; {isAdmin ? 'Back to Dossier' : 'Back to Home'}
-        </button>
+      <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold text-slate-800">Session History</h2>
+        <button
+          onClick={() => navigate('/sessions/new')}
+          className="px-5 py-2 bg-indigo-600 text-white rounded-xl font-semibold hover:bg-indigo-700 transition-colors text-sm"
+        >
+          New Session
+        </button>
       </div>
 
       {sessions.length === 0 ? (
-        <div className="text-center py-16 space-y-3">
-          <p className="text-slate-400 text-lg">No sessions recorded yet.</p>
+        <div className="text-center py-16 space-y-4">
+          <p className="text-slate-400 text-lg">No sessions yet.</p>
           <button
-            onClick={() => navigate(`/family/${familyId}/dossier/${dossierId}/session`)}
+            onClick={() => navigate('/sessions/new')}
             className="text-indigo-600 font-semibold hover:underline"
           >
-            Start the first session &rarr;
+            Start your first session &rarr;
           </button>
         </div>
       ) : (
@@ -107,9 +98,7 @@ export const SessionList: React.FC = () => {
           {sessions.map((session) => (
             <div
               key={session.id}
-              onClick={() =>
-                navigate(`/family/${familyId}/dossier/${dossierId}/history/${session.id}`)
-              }
+              onClick={() => navigate(`/sessions/${session.id}`)}
               className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm hover:shadow-md transition-shadow cursor-pointer flex items-center justify-between"
             >
               <div className="space-y-1">
@@ -129,8 +118,8 @@ export const SessionList: React.FC = () => {
                         hour: '2-digit',
                         minute: '2-digit',
                       })
-                    : ''}{' '}
-                  &middot; {formatDuration(session.durationSeconds)}
+                    : ''}
+                  {session.durationSeconds > 0 && ` · ${formatDuration(session.durationSeconds)}`}
                 </p>
               </div>
 

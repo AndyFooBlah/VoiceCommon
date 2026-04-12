@@ -46,14 +46,14 @@ function renderLogin() {
 }
 
 describe('LoginScreen — rendering', () => {
-  it('shows the BiographyBot heading', () => {
+  it('shows the VoiceCommon heading', () => {
     renderLogin();
-    expect(screen.getByText('BiographyBot')).toBeInTheDocument();
+    expect(screen.getByText('VoiceCommon')).toBeInTheDocument();
   });
 
   it('shows the tagline', () => {
     renderLogin();
-    expect(screen.getByText(/Tell your family's story/)).toBeInTheDocument();
+    expect(screen.getByText(/Voice AI, simply/)).toBeInTheDocument();
   });
 
   it('shows the Google sign-in button', () => {
