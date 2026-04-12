@@ -71,6 +71,12 @@ export interface UseSessionOptions {
   onSessionEndRequest?: () => void;
   /** Called when bot audio starts playing (for UI feedback). */
   onBotSpeaking?: (speaking: boolean) => void;
+  /**
+   * When true, a hidden text turn is sent immediately after the session
+   * connects so the bot takes the first turn (greets the user).
+   * The system instruction should describe what to say.
+   */
+  autoGreet?: boolean;
 }
 
 export interface UseSessionReturn {
@@ -96,6 +102,7 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
     onToolCall,
     onSessionEndRequest,
     onBotSpeaking,
+    autoGreet = false,
   } = options;
 
   const [messages, setMessages] = useState<Message[]>([]);
@@ -471,12 +478,27 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
           console.error('[Session] sendRealtimeInput failed:', err);
         }
       };
+
+      // Trigger the bot to take the first turn.
+      // sendClientContent with a hidden text turn causes the model to respond
+      // immediately, following the greeting instructions in the system prompt.
+      if (autoGreet) {
+        console.log('[Session] Sending auto-greet trigger...');
+        try {
+          liveSession.sendClientContent({
+            turns: [{ role: 'user', parts: [{ text: '[session started]' }] }],
+            turnComplete: true,
+          });
+        } catch (err) {
+          console.error('[Session] Auto-greet trigger failed:', err);
+        }
+      }
     } catch (err) {
       console.error('[Session] Start error:', err);
       setError(`Failed to start session: ${String(err)}`);
       setConnectionStatus(ConnectionStatus.ERROR);
     }
-  }, [isRecording, userId, systemInstruction, tools, mixer, onToolCall, onSessionEndRequest, disconnectWorklet]);
+  }, [isRecording, userId, systemInstruction, tools, mixer, onToolCall, onSessionEndRequest, disconnectWorklet, autoGreet]);
 
   const stopSession = useCallback(async () => {
     if (!isRecording) {
