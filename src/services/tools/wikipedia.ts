@@ -305,14 +305,19 @@ async function filterRelevantArticles(
     const { geminiApiKey } = getConfig();
     const ai = new GoogleGenAI({ apiKey: geminiApiKey });
 
-    const response = await ai.models.generateContent({
-      model: FILTER_MODEL,
-      contents: prompt,
-      config: {
-        responseMimeType: 'application/json',
-        temperature: 0,
-      },
-    });
+    const response = await Promise.race([
+      ai.models.generateContent({
+        model: FILTER_MODEL,
+        contents: prompt,
+        config: {
+          responseMimeType: 'application/json',
+          temperature: 0,
+        },
+      }),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Gemini filter timed out after 10s')), 10000),
+      ),
+    ]);
 
     const text = response.text?.trim() ?? '[]';
     const indices = JSON.parse(text) as number[];
@@ -492,10 +497,19 @@ async function embedTexts(texts: string[]): Promise<number[][]> {
   const { geminiApiKey } = getConfig();
   const ai = new GoogleGenAI({ apiKey: geminiApiKey });
 
-  const response = await ai.models.embedContent({
-    model: EMBED_MODEL,
-    contents: texts,
-  });
+  const timeoutMs = 10000 + texts.length * 2000; // 10s base + 2s per chunk
+  const response = await Promise.race([
+    ai.models.embedContent({
+      model: EMBED_MODEL,
+      contents: texts,
+    }),
+    new Promise<never>((_, reject) =>
+      setTimeout(
+        () => reject(new Error(`Gemini embedContent timed out after ${timeoutMs}ms for ${texts.length} texts`)),
+        timeoutMs,
+      ),
+    ),
+  ]);
 
   return (response.embeddings ?? []).map((e) => e.values ?? []);
 }
