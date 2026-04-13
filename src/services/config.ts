@@ -35,7 +35,15 @@ export interface VoiceCommonConfig {
   mapsApiKey?: string;
 }
 
-let _config: VoiceCommonConfig | null = null;
+/**
+ * Unique key for storing config on globalThis.
+ *
+ * Using globalThis rather than a module-level variable ensures the singleton
+ * survives across bundler chunk boundaries — if the consuming app (e.g.
+ * LegacyBot with Vite code-splitting) places VoiceCommon's code in multiple
+ * chunks, all copies share the same globalThis and therefore the same config.
+ */
+const GLOBAL_CONFIG_KEY = '__voiceCommon_config__';
 
 /**
  * Initialize VoiceCommon with your app's configuration.
@@ -53,7 +61,7 @@ let _config: VoiceCommonConfig | null = null;
  * ```
  */
 export function initializeVoiceCommon(config: VoiceCommonConfig): void {
-  _config = config;
+  (globalThis as Record<string, unknown>)[GLOBAL_CONFIG_KEY] = config;
   _initFirebase(config.firebase);
 }
 
@@ -62,10 +70,11 @@ export function initializeVoiceCommon(config: VoiceCommonConfig): void {
  * Throws if `initializeVoiceCommon()` has not been called yet.
  */
 export function getConfig(): VoiceCommonConfig {
-  if (!_config) {
+  const config = (globalThis as Record<string, unknown>)[GLOBAL_CONFIG_KEY] as VoiceCommonConfig | undefined;
+  if (!config) {
     throw new Error(
       'VoiceCommon is not initialized. Call initializeVoiceCommon(config) before using any VoiceCommon hooks or services.',
     );
   }
-  return _config;
+  return config;
 }
