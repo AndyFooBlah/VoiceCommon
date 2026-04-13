@@ -233,15 +233,21 @@ async function fetchWithTimeout(url: string, options: RequestInit = {}, ms = 800
   }
 }
 
-/** OpenSearch Wikipedia and return up to `limit` article titles. */
+/**
+ * Full-text search Wikipedia and return up to `limit` article titles.
+ *
+ * Uses action=query&list=search (full-text search against article content)
+ * rather than action=opensearch (autocomplete/title prefix), so descriptive
+ * queries like "Artemis II splashdown date" find the right articles.
+ */
 async function openSearch(query: string, limit: number): Promise<string[]> {
   const url =
-    `https://en.wikipedia.org/w/api.php?action=opensearch&search=${encodeURIComponent(query)}` +
-    `&limit=${limit}&namespace=0&format=json&origin=*`;
+    `https://en.wikipedia.org/w/api.php?action=query&list=search` +
+    `&srsearch=${encodeURIComponent(query)}&srlimit=${limit}&format=json&origin=*`;
   const res = await fetchWithTimeout(url);
   const data = await res.json();
-  // OpenSearch returns [query, [titles], [descriptions], [urls]]
-  return (data[1] as string[]) ?? [];
+  const results = data?.query?.search as Array<{ title: string }> | undefined;
+  return (results ?? []).map((r) => r.title);
 }
 
 interface ArticleSummary {
