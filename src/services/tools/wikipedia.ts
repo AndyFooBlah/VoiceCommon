@@ -112,7 +112,13 @@ export async function searchWikipedia(args: {
 
   try {
     // --- 1. OpenSearch: find 5 candidate titles ---
-    const candidates = await openSearch(question, SEARCH_CANDIDATES);
+    let candidates: string[];
+    try {
+      candidates = await openSearch(question, SEARCH_CANDIDATES);
+    } catch (err) {
+      console.error(`[Wikipedia] OpenSearch failed (${Date.now() - t0}ms):`, err);
+      return `Wikipedia search unavailable: OpenSearch timed out or failed.`;
+    }
     if (candidates.length === 0) {
       return `No Wikipedia articles found for "${question}".`;
     }
@@ -120,12 +126,24 @@ export async function searchWikipedia(args: {
 
     // --- 2. Fetch short summaries for all candidates (parallel) ---
     const tSummaries = Date.now();
-    const summaries = await Promise.all(candidates.map(fetchSummary));
+    let summaries: Array<ArticleSummary | null>;
+    try {
+      summaries = await Promise.all(candidates.map(fetchSummary));
+    } catch (err) {
+      console.error(`[Wikipedia] Summary fetch failed (${Date.now() - tSummaries}ms):`, err);
+      return `Wikipedia search unavailable: summary fetch failed.`;
+    }
     console.log(`[Wikipedia] Fetched ${summaries.filter(Boolean).length} summaries (${Date.now() - tSummaries}ms)`);
 
     // --- 3. Ask Gemini Flash Lite to filter down to the relevant articles ---
     const tFilter = Date.now();
-    const confirmedTitles = await filterRelevantArticles(question, candidates, summaries);
+    let confirmedTitles: string[];
+    try {
+      confirmedTitles = await filterRelevantArticles(question, candidates, summaries);
+    } catch (err) {
+      console.error(`[Wikipedia] Gemini filter failed (${Date.now() - tFilter}ms):`, err);
+      confirmedTitles = candidates.slice(0, MAX_CONFIRMED_ARTICLES);
+    }
     console.log(
       `[Wikipedia] Gemini filter (${Date.now() - tFilter}ms) → ` +
       `kept ${confirmedTitles.length}/${candidates.length}: ${confirmedTitles.join(', ')}`,
@@ -203,12 +221,23 @@ export async function searchWikipedia(args: {
 // Wikipedia API helpers
 // ---------------------------------------------------------------------------
 
+/** Fetch with an AbortController timeout. Throws if the request takes longer than `ms`. */
+async function fetchWithTimeout(url: string, options: RequestInit = {}, ms = 8000): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** OpenSearch Wikipedia and return up to `limit` article titles. */
 async function openSearch(query: string, limit: number): Promise<string[]> {
   const url =
     `https://en.wikipedia.org/w/api.php?action=opensearch&search=${encodeURIComponent(query)}` +
     `&limit=${limit}&namespace=0&format=json&origin=*`;
-  const res = await fetch(url);
+  const res = await fetchWithTimeout(url);
   const data = await res.json();
   // OpenSearch returns [query, [titles], [descriptions], [urls]]
   return (data[1] as string[]) ?? [];
@@ -227,7 +256,7 @@ interface ArticleSummary {
 async function fetchSummary(title: string): Promise<ArticleSummary | null> {
   try {
     const url = `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`;
-    const res = await fetch(url);
+    const res = await fetchWithTimeout(url);
     if (!res.ok) return null;
     const data = await res.json();
     return {
@@ -305,7 +334,7 @@ async function fetchArticleText(title: string): Promise<string | null> {
   const url =
     `https://en.wikipedia.org/w/api.php?action=query&prop=extracts&exlimit=1` +
     `&titles=${encodeURIComponent(title)}&format=json&origin=*`;
-  const res = await fetch(url);
+  const res = await fetchWithTimeout(url, {}, 15000); // full article may be larger — allow 15s
   const data = await res.json();
   const pages = data?.query?.pages as Record<string, { extract?: string }> | undefined;
   if (!pages) return null;
