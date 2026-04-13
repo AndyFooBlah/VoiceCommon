@@ -119,10 +119,10 @@ export async function searchWikipedia(args: {
       console.error(`[Wikipedia] OpenSearch failed (${Date.now() - t0}ms):`, err);
       return `Wikipedia search unavailable: OpenSearch timed out or failed.`;
     }
+    console.log(`[Wikipedia] OpenSearch (${Date.now() - t0}ms) → ${candidates.length} candidates: ${candidates.join(', ')}`);
     if (candidates.length === 0) {
       return `No Wikipedia articles found for "${question}".`;
     }
-    console.log(`[Wikipedia] OpenSearch (${Date.now() - t0}ms) → ${candidates.join(', ')}`);
 
     // --- 2. Fetch short summaries for all candidates (parallel) ---
     const tSummaries = Date.now();
@@ -150,6 +150,7 @@ export async function searchWikipedia(args: {
     );
 
     if (confirmedTitles.length === 0) {
+      console.log(`[Wikipedia] Gemini filter rejected all candidates for "${question}"`);
       return `No Wikipedia articles were found to be relevant to "${question}".`;
     }
 
