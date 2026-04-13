@@ -66,7 +66,11 @@ export const SessionView: React.FC = () => {
       case 'getJoke':
         return getJoke(args.category as string | undefined);
       case 'searchWikipedia':
-        return searchWikipedia(args.query as string);
+        return searchWikipedia({
+          question: args.question as string,
+          maxChunks: args.maxChunks as number | undefined,
+          maxAgeDays: args.maxAgeDays as number | undefined,
+        });
       default:
         return `Unknown tool: ${name}`;
     }
@@ -119,7 +123,7 @@ export const SessionView: React.FC = () => {
       <div className="flex items-center gap-4">
         {!isRecording ? (
           <button
-            onClick={startSession}
+            onClick={() => startSession()}
             disabled={isConnecting || !user}
             className="px-10 py-4 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-2xl text-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-indigo-900/40"
           >

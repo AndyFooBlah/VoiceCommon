@@ -23,6 +23,15 @@ service cloud.firestore {
       allow read, write: if isOwner(uid);
     }
 
+    // --- Wikipedia cache (shared, not user-scoped) ---
+    match /wikipedia_cache/{articleId} {
+      allow read, write: if isAuthenticated();
+
+      match /chunks/{chunkIndex} {
+        allow read, write: if isAuthenticated();
+      }
+    }
+
     // --- Sessions ---
     match /sessions/{sessionId} {
       allow create: if isAuthenticated()
