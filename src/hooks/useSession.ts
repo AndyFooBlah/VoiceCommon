@@ -480,19 +480,15 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
       };
 
       // Trigger the bot to take the first turn.
-      // For native audio models, we simulate a complete (silent) user turn:
-      //   activityStart → 100ms silence → activityEnd
-      // The VAD sees a completed turn with no speech and triggers the model
-      // to respond immediately with its opening greeting.
+      // sendClientContent({ turnComplete: true }) — no 'turns' content — tells
+      // the server to start generating a response immediately. This is the
+      // documented way to signal "user turn complete" without any input.
+      // (The previous 1007 error came from including text in 'turns', not from
+      // turnComplete itself. activityStart/End require VAD to be disabled first.)
       if (autoGreet) {
-        console.log('[Session] Sending auto-greet trigger (silent turn)...');
+        console.log('[Session] Sending auto-greet trigger (turnComplete)...');
         try {
-          // 100ms of silence at 16kHz = 1600 Int16 samples = 3200 bytes
-          const silence = new Uint8Array(1600 * 2); // all zeros
-          const silenceB64 = encode(silence);
-          liveSession.sendRealtimeInput({ activityStart: {} });
-          liveSession.sendRealtimeInput({ audio: { data: silenceB64, mimeType: 'audio/pcm;rate=16000' } });
-          liveSession.sendRealtimeInput({ activityEnd: {} });
+          liveSession.sendClientContent({ turnComplete: true });
           console.log('[Session] Auto-greet trigger sent.');
         } catch (err) {
           console.error('[Session] Auto-greet trigger failed:', err);
