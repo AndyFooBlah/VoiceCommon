@@ -19,12 +19,15 @@
  * matching articles, using Firestore-cached embeddings for efficiency.
  *
  * Flow per call:
- *   1. Wikipedia OpenSearch → top 3 candidate article titles
- *   2. For each article, check `wikipedia_cache/{articleId}` freshness
- *   3. If stale or missing: fetch full article, chunk, batch-embed, store
- *   4. Embed the user's question
- *   5. Client-side cosine similarity against cached chunk embeddings
- *   6. Return top chunks grouped by article, ordered by chunkIndex
+ *   1. Wikipedia OpenSearch → 5 candidate article titles
+ *   2. Fetch short summaries for all 5 candidates (parallel)
+ *   3. Ask Gemini Flash Lite to pick up to 3 articles actually relevant to
+ *      the question — avoids downloading/embedding irrelevant full articles
+ *   4. For each confirmed article, check `wikipedia_cache/{articleId}` freshness
+ *   5. If stale or missing: fetch full article, chunk, batch-embed, store
+ *   6. Embed the user's question
+ *   7. Client-side cosine similarity against cached chunk embeddings
+ *   8. Return top chunks grouped by article, ordered by chunkIndex
  *
  * Firestore schema:
  *   wikipedia_cache/{articleId}          → { title, fetchedAt, chunkCount }
@@ -50,10 +53,12 @@ import { getConfig } from '../config';
 // Constants
 // ---------------------------------------------------------------------------
 
-const CHUNK_CHARS = 2048;        // ≈ 512 tokens (4 chars/token estimate)
-const OVERLAP_CHARS = 400;       // ≈ 100 tokens overlap
-const MAX_ARTICLE_CANDIDATES = 3;
+const CHUNK_CHARS = 2048;          // ≈ 512 tokens (4 chars/token estimate)
+const OVERLAP_CHARS = 400;         // ≈ 100 tokens overlap
+const SEARCH_CANDIDATES = 5;       // articles fetched from OpenSearch
+const MAX_CONFIRMED_ARTICLES = 3;  // articles passed to the full RAG pipeline
 const EMBED_MODEL = 'text-embedding-004';
+const FILTER_MODEL = 'gemini-3.1-flash-lite-preview';
 
 // ---------------------------------------------------------------------------
 // Tool declaration
@@ -106,14 +111,31 @@ export async function searchWikipedia(args: {
   console.log(`[Wikipedia] Starting RAG search for: "${question}"`);
 
   try {
-    // --- 1. OpenSearch: find top article titles ---
-    const titles = await openSearch(question);
-    if (titles.length === 0) {
+    // --- 1. OpenSearch: find 5 candidate titles ---
+    const candidates = await openSearch(question, SEARCH_CANDIDATES);
+    if (candidates.length === 0) {
       return `No Wikipedia articles found for "${question}".`;
     }
-    console.log(`[Wikipedia] OpenSearch (${Date.now() - t0}ms) → ${titles.join(', ')}`);
+    console.log(`[Wikipedia] OpenSearch (${Date.now() - t0}ms) → ${candidates.join(', ')}`);
 
-    // --- 2. Embed the question ---
+    // --- 2. Fetch short summaries for all candidates (parallel) ---
+    const tSummaries = Date.now();
+    const summaries = await Promise.all(candidates.map(fetchSummary));
+    console.log(`[Wikipedia] Fetched ${summaries.filter(Boolean).length} summaries (${Date.now() - tSummaries}ms)`);
+
+    // --- 3. Ask Gemini Flash Lite to filter down to the relevant articles ---
+    const tFilter = Date.now();
+    const confirmedTitles = await filterRelevantArticles(question, candidates, summaries);
+    console.log(
+      `[Wikipedia] Gemini filter (${Date.now() - tFilter}ms) → ` +
+      `kept ${confirmedTitles.length}/${candidates.length}: ${confirmedTitles.join(', ')}`,
+    );
+
+    if (confirmedTitles.length === 0) {
+      return `No Wikipedia articles were found to be relevant to "${question}".`;
+    }
+
+    // --- 4. Embed the question ---
     const tEmbed = Date.now();
     const questionEmbedding = await embedTexts([question]);
     if (!questionEmbedding[0]) {
@@ -122,24 +144,23 @@ export async function searchWikipedia(args: {
     const qVec = questionEmbedding[0];
     console.log(`[Wikipedia] Question embedded (${Date.now() - tEmbed}ms)`);
 
-    // --- 3. For each article: ensure cache is fresh, then score chunks ---
+    // --- 5. For each confirmed article: ensure cache is fresh, then score chunks ---
     const maxAgeMs = maxAgeDays * 86400 * 1000;
-    const allScoredChunks: Array<{ articleTitle: string; chunkIndex: number; text: string; score: number }> = [];
+    const allScoredChunks: Array<{
+      articleTitle: string;
+      chunkIndex: number;
+      text: string;
+      score: number;
+    }> = [];
 
-    for (const title of titles.slice(0, MAX_ARTICLE_CANDIDATES)) {
+    for (const title of confirmedTitles) {
       const articleId = titleToId(title);
       const chunks = await getOrFetchArticleChunks(articleId, title, maxAgeMs);
       if (chunks.length === 0) continue;
 
-      // Score each chunk
       for (const chunk of chunks) {
         const score = cosineSimilarity(qVec, chunk.embedding);
-        allScoredChunks.push({
-          articleTitle: title,
-          chunkIndex: chunk.chunkIndex,
-          text: chunk.text,
-          score,
-        });
+        allScoredChunks.push({ articleTitle: title, chunkIndex: chunk.chunkIndex, text: chunk.text, score });
       }
     }
 
@@ -147,12 +168,11 @@ export async function searchWikipedia(args: {
       return `Found Wikipedia articles for "${question}" but could not retrieve content.`;
     }
 
-    // --- 4. Select top-k chunks by score, then regroup by article/chunkIndex ---
+    // --- 6. Select top-k chunks, then regroup by article ordered by chunkIndex ---
     const topChunks = allScoredChunks
       .sort((a, b) => b.score - a.score)
       .slice(0, maxChunks);
 
-    // Group by article, preserve chunkIndex ordering within each article
     const byArticle = new Map<string, typeof topChunks>();
     for (const chunk of topChunks) {
       const group = byArticle.get(chunk.articleTitle) ?? [];
@@ -183,15 +203,101 @@ export async function searchWikipedia(args: {
 // Wikipedia API helpers
 // ---------------------------------------------------------------------------
 
-/** OpenSearch Wikipedia and return up to MAX_ARTICLE_CANDIDATES titles. */
-async function openSearch(query: string): Promise<string[]> {
+/** OpenSearch Wikipedia and return up to `limit` article titles. */
+async function openSearch(query: string, limit: number): Promise<string[]> {
   const url =
     `https://en.wikipedia.org/w/api.php?action=opensearch&search=${encodeURIComponent(query)}` +
-    `&limit=${MAX_ARTICLE_CANDIDATES}&namespace=0&format=json&origin=*`;
+    `&limit=${limit}&namespace=0&format=json&origin=*`;
   const res = await fetch(url);
   const data = await res.json();
   // OpenSearch returns [query, [titles], [descriptions], [urls]]
   return (data[1] as string[]) ?? [];
+}
+
+interface ArticleSummary {
+  title: string;
+  description: string;  // Short description (e.g. "16th President of the United States")
+  extract: string;      // First paragraph(s) of the article
+}
+
+/**
+ * Fetch the short summary for a Wikipedia article via the REST summary API.
+ * Returns null on failure (e.g. article not found).
+ */
+async function fetchSummary(title: string): Promise<ArticleSummary | null> {
+  try {
+    const url = `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`;
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const data = await res.json();
+    return {
+      title: data.title ?? title,
+      description: data.description ?? '',
+      extract: data.extract ?? '',
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Ask Gemini Flash Lite to evaluate which candidate articles are actually
+ * relevant to the user's question, using only their short summaries.
+ *
+ * Returns the titles of confirmed relevant articles (up to MAX_CONFIRMED_ARTICLES).
+ * Falls back to the first MAX_CONFIRMED_ARTICLES candidates if the model call fails.
+ */
+async function filterRelevantArticles(
+  question: string,
+  candidates: string[],
+  summaries: Array<ArticleSummary | null>,
+): Promise<string[]> {
+  // Build a numbered list of candidates with their summaries for the prompt
+  const articleList = candidates.map((title, i) => {
+    const summary = summaries[i];
+    const desc = summary?.description ? ` — ${summary.description}` : '';
+    const extract = summary?.extract
+      ? `\n   ${summary.extract.slice(0, 300)}${summary.extract.length > 300 ? '...' : ''}`
+      : '';
+    return `${i + 1}. "${title}"${desc}${extract}`;
+  }).join('\n\n');
+
+  const prompt =
+    `The user is looking for information to answer this question:\n"${question}"\n\n` +
+    `Here are ${candidates.length} Wikipedia articles that came up in a search, ` +
+    `with their short summaries:\n\n${articleList}\n\n` +
+    `Which of these articles (if any) are likely to contain information relevant ` +
+    `to the question? Return ONLY a JSON array of the article numbers (1-based integers) ` +
+    `that are relevant. Return an empty array if none are relevant. ` +
+    `Return at most ${MAX_CONFIRMED_ARTICLES} articles. ` +
+    `Example: [1, 3]`;
+
+  try {
+    const { geminiApiKey } = getConfig();
+    const ai = new GoogleGenAI({ apiKey: geminiApiKey });
+
+    const response = await ai.models.generateContent({
+      model: FILTER_MODEL,
+      contents: prompt,
+      config: {
+        responseMimeType: 'application/json',
+        temperature: 0,
+      },
+    });
+
+    const text = response.text?.trim() ?? '[]';
+    const indices = JSON.parse(text) as number[];
+
+    if (!Array.isArray(indices)) throw new Error('Expected array');
+
+    return indices
+      .filter((i) => typeof i === 'number' && i >= 1 && i <= candidates.length)
+      .slice(0, MAX_CONFIRMED_ARTICLES)
+      .map((i) => candidates[i - 1]);
+  } catch (err) {
+    console.warn('[Wikipedia] Gemini filter failed, falling back to top candidates:', err);
+    return candidates.slice(0, MAX_CONFIRMED_ARTICLES);
+  }
 }
 
 /** Fetch the full plaintext of a Wikipedia article via the extracts API. */
@@ -223,7 +329,6 @@ async function fetchArticleText(title: string): Promise<string | null> {
  * Targets CHUNK_CHARS characters per chunk with OVERLAP_CHARS overlap.
  */
 function chunkText(text: string): string[] {
-  // Split on paragraph boundaries first
   const paragraphs = text.split(/\n+/).map((p) => p.trim()).filter(Boolean);
 
   const chunks: string[] = [];
@@ -232,7 +337,6 @@ function chunkText(text: string): string[] {
   for (const para of paragraphs) {
     if (current.length + para.length + 1 > CHUNK_CHARS && current.length > 0) {
       chunks.push(current.trim());
-      // Start next chunk with overlap from the end of the current one
       const overlapStart = Math.max(0, current.length - OVERLAP_CHARS);
       current = current.slice(overlapStart) + '\n' + para;
     } else {
@@ -273,7 +377,6 @@ async function getOrFetchArticleChunks(
 ): Promise<CachedChunk[]> {
   const articleRef = doc(db, 'wikipedia_cache', articleId);
 
-  // Check cache freshness
   const tCheck = Date.now();
   const snap = await getDoc(articleRef);
   console.log(`[Wikipedia] Cache check for "${title}" (${Date.now() - tCheck}ms)`);
@@ -282,7 +385,6 @@ async function getOrFetchArticleChunks(
     const data = snap.data() as { fetchedAt: Timestamp; chunkCount: number };
     const ageMs = Date.now() - data.fetchedAt.toMillis();
     if (ageMs < maxAgeMs) {
-      // Cache is fresh — load chunks
       const tLoad = Date.now();
       const chunks = await loadChunks(articleId, data.chunkCount);
       console.log(`[Wikipedia] Loaded ${chunks.length} cached chunks for "${title}" (${Date.now() - tLoad}ms)`);
@@ -293,7 +395,6 @@ async function getOrFetchArticleChunks(
     console.log(`[Wikipedia] No cache for "${title}", fetching`);
   }
 
-  // Fetch and (re)cache the article
   return fetchAndCacheArticle(articleId, title, articleRef);
 }
 
@@ -304,7 +405,7 @@ async function loadChunks(articleId: string, chunkCount: number): Promise<Cached
   return snap.docs
     .map((d) => d.data() as CachedChunk)
     .sort((a, b) => a.chunkIndex - b.chunkIndex)
-    .slice(0, chunkCount); // guard against extra docs
+    .slice(0, chunkCount);
 }
 
 /** Fetch article text, chunk it, embed all chunks, and store in Firestore. */
@@ -313,37 +414,32 @@ async function fetchAndCacheArticle(
   title: string,
   articleRef: ReturnType<typeof doc>,
 ): Promise<CachedChunk[]> {
-  // Fetch article text
   const tFetch = Date.now();
   const text = await fetchArticleText(title);
   console.log(`[Wikipedia] Fetched article "${title}" (${Date.now() - tFetch}ms)`);
   if (!text) return [];
 
-  // Chunk the text
   const rawChunks = chunkText(text);
   if (rawChunks.length === 0) return [];
   console.log(`[Wikipedia] Split into ${rawChunks.length} chunks`);
 
-  // Batch-embed all chunks
   const tEmbed = Date.now();
   const embeddings = await embedTexts(rawChunks);
   console.log(`[Wikipedia] Batch-embedded ${rawChunks.length} chunks (${Date.now() - tEmbed}ms)`);
 
-  // Store article metadata
   await setDoc(articleRef, {
     title,
     fetchedAt: Timestamp.now(),
     chunkCount: rawChunks.length,
   });
 
-  // Store each chunk
   const chunks: CachedChunk[] = [];
   const chunksRef = collection(db, 'wikipedia_cache', articleId, 'chunks');
   const tStore = Date.now();
   await Promise.all(
-    rawChunks.map(async (text, i) => {
+    rawChunks.map(async (chunkText, i) => {
       const embedding = embeddings[i] ?? [];
-      const chunk: CachedChunk = { text, chunkIndex: i, embedding };
+      const chunk: CachedChunk = { text: chunkText, chunkIndex: i, embedding };
       await setDoc(doc(chunksRef, String(i)), chunk);
       chunks.push(chunk);
     }),
@@ -360,7 +456,6 @@ async function fetchAndCacheArticle(
 /**
  * Batch-embed a list of texts using text-embedding-004.
  * Returns one embedding vector per input text, in the same order.
- * Returns empty arrays for any inputs that fail.
  */
 async function embedTexts(texts: string[]): Promise<number[][]> {
   if (texts.length === 0) return [];
