@@ -26,7 +26,7 @@
  */
 
 import { useState, useRef, useCallback } from 'react';
-import { GoogleGenAI, LiveServerMessage, Modality, Type, FunctionDeclaration, ThinkingLevel } from '@google/genai';
+import { GoogleGenAI, LiveServerMessage, Modality, Type, FunctionDeclaration, ThinkingLevel, StartSensitivity, EndSensitivity } from '@google/genai';
 import { getConfig } from '../services/config';
 import { Timestamp } from 'firebase/firestore';
 import { Message, ConnectionStatus, TranscriptEntry } from '../types';
@@ -390,6 +390,14 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
           outputAudioTranscription: {},  // New in Gemini 3.1
           thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL },
           tools: [{ functionDeclarations: allTools }],
+          // High start-of-speech sensitivity makes the bot interruptible faster
+          // when the user begins talking — the default LOW is too sluggish.
+          realtimeInputConfig: {
+            voiceActivityDetection: {
+              startOfSpeechSensitivity: StartSensitivity.START_SENSITIVITY_HIGH,
+              endOfSpeechSensitivity: EndSensitivity.END_SENSITIVITY_HIGH,
+            },
+          },
         },
         callbacks: {
           onmessage: (msg: LiveServerMessage) => {
