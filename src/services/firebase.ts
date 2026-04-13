@@ -24,7 +24,7 @@
  * will have been assigned by the time any hook or service is first called.
  */
 
-import { initializeApp, type FirebaseApp } from 'firebase/app';
+import { initializeApp, getApps, getApp, type FirebaseApp } from 'firebase/app';
 import { getAuth, type Auth } from 'firebase/auth';
 import { getFirestore, type Firestore } from 'firebase/firestore';
 import { getStorage, type FirebaseStorage } from 'firebase/storage';
@@ -53,9 +53,13 @@ export let functions!: Functions;
 /**
  * Initialize Firebase and assign the service exports.
  * Called internally by `initializeVoiceCommon()` — do not call directly.
+ *
+ * If the host app has already initialized the default Firebase app (e.g. a
+ * consuming app like LegacyBot that does its own `initializeApp()` call),
+ * this reuses that existing app rather than throwing a "duplicate app" error.
  */
 export function _initFirebase(config: FirebaseConfig): FirebaseApp {
-  const app = initializeApp(config);
+  const app = getApps().length > 0 ? getApp() : initializeApp(config);
   auth = getAuth(app);
   db = getFirestore(app);
   storage = getStorage(app);
