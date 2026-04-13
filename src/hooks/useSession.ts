@@ -389,6 +389,12 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
           outputAudioTranscription: {},  // New in Gemini 3.1
           thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL },
           tools: [{ functionDeclarations: allTools }],
+          // Disable server-side VAD so we can send activityEnd immediately on
+          // connect to trigger the auto-greet, and manually manage activity
+          // signals for subsequent turns using client-side amplitude detection.
+          realtimeInputConfig: {
+            automaticActivityDetection: { disabled: true },
+          },
         },
         callbacks: {
           onmessage: (msg: LiveServerMessage) => {
@@ -454,11 +460,55 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
       workletNodeRef.current = worklet;
       console.log('[Session] AudioWorklet connected — microphone streaming active');
 
+      // Client-side VAD — detects speech onset/offset and sends activityStart/End
+      // signals to Gemini. Required because we disabled server-side VAD to allow
+      // the auto-greet activityEnd signal to work reliably.
+      //
+      // At 16 kHz with 128-sample worklet frames → 1 frame ≈ 8 ms.
+      // Onset:  ≥ 150 ms above threshold → send activityStart
+      // Offset: ≥ 700 ms below threshold → send activityEnd
+      const VAD_THRESHOLD = 0.015;       // RMS amplitude (0..1 normalized)
+      const VAD_ONSET_FRAMES  = 19;      // 19 × 8 ms ≈ 150 ms
+      const VAD_OFFSET_FRAMES = 88;      // 88 × 8 ms ≈ 700 ms
+      let vadSpeaking = false;
+      let vadOnsetCount = 0;
+      let vadOffsetCount = 0;
+
       let pcmFrameCount = 0;
       worklet.port.onmessage = (e: MessageEvent<{ channelData: Float32Array }>) => {
         if (!liveSessionRef.current) return;
-        // Convert Float32 samples to Int16, then to Uint8Array for base64 encoding
         const float32 = e.data.channelData;
+
+        // --- VAD amplitude detection ---
+        let sumSq = 0;
+        for (let i = 0; i < float32.length; i++) sumSq += float32[i] * float32[i];
+        const rms = Math.sqrt(sumSq / float32.length);
+
+        if (rms > VAD_THRESHOLD) {
+          vadOffsetCount = 0;
+          if (!vadSpeaking) {
+            vadOnsetCount++;
+            if (vadOnsetCount >= VAD_ONSET_FRAMES) {
+              vadSpeaking = true;
+              vadOnsetCount = 0;
+              console.log('[Session] VAD: speech started → activityStart');
+              try { liveSessionRef.current.sendRealtimeInput({ activityStart: {} }); } catch {}
+            }
+          }
+        } else {
+          vadOnsetCount = 0;
+          if (vadSpeaking) {
+            vadOffsetCount++;
+            if (vadOffsetCount >= VAD_OFFSET_FRAMES) {
+              vadSpeaking = false;
+              vadOffsetCount = 0;
+              console.log('[Session] VAD: speech ended → activityEnd');
+              try { liveSessionRef.current.sendRealtimeInput({ activityEnd: {} }); } catch {}
+            }
+          }
+        }
+
+        // --- Send PCM audio ---
         const int16 = new Int16Array(float32.length);
         for (let i = 0; i < float32.length; i++) {
           int16[i] = Math.max(-32768, Math.min(32767, float32[i] * 32768));
@@ -479,16 +529,14 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
         }
       };
 
-      // Trigger the bot to take the first turn.
-      // sendClientContent({ turnComplete: true }) — no 'turns' content — tells
-      // the server to start generating a response immediately. This is the
-      // documented way to signal "user turn complete" without any input.
-      // (The previous 1007 error came from including text in 'turns', not from
-      // turnComplete itself. activityStart/End require VAD to be disabled first.)
+      // Trigger the bot to take the first turn by sending an empty activityEnd
+      // signal. With server-side VAD disabled, activityEnd tells Gemini "the
+      // user's turn is complete" — prompting it to respond with a greeting.
+      // sendClientContent({ turnComplete: true }) caused 1007 in native audio mode.
       if (autoGreet) {
-        console.log('[Session] Sending auto-greet trigger (turnComplete)...');
+        console.log('[Session] Sending auto-greet trigger (activityEnd)...');
         try {
-          liveSession.sendClientContent({ turnComplete: true });
+          liveSession.sendRealtimeInput({ activityEnd: {} });
           console.log('[Session] Auto-greet trigger sent.');
         } catch (err) {
           console.error('[Session] Auto-greet trigger failed:', err);
