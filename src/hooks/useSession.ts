@@ -529,13 +529,15 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
         }
       };
 
-      // Trigger the bot to take the first turn by sending an empty activityEnd
-      // signal. With server-side VAD disabled, activityEnd tells Gemini "the
-      // user's turn is complete" — prompting it to respond with a greeting.
-      // sendClientContent({ turnComplete: true }) caused 1007 in native audio mode.
+      // Trigger the bot to take the first turn by sending an empty user activity:
+      // activityStart immediately followed by activityEnd (no audio between them).
+      // With server-side VAD disabled, this represents a zero-length user turn
+      // that prompts Gemini to respond — using the system instruction to generate
+      // the greeting. activityEnd alone is a no-op without a preceding activityStart.
       if (autoGreet) {
-        console.log('[Session] Sending auto-greet trigger (activityEnd)...');
+        console.log('[Session] Sending auto-greet trigger (activityStart + activityEnd)...');
         try {
+          liveSession.sendRealtimeInput({ activityStart: {} });
           liveSession.sendRealtimeInput({ activityEnd: {} });
           console.log('[Session] Auto-greet trigger sent.');
         } catch (err) {
