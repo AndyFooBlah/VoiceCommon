@@ -25,7 +25,7 @@
  */
 
 import { weatherTool } from './tools/weather';
-import { mapsTool } from './tools/maps';
+import { mapsTool, distanceTool } from './tools/maps';
 import { jokeTool } from './tools/jokes';
 import { wikipediaTool } from './tools/wikipedia';
 
@@ -95,6 +95,7 @@ ${appContext ? `\nAPPLICATION CONTEXT:\n${appContext}` : ''}
 export const allTools = [
   weatherTool,
   mapsTool,
+  distanceTool,
   jokeTool,
   wikipediaTool,
 ];
