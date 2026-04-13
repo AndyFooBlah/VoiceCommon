@@ -55,3 +55,30 @@ export { weatherTool, getWeather } from './services/tools/weather';
 export { mapsTool, distanceTool, searchPlace, getDistanceBetweenPlaces } from './services/tools/maps';
 export { jokeTool, getJoke } from './services/tools/jokes';
 export { wikipediaTool, searchWikipedia } from './services/tools/wikipedia';
+export {
+  computeTimeDifferenceTool,
+  computeTimeOffsetTool,
+  getTimeDifference,
+  getTimeOffset,
+} from './services/tools/dateTime';
+
+// Date/time utilities (for advanced use — implement your own tool wrappers or call directly)
+export {
+  computeTimeDifference,
+  computeTimeOffset,
+  normalizeDate,
+  parseBestEstimate,
+  diffInSeconds,
+  diffInDays,
+  formatDuration,
+  formatDate,
+  DATETIME_MODEL,
+} from './services/dateTimeUtils';
+export type {
+  NormalizedDate,
+  DateTimePoint,
+  TimeDiffResult,
+  TimeOffsetResult,
+  DateConfidence,
+  DateResolution,
+} from './services/dateTimeUtils';

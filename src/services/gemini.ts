@@ -28,6 +28,7 @@ import { weatherTool } from './tools/weather';
 import { mapsTool, distanceTool } from './tools/maps';
 import { jokeTool } from './tools/jokes';
 import { wikipediaTool } from './tools/wikipedia';
+import { computeTimeDifferenceTool, computeTimeOffsetTool } from './tools/dateTime';
 
 // ---------------------------------------------------------------------------
 // Available Gemini voice presets
@@ -80,6 +81,8 @@ KNOWLEDGE TOOLS:
 - For location context (where a place is, distance between places), call 'searchPlace' or 'getDistanceBetweenPlaces'.
 - If the user asks for a joke or the moment calls for levity, call 'getJoke' and share it naturally.
 - If the user asks about the weather, call 'getWeather' with the relevant location and share it conversationally.
+- For questions about how much time passed between two events, or how long ago something was, call 'computeTimeDifference' with the two date expressions and the current date/time.
+- For questions about what date results from adding or subtracting time from a reference point, call 'computeTimeOffset' with the base date, the offset, and the current date/time.
 ${appContext ? `\nAPPLICATION CONTEXT:\n${appContext}` : ''}
   `.trim();
 }
@@ -98,4 +101,6 @@ export const allTools = [
   distanceTool,
   jokeTool,
   wikipediaTool,
+  computeTimeDifferenceTool,
+  computeTimeOffsetTool,
 ];
