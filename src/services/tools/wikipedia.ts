@@ -104,8 +104,11 @@ export async function searchWikipedia(args: {
   question: string;
   maxChunks?: number;
   maxAgeDays?: number;
+  /** Skip all Firestore reads and writes. Chunks are computed on the fly and
+   *  discarded. Useful for integration tests that only have a Gemini API key. */
+  noCache?: boolean;
 }): Promise<string> {
-  const { question, maxChunks = 4, maxAgeDays = 7 } = args;
+  const { question, maxChunks = 4, maxAgeDays = 7, noCache = false } = args;
 
   const t0 = Date.now();
   console.log(`[Wikipedia] Starting RAG search for: "${question}"`);
@@ -174,7 +177,9 @@ export async function searchWikipedia(args: {
 
     for (const title of confirmedTitles) {
       const articleId = titleToId(title);
-      const chunks = await getOrFetchArticleChunks(articleId, title, maxAgeMs);
+      const chunks = noCache
+        ? await fetchArticleChunksNoCacheInternal(title)
+        : await getOrFetchArticleChunks(articleId, title, maxAgeMs);
       if (chunks.length === 0) continue;
 
       for (const chunk of chunks) {
@@ -233,6 +238,25 @@ async function fetchWithTimeout(url: string, options: RequestInit = {}, ms = 800
   }
 }
 
+// ---------------------------------------------------------------------------
+// Exported helpers (also used by tests)
+// ---------------------------------------------------------------------------
+
+/** Fetch article text, chunk, and embed without touching Firestore. */
+async function fetchArticleChunksNoCacheInternal(title: string): Promise<CachedChunk[]> {
+  const text = await fetchArticleText(title);
+  if (!text) return [];
+  const rawChunks = chunkText(text);
+  if (rawChunks.length === 0) return [];
+  console.log(`[Wikipedia] No-cache: split "${title}" into ${rawChunks.length} chunks`);
+  const embeddings = await embedTexts(rawChunks);
+  return rawChunks.map((t, i) => ({ text: t, chunkIndex: i, embedding: embeddings[i] ?? [] }));
+}
+
+// ---------------------------------------------------------------------------
+// Wikipedia API helpers
+// ---------------------------------------------------------------------------
+
 /**
  * Full-text search Wikipedia and return up to `limit` article titles.
  *
@@ -240,7 +264,7 @@ async function fetchWithTimeout(url: string, options: RequestInit = {}, ms = 800
  * rather than action=opensearch (autocomplete/title prefix), so descriptive
  * queries like "Artemis II splashdown date" find the right articles.
  */
-async function openSearch(query: string, limit: number): Promise<string[]> {
+export async function openSearch(query: string, limit: number): Promise<string[]> {
   const url =
     `https://en.wikipedia.org/w/api.php?action=query&list=search` +
     `&srsearch=${encodeURIComponent(query)}&srlimit=${limit}&format=json&origin=*`;
@@ -260,7 +284,7 @@ interface ArticleSummary {
  * Fetch the short summary for a Wikipedia article via the REST summary API.
  * Returns null on failure (e.g. article not found).
  */
-async function fetchSummary(title: string): Promise<ArticleSummary | null> {
+export async function fetchSummary(title: string): Promise<ArticleSummary | null> {
   try {
     const url = `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`;
     const res = await fetchWithTimeout(url);
@@ -369,7 +393,7 @@ async function fetchArticleText(title: string): Promise<string | null> {
  * Split text into overlapping chunks at paragraph boundaries where possible.
  * Targets CHUNK_CHARS characters per chunk with OVERLAP_CHARS overlap.
  */
-function chunkText(text: string): string[] {
+export function chunkText(text: string): string[] {
   const paragraphs = text.split(/\n+/).map((p) => p.trim()).filter(Boolean);
 
   const chunks: string[] = [];
@@ -403,7 +427,7 @@ interface CachedChunk {
 }
 
 /** Convert a Wikipedia title to a Firestore-safe document ID. */
-function titleToId(title: string): string {
+export function titleToId(title: string): string {
   return title.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '-');
 }
 
@@ -526,7 +550,7 @@ async function embedTexts(texts: string[]): Promise<number[][]> {
 // ---------------------------------------------------------------------------
 
 /** Cosine similarity between two vectors. Returns 0 if either is zero-length. */
-function cosineSimilarity(a: number[], b: number[]): number {
+export function cosineSimilarity(a: number[], b: number[]): number {
   if (a.length === 0 || b.length === 0 || a.length !== b.length) return 0;
   let dot = 0;
   let normA = 0;
