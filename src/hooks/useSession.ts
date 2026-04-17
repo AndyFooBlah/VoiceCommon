@@ -31,6 +31,8 @@
  */
 
 import { useState, useRef, useCallback } from 'react';
+import { doc, updateDoc } from 'firebase/firestore';
+import { db } from '../services/firebase';
 import {
   GoogleGenAI,
   LiveServerMessage,
@@ -207,6 +209,10 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
   // Reconnect state
   const isStoppingRef = useRef(false);          // true when stopSession is intentional
   const reconnectAttemptsRef = useRef(0);
+
+  // Session telemetry counters
+  const toolCallCountRef = useRef(0);
+  const errorCountRef = useRef(0);
 
   // Worklet refs for proper cleanup
   const workletNodeRef = useRef<AudioWorkletNode | null>(null);
@@ -417,6 +423,7 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
       const name = call.name ?? '';
       const args = (call.args ?? {}) as Record<string, unknown>;
       console.log(`[Session] Tool call: ${name}`, args);
+      toolCallCountRef.current++;
 
       if (name === 'endSession') {
         console.log('[Session] endSession tool called');
@@ -452,6 +459,7 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
         });
       } catch (err) {
         console.error(`[Session] sendToolResponse failed for ${name}:`, err);
+        errorCountRef.current++;
       }
     }
   }
@@ -691,6 +699,8 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
     lastBotTurnRef.current = '';
     isStoppingRef.current = false;
     reconnectAttemptsRef.current = 0;
+    toolCallCountRef.current = 0;
+    errorCountRef.current = 0;
 
     const instructionToUse = overrideInstruction ?? systemInstructionRef.current;
     const greetToUse = overrideAutoGreetText !== undefined ? overrideAutoGreetText : autoGreetTextRef.current;
@@ -773,6 +783,20 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
       if (sessionRef.current) {
         await finalizeSession(sessionRef.current, 'completed', duration, audioUrl, sessionsCollectionRef.current);
         console.log('[Session] Session finalized');
+
+        // Merge session telemetry metrics into the session document
+        try {
+          const sessionMetrics = {
+            reconnectCount: reconnectAttemptsRef.current,
+            toolCallCount: toolCallCountRef.current,
+            errorCount: errorCountRef.current,
+            durationSeconds: duration,
+          };
+          await updateDoc(doc(db, sessionsCollectionRef.current, sessionRef.current), { sessionMetrics });
+          console.log('[Session] Session metrics written:', sessionMetrics);
+        } catch (err) {
+          console.error('[Session] Failed to write session metrics:', err);
+        }
       }
 
       // Notify caller — use for post-session analysis, clean-up, etc.
