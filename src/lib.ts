@@ -17,6 +17,9 @@
  *
  * Re-exports the public API for npm package consumers.
  * Start here: call `initializeVoiceCommon(config)` before using any hooks.
+ *
+ * Knowledge tools (Wikipedia, Maps, Weather, Jokes, Date/Time) are now in
+ * @andyfooblah/knowledgecommon. Import and initialize that package separately.
  */
 
 // Initialization
@@ -49,36 +52,3 @@ export {
   syncTranscriptToFirestore,
   getTranscriptEntries,
 } from './services/storage';
-
-// Built-in tools
-export { weatherTool, getWeather } from './services/tools/weather';
-export { mapsTool, distanceTool, searchPlace, getDistanceBetweenPlaces } from './services/tools/maps';
-export { jokeTool, getJoke } from './services/tools/jokes';
-export { wikipediaTool, searchWikipedia } from './services/tools/wikipedia';
-export {
-  computeTimeDifferenceTool,
-  computeTimeOffsetTool,
-  getTimeDifference,
-  getTimeOffset,
-} from './services/tools/dateTime';
-
-// Date/time utilities (for advanced use — implement your own tool wrappers or call directly)
-export {
-  computeTimeDifference,
-  computeTimeOffset,
-  normalizeDate,
-  parseBestEstimate,
-  diffInSeconds,
-  diffInDays,
-  formatDuration,
-  formatDate,
-  DATETIME_MODEL,
-} from './services/dateTimeUtils';
-export type {
-  NormalizedDate,
-  DateTimePoint,
-  TimeDiffResult,
-  TimeOffsetResult,
-  DateConfidence,
-  DateResolution,
-} from './services/dateTimeUtils';

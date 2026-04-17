@@ -31,8 +31,6 @@ export interface VoiceCommonConfig {
   firebase: FirebaseConfig;
   /** Google Gemini API key (from Google AI Studio). */
   geminiApiKey: string;
-  /** Google Maps API key (enables weather and maps tools). Optional. */
-  mapsApiKey?: string;
 }
 
 /**
@@ -56,7 +54,6 @@ const GLOBAL_CONFIG_KEY = '__voiceCommon_config__';
  * initializeVoiceCommon({
  *   firebase: { apiKey: '...', authDomain: '...', projectId: '...', storageBucket: '...', appId: '...' },
  *   geminiApiKey: 'AIza...',
- *   mapsApiKey: 'AIza...',
  * });
  * ```
  */

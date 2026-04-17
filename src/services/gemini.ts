@@ -15,20 +15,16 @@
 /**
  * Gemini Live API session management for VoiceCommon.
  *
- * Provides a generic system instruction builder and tool registry for
- * voice AI sessions powered by Gemini Live. Applications built on
- * VoiceCommon supply their own system instruction; this module provides
- * the helpers and tool definitions they can compose with.
+ * Provides a generic system instruction builder for voice AI sessions powered
+ * by Gemini Live. Applications built on VoiceCommon supply their own system
+ * instruction; this module provides a composable baseline.
  *
- * Tool integrations are imported from src/services/tools/ and registered
- * via the allTools export for use in Gemini Live sessions.
+ * Knowledge tools (Wikipedia, Maps, Weather, Jokes, Date/Time) have been moved
+ * to @andyfooblah/knowledgecommon. Import allKnowledgeTools from there and
+ * pass them to your session alongside any application-specific tools.
  */
 
-import { weatherTool } from './tools/weather';
-import { mapsTool, distanceTool } from './tools/maps';
-import { jokeTool } from './tools/jokes';
-import { wikipediaTool } from './tools/wikipedia';
-import { computeTimeDifferenceTool, computeTimeOffsetTool } from './tools/dateTime';
+import type { FunctionDeclaration } from '@google/genai';
 
 // ---------------------------------------------------------------------------
 // Available Gemini voice presets
@@ -53,8 +49,9 @@ export interface BuildSessionInstructionOptions {
  * Build a generic session instruction for a VoiceCommon voice session.
  *
  * Applications should extend or replace this with their own instructions.
- * The built-in instruction establishes good conversational defaults and
- * wires up the standard tool descriptions.
+ * The built-in instruction establishes good conversational defaults.
+ * Tool guidance should be injected via `appContext` based on which tools
+ * the application has registered.
  */
 export function buildSessionInstruction(options: BuildSessionInstructionOptions): string {
   const { assistantName, appContext, currentDateTime } = options;
@@ -75,14 +72,6 @@ ENDING THE SESSION:
 
 TIME AWARENESS:
 - Current date and time: ${currentDateTime ?? 'Unknown'}
-
-KNOWLEDGE TOOLS:
-- If the user asks about a historical event, person, or place, call 'searchWikipedia' to look it up. Do not read the raw result aloud — use it to give an informed, natural answer.
-- For location context (where a place is, distance between places), call 'searchPlace' or 'getDistanceBetweenPlaces'.
-- If the user asks for a joke or the moment calls for levity, call 'getJoke' and share it naturally.
-- If the user asks about the weather, call 'getWeather' with the relevant location and share it conversationally.
-- For questions about how much time passed between two events, or how long ago something was, call 'computeTimeDifference' with the two date expressions and the current date/time.
-- For questions about what date results from adding or subtracting time from a reference point, call 'computeTimeOffset' with the base date, the offset, and the current date/time.
 ${appContext ? `\nAPPLICATION CONTEXT:\n${appContext}` : ''}
   `.trim();
 }
@@ -92,15 +81,13 @@ ${appContext ? `\nAPPLICATION CONTEXT:\n${appContext}` : ''}
 // ---------------------------------------------------------------------------
 
 /**
- * All standard VoiceCommon tools, ready to pass to the Gemini Live API.
- * Applications can use a subset or extend with their own tool definitions.
+ * All VoiceCommon-specific tools. Currently empty — knowledge tools have moved
+ * to @andyfooblah/knowledgecommon. Applications compose their own tool list:
+ *
+ * @example
+ * ```ts
+ * import { allKnowledgeTools } from '@andyfooblah/knowledgecommon';
+ * const sessionTools = [...allKnowledgeTools, ...myAppTools];
+ * ```
  */
-export const allTools = [
-  weatherTool,
-  mapsTool,
-  distanceTool,
-  jokeTool,
-  wikipediaTool,
-  computeTimeDifferenceTool,
-  computeTimeOffsetTool,
-];
+export const allTools: FunctionDeclaration[] = [];

@@ -1,6 +1,6 @@
 {
-  "name": "@andyfooblah/voicecommon",
-  "version": "0.1.0",
+  "name": "@andyfooblah/voice-common",
+  "version": "0.3.0",
   "description": "Reusable framework for building voice AI web applications powered by Google Gemini Live and Firebase.",
   "type": "module",
   "main": "./dist/index.js",
