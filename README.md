@@ -1,8 +1,10 @@
 # VoiceCommon
 
-A reusable framework for building voice AI web applications powered by Google Gemini Live and Firebase.
+`@andyfooblah/voice-common` v0.4.1 — a reusable framework for building voice AI web applications powered by Google Gemini Live and Firebase.
 
 > **Origin:** VoiceCommon was started as a way to extract reusable common functionality from [LegacyBot](https://github.com/AndyFooBlah/LegacyBot), a voice-first life story preservation app. The patterns for real-time voice sessions, transcript archival, audio recording, and AI tool integrations have been generalized here into a clean framework that any voice AI app can build on.
+
+Knowledge tools (weather, maps, jokes, Wikipedia, date/time) are provided separately by [`@andyfooblah/knowledge-common`](https://github.com/AndyFooBlah/KnowledgeCommon).
 
 ---
 
@@ -11,7 +13,8 @@ A reusable framework for building voice AI web applications powered by Google Ge
 - **Gemini Live integration** — real-time bidirectional voice sessions with Google's Gemini Live API, including PCM audio streaming, bot audio playback scheduling, and connection lifecycle management
 - **Firebase authentication** — Google OAuth and email/password sign-in, with user profile creation in Firestore
 - **Session archival** — automatic recording of mixed user+bot audio to Cloud Storage (WebM/Opus), real-time transcript sync to Firestore
-- **Built-in tool integrations** — weather, maps/distance, jokes, and Wikipedia search, each usable as a Gemini function tool
+- **Auto-reconnect** — on unexpected disconnect, automatically re-establishes the Gemini connection, flushes partial audio, and sends a context-aware resume cue (up to 3 attempts)
+- **Repetition detection** — detects near-duplicate bot turns and sends a recovery prompt to break the loop
 - **Example application** — a working 3-page app (login, session history, new session) demonstrating the full framework
 
 ---
@@ -69,12 +72,38 @@ npm run dev
 
 ## Building your own app on VoiceCommon
 
+### Installation
+
+```bash
+npm install @andyfooblah/voice-common
+```
+
+### Initialization
+
+Call `initializeVoiceCommon` once at app startup before mounting React:
+
+```typescript
+import { initializeVoiceCommon } from '@andyfooblah/voice-common';
+
+initializeVoiceCommon({
+  firebase: {
+    apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+    authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+    projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+    storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+    messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+    appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  },
+  geminiApiKey: import.meta.env.VITE_GEMINI_API_KEY,
+});
+```
+
 ### Custom system instruction
 
 Replace the default assistant with your own by calling `buildSessionInstruction` with your own `assistantName` and `appContext`:
 
 ```typescript
-import { buildSessionInstruction } from './services/gemini';
+import { buildSessionInstruction } from '@andyfooblah/voice-common';
 
 const instruction = buildSessionInstruction({
   assistantName: 'Nova',
@@ -87,11 +116,11 @@ Or skip `buildSessionInstruction` entirely and pass your own string directly to 
 
 ### Custom tools
 
-Add tools alongside the built-in set, or replace them:
+Add tools alongside knowledge tools, or replace them:
 
 ```typescript
-import { useSession } from './hooks/useSession';
-import { allTools } from './services/gemini';
+import { useSession } from '@andyfooblah/voice-common';
+import { allKnowledgeTools } from '@andyfooblah/knowledge-common';
 import type { FunctionDeclaration } from '@google/genai';
 
 const myTool: FunctionDeclaration = {
@@ -103,17 +132,86 @@ const myTool: FunctionDeclaration = {
 const { startSession, stopSession, messages } = useSession({
   userId: user.uid,
   systemInstruction: myInstruction,
-  tools: [...allTools, myTool],
+  tools: [...allKnowledgeTools, myTool],
   onToolCall: async (name, args) => {
     if (name === 'lookupOrder') return lookupOrder(args.orderNumber);
-    // fall through to built-in handlers...
+    return 'Unknown tool.';
   },
 });
 ```
 
+Note: the `endSession` tool is always injected automatically by VoiceCommon — do not declare it yourself.
+
 ### Post-session processing
 
 The `onSessionCompleted` Cloud Function in `functions/src/index.ts` fires whenever a session transitions to `completed`. Add your own server-side logic there — transcript analysis, notifications, summaries, webhooks, etc.
+
+---
+
+## `useSession` API reference
+
+```typescript
+import { useSession } from '@andyfooblah/voice-common';
+```
+
+### `UseSessionOptions`
+
+| Option | Type | Required | Description |
+|--------|------|----------|-------------|
+| `userId` | `string` | Yes | Firebase Auth UID of the session owner |
+| `systemInstruction` | `string` | Yes | Full system instruction string for Gemini |
+| `tools` | `FunctionDeclaration[]` | No | Tool declarations to register with Gemini |
+| `onToolCall` | `(name, args) => Promise<string>` | No | Called when Gemini invokes a tool; return value is sent as the tool result |
+| `onSessionEndRequest` | `() => void` | No | Called when the bot invokes the built-in `endSession` tool |
+| `onSessionEnd` | `() => void` | No | Called after the session is fully finalized (audio uploaded, Firestore updated). Use for post-session analysis or state cleanup |
+| `onBotSpeaking` | `(speaking: boolean) => void` | No | Called when bot audio starts or stops (for UI feedback) |
+| `autoGreetText` | `string` | No | Text sent via `sendRealtimeInput` immediately after connecting so the bot takes the first turn. Use bracket notation for system cues, e.g. `"[Session started. Please greet the family.]"` |
+| `speechConfig` | `SpeechConfig` | No | Voice configuration for the Gemini model (e.g. prebuilt voice name). Passed directly to the Gemini Live `speechConfig` field |
+| `sessionsCollection` | `string` | No | Firestore collection path for session documents. Default: `'sessions'`. For nested/scoped sessions, use a path like `'families/{familyId}/dossiers/{dossierId}/sessions'` |
+
+### `UseSessionReturn`
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `messages` | `Message[]` | Live transcript messages for the current session |
+| `connectionStatus` | `ConnectionStatus` | `DISCONNECTED \| CONNECTING \| CONNECTED \| ERROR` |
+| `startSession(overrideInstruction?, overrideAutoGreetText?)` | `() => Promise<void>` | Start a new session. Optional overrides bypass stale-closure issues when instruction or greet text is built just before calling |
+| `stopSession` | `() => Promise<void>` | Stop the session, upload audio, finalize Firestore document, call `onSessionEnd` |
+| `isRecording` | `boolean` | True while a session is active |
+| `sessionId` | `string \| null` | Firestore session document ID for the current session |
+| `error` | `string \| null` | Human-readable error message if status is `ERROR` |
+
+### `sessionsCollection` example
+
+LegacyBot uses family-scoped session paths:
+
+```typescript
+useSession({
+  userId: user.uid,
+  systemInstruction,
+  sessionsCollection: `families/${familyId}/dossiers/${dossierId}/sessions`,
+  // ...
+});
+```
+
+All VoiceCommon storage calls (create, finalize, transcript sync) use this prefix automatically.
+
+---
+
+## Changelog
+
+### v0.4.1
+
+- `speechConfig` option added to `UseSessionOptions` — pass a `SpeechConfig` to select a Gemini prebuilt voice or configure audio output
+- `overrideAutoGreetText` parameter added to `startSession()` — lets callers supply the opening cue at call time to avoid stale-closure issues when the cue is built just before starting
+- `endSession` tool fix — VoiceCommon now sends the tool response acknowledgement before triggering `onSessionEndRequest`, allowing Gemini to deliver its closing audio turn before the session tears down
+- `onSessionEnd` callback added — fires after the session is fully finalized (audio uploaded, Firestore updated); use for post-session analysis or UI state cleanup
+- `sessionsCollection` option added — supports nested Firestore paths for apps with family- or dossier-scoped sessions (e.g. LegacyBot)
+
+### v0.4.0
+
+- Extracted from LegacyBot as a standalone library
+- Knowledge tools moved to `@andyfooblah/knowledge-common`
 
 ---
 
