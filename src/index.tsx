@@ -33,7 +33,6 @@ initializeVoiceCommon({
     appId: import.meta.env.VITE_FIREBASE_APP_ID,
   },
   geminiApiKey: import.meta.env.VITE_GEMINI_API_KEY,
-  mapsApiKey: import.meta.env.VITE_GOOGLE_MAPS_API_KEY,
 });
 
 const rootElement = document.getElementById('root');

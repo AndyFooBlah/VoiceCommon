@@ -27,11 +27,15 @@ import React, { useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { useSession } from '../../hooks/useSession';
-import { buildSessionInstruction, allTools } from '../../services/gemini';
-import { getWeather } from '../../services/tools/weather';
-import { searchPlace, getDistanceBetweenPlaces } from '../../services/tools/maps';
-import { getJoke } from '../../services/tools/jokes';
-import { searchWikipedia } from '../../services/tools/wikipedia';
+import { buildSessionInstruction } from '../../services/gemini';
+import {
+  getWeather,
+  searchPlace,
+  getDistanceBetweenPlaces,
+  getJoke,
+  searchWikipedia,
+  allKnowledgeTools,
+} from '@andyfooblah/knowledge-common';
 import { ConnectionStatus } from '../../types';
 import { Visualizer } from './Visualizer';
 import { TranscriptFeed } from './TranscriptFeed';
@@ -80,7 +84,7 @@ export const SessionView: React.FC = () => {
     useSession({
       userId: user?.uid ?? '',
       systemInstruction,
-      tools: allTools,
+      tools: allKnowledgeTools,
       onToolCall: handleToolCall,
       onSessionEndRequest: () => stopSession(),
       onBotSpeaking: setIsBotSpeaking,

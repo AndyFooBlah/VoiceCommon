@@ -40,6 +40,7 @@ import {
   ThinkingLevel,
   StartSensitivity,
   EndSensitivity,
+  SpeechConfig,
 } from '@google/genai';
 import { getConfig } from '../services/config';
 import { Timestamp } from 'firebase/firestore';
@@ -109,6 +110,12 @@ export interface UseSessionOptions {
    */
   autoGreetText?: string;
   /**
+   * Voice configuration for the Gemini model (e.g. prebuilt voice name).
+   * Passed directly to the Gemini Live API `speechConfig` field.
+   * Omit to use the model default.
+   */
+  speechConfig?: SpeechConfig;
+  /**
    * Firestore collection path for session documents.
    * Default: 'sessions' (top-level flat collection).
    * For apps with nested/scoped sessions use a path like:
@@ -122,11 +129,14 @@ export interface UseSessionReturn {
   messages: Message[];
   connectionStatus: ConnectionStatus;
   /**
-   * Start a new session. Accepts an optional instruction override so callers
-   * that build the instruction just before calling startSession can bypass
-   * the React state propagation delay (stale-closure problem).
+   * Start a new session. Accepts optional overrides so callers that build the
+   * instruction and/or greeting just before calling startSession can bypass the
+   * React state propagation delay (stale-closure problem).
+   *
+   * @param overrideInstruction - System instruction to use instead of options.systemInstruction
+   * @param overrideAutoGreetText - Opening cue to send instead of options.autoGreetText
    */
-  startSession: (overrideInstruction?: string) => Promise<void>;
+  startSession: (overrideInstruction?: string, overrideAutoGreetText?: string) => Promise<void>;
   stopSession: () => Promise<void>;
   isRecording: boolean;
   sessionId: string | null;
@@ -141,6 +151,10 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
     autoGreetText,
     sessionsCollection = 'sessions',
   } = options;
+
+  // Speech config ref — updated every render so reconnect uses latest voice setting
+  const speechConfigRef = useRef(options.speechConfig);
+  speechConfigRef.current = options.speechConfig;
 
   // ---------------------------------------------------------------------------
   // Callback refs — updated every render, read by stable callbacks to prevent
@@ -406,6 +420,14 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
 
       if (name === 'endSession') {
         console.log('[Session] endSession tool called');
+        // Send acknowledgement before triggering stop so Gemini can deliver closing audio
+        try {
+          liveSessionRef.current?.sendToolResponse({
+            functionResponses: [{ id: call.id, name, response: { result: 'ok' } }],
+          });
+        } catch (err) {
+          console.error('[Session] sendToolResponse for endSession failed:', err);
+        }
         onSessionEndRequestRef.current?.();
         return;
       }
@@ -444,11 +466,13 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
    *
    * @param instruction - System instruction to use (may differ between start and reconnect)
    * @param greetText - Text to send as the opening cue after connection
+   * @param speechConfig - Optional Gemini speechConfig (voice name, etc.)
    * @param onConnected - Called once the connection is established (before greet)
    */
   const connectGemini = useCallback(async (
     instruction: string,
     greetText: string | undefined,
+    speechConfig: SpeechConfig | undefined,
     onConnected: () => void,
   ) => {
     const ai = new GoogleGenAI({ apiKey: getConfig().geminiApiKey });
@@ -481,6 +505,8 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
             endOfSpeechSensitivity: EndSensitivity.END_SENSITIVITY_HIGH,
           },
         },
+        // Voice selection — only included when the caller provides a speech config
+        ...(speechConfig ? { speechConfig } : {}),
       },
       callbacks: {
         onmessage: (msg: LiveServerMessage) => {
@@ -633,7 +659,7 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
       : `[Network interruption. Briefly acknowledge the glitch, then invite the user to continue.]`;
 
     try {
-      await connectGemini(systemInstructionRef.current, resumeCue, () => {
+      await connectGemini(systemInstructionRef.current, resumeCue, speechConfigRef.current, () => {
         // Restore session ID — we're continuing the same session, not starting a new one
         if (existingSessionId) {
           sessionRef.current = existingSessionId;
@@ -653,7 +679,7 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
   // Session lifecycle: start
   // ---------------------------------------------------------------------------
 
-  const startSession = useCallback(async (overrideInstruction?: string) => {
+  const startSession = useCallback(async (overrideInstruction?: string, overrideAutoGreetText?: string) => {
     if (isRecording) {
       console.log('[Session] startSession called but already recording — ignoring');
       return;
@@ -667,6 +693,7 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
     reconnectAttemptsRef.current = 0;
 
     const instructionToUse = overrideInstruction ?? systemInstructionRef.current;
+    const greetToUse = overrideAutoGreetText !== undefined ? overrideAutoGreetText : autoGreetTextRef.current;
 
     try {
       console.log('[Session] Starting session for user:', userId);
@@ -686,7 +713,7 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
       console.log('[Session] Audio mixer started');
 
       // Connect to Gemini Live
-      await connectGemini(instructionToUse, autoGreetTextRef.current, () => {
+      await connectGemini(instructionToUse, greetToUse, speechConfigRef.current, () => {
         setConnectionStatus(ConnectionStatus.CONNECTED);
         setIsRecording(true);
         console.log('[Session] Session ready, sessionRef set');
