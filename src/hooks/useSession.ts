@@ -125,6 +125,18 @@ export interface UseSessionOptions {
    * The transcript subcollection and finalization calls all use this prefix.
    */
   sessionsCollection?: string;
+  /**
+   * Override for audio archival. When provided, VoiceCommon calls this instead
+   * of its default `sessions/{userId}/{sessionId}.webm` upload path. Use this
+   * when the consuming app has Storage rules scoped to a different layout
+   * (e.g. LegacyBot uses `{familyId}/{dossierId}/{sessionId}.webm`).
+   * Must return a downloadable URL (or empty string) after upload completes.
+   */
+  archiveAudio?: (
+    blob: Blob,
+    userId: string,
+    sessionId: string,
+  ) => Promise<string>;
 }
 
 export interface UseSessionReturn {
@@ -178,6 +190,8 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
   toolsRef.current = tools;
   const sessionsCollectionRef = useRef(sessionsCollection);
   sessionsCollectionRef.current = sessionsCollection;
+  const archiveAudioRef = useRef(options.archiveAudio);
+  archiveAudioRef.current = options.archiveAudio;
   const autoGreetTextRef = useRef(autoGreetText);
   autoGreetTextRef.current = autoGreetText;
 
@@ -679,7 +693,8 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
     // Flush partial audio before restarting mixer
     const partialBlob = mixer.flush();
     if (partialBlob && existingSessionId) {
-      archiveAudioToGCS(partialBlob, userId, existingSessionId).catch((err) =>
+      const archive = archiveAudioRef.current ?? archiveAudioToGCS;
+      archive(partialBlob, userId, existingSessionId).catch((err) =>
         console.error('[Session] Partial audio upload failed:', err),
       );
     }
@@ -815,7 +830,8 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
       let audioUrl: string | undefined;
       if (audioBlob && sessionRef.current) {
         try {
-          audioUrl = await archiveAudioToGCS(audioBlob, userId, sessionRef.current);
+          const archive = archiveAudioRef.current ?? archiveAudioToGCS;
+          audioUrl = await archive(audioBlob, userId, sessionRef.current);
           console.log('[Session] Audio uploaded:', audioUrl);
         } catch (err) {
           console.error('[Session] Audio upload failed:', err);
