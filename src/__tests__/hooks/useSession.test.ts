@@ -216,6 +216,7 @@ function renderSession(overrides: Partial<typeof DEFAULT_OPTIONS & {
   onBotSpeaking?: (speaking: boolean) => void;
   speechConfig?: any;
   sessionsCollection?: string;
+  archiveAudio?: (blob: Blob, userId: string, sessionId: string) => Promise<string>;
 }> = {}) {
   return renderHook(() => useSession({ ...DEFAULT_OPTIONS, ...overrides }));
 }
@@ -614,6 +615,33 @@ describe('stopSession', () => {
       'completed',
       expect.any(Number),
       undefined,
+      'sessions',
+    );
+  });
+
+  // Regression for LegacyBot #128: apps with Storage rules scoped to a different
+  // path layout need to override the default `sessions/{userId}/*` upload path.
+  it('calls archiveAudio override instead of default when provided', async () => {
+    const archiveAudio = vi.fn().mockResolvedValue('https://custom.example/path.webm');
+    const { result } = renderSession({ archiveAudio });
+
+    await startSession(result);
+    await act(async () => {
+      await result.current.stopSession();
+    });
+
+    expect(archiveAudio).toHaveBeenCalledTimes(1);
+    expect(archiveAudio).toHaveBeenCalledWith(
+      expect.any(Blob),
+      'user-123',
+      'session-abc',
+    );
+    expect(storageSpies.archiveAudioToGCS).not.toHaveBeenCalled();
+    expect(storageSpies.finalizeSession).toHaveBeenCalledWith(
+      'session-abc',
+      'completed',
+      expect.any(Number),
+      'https://custom.example/path.webm',
       'sessions',
     );
   });
