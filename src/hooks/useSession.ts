@@ -206,6 +206,21 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
   // Repetition detection
   const lastBotTurnRef = useRef('');
 
+  // Current bot turn accumulator.
+  //
+  // We track the text of the in-progress bot turn in a ref (not derived from
+  // messages state) so turnComplete can finalize exactly once without reading
+  // through a setMessages updater — side effects inside updaters are not
+  // idempotent under React 18 concurrent rendering and caused duplicated
+  // transcript entries.
+  //
+  // `currentBotTurnRef` holds the accumulating text of the active turn.
+  // `botTurnSealedRef` is true when the last bot turn has been finalized
+  // (via turnComplete or interrupted) — the next transcription chunk then
+  // starts a fresh message rather than appending to the previous one.
+  const currentBotTurnRef = useRef('');
+  const botTurnSealedRef = useRef(true);
+
   // Reconnect state
   const isStoppingRef = useRef(false);          // true when stopSession is intentional
   const reconnectAttemptsRef = useRef(0);
@@ -329,7 +344,67 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
   // Gemini message handler
   // ---------------------------------------------------------------------------
 
+  /**
+   * Append text to the in-progress bot turn, both to the ref (for
+   * finalization) and to messages state (for live UI rendering).
+   * Starts a new message on a sealed boundary; otherwise extends the last.
+   */
+  function appendBotChunk(text: string): void {
+    if (!text) return;
+    currentBotTurnRef.current += text;
+    const sealed = botTurnSealedRef.current;
+    botTurnSealedRef.current = false;
+    setMessages((prev) => {
+      const last = prev[prev.length - 1];
+      if (!sealed && last?.role === 'bot') {
+        return [...prev.slice(0, -1), { ...last, text: last.text + text }];
+      }
+      return [...prev, { id: crypto.randomUUID(), role: 'bot', text, timestamp: new Date() }];
+    });
+  }
+
+  /**
+   * Finalize the current bot turn: write to transcript, run repetition
+   * detection, reset accumulator. Safe to call zero or many times per turn —
+   * does nothing if the accumulator is empty or already sealed.
+   */
+  function sealBotTurn(reason: 'turnComplete' | 'interrupted'): void {
+    if (botTurnSealedRef.current) return;
+    const text = currentBotTurnRef.current.trim();
+    currentBotTurnRef.current = '';
+    botTurnSealedRef.current = true;
+    if (!text) return;
+
+    appendToTranscript('bot', text);
+
+    if (reason === 'turnComplete') {
+      const words = text.split(/\s+/).length;
+      if (
+        lastBotTurnRef.current &&
+        words >= REPETITION_MIN_WORDS &&
+        wordOverlapRatio(text, lastBotTurnRef.current) >= REPETITION_THRESHOLD
+      ) {
+        console.warn('[Session] Repetition detected — interrupting and sending recovery prompt');
+        stopActiveAudio();
+        liveSessionRef.current?.sendRealtimeInput({
+          text: '[System: you just repeated yourself almost verbatim. Do not repeat. Move the conversation forward by asking a new question or exploring a new topic.]',
+        });
+      } else {
+        lastBotTurnRef.current = text;
+      }
+    }
+  }
+
   function handleServerMessage(msg: LiveServerMessage): void {
+    // User barge-in — Gemini signals the model's current turn was interrupted
+    // by user speech. Stop any queued bot audio immediately and seal the
+    // partial transcript so the next bot chunk starts a fresh message.
+    if (msg.serverContent?.interrupted) {
+      console.log('[Session] User interrupted — purging bot audio queue');
+      stopActiveAudio();
+      sealBotTurn('interrupted');
+    }
+
     // Audio output — play chunks and record them to the archive via mixedDest
     if (msg.serverContent?.modelTurn?.parts) {
       for (const part of msg.serverContent.modelTurn.parts) {
@@ -345,15 +420,7 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
     // Output audio transcription (Gemini 3.1+)
     if (msg.serverContent?.outputTranscription?.text) {
       const text = msg.serverContent.outputTranscription.text;
-      if (text.trim()) {
-        setMessages((prev) => {
-          const last = prev[prev.length - 1];
-          if (last?.role === 'bot') {
-            return [...prev.slice(0, -1), { ...last, text: last.text + text }];
-          }
-          return [...prev, { id: crypto.randomUUID(), role: 'bot', text, timestamp: new Date() }];
-        });
-      }
+      if (text.trim()) appendBotChunk(text);
     }
 
     // Text output (fallback for non-audio-only models)
@@ -362,44 +429,12 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
         .filter((p) => p.text)
         .map((p) => p.text!)
         .join('');
-      if (textParts) {
-        setMessages((prev) => {
-          const last = prev[prev.length - 1];
-          if (last?.role === 'bot') {
-            return [...prev.slice(0, -1), { ...last, text: last.text + textParts }];
-          }
-          return [...prev, { id: crypto.randomUUID(), role: 'bot', text: textParts, timestamp: new Date() }];
-        });
-      }
+      if (textParts) appendBotChunk(textParts);
     }
 
     // Turn complete — flush to transcript and run repetition detection
     if (msg.serverContent?.turnComplete) {
-      setMessages((prev) => {
-        const last = prev[prev.length - 1];
-        if (last?.role === 'bot' && last.text.trim()) {
-          const text = last.text.trim();
-          appendToTranscript('bot', text);
-
-          // Repetition detection: if the bot repeated itself nearly verbatim,
-          // stop the audio and nudge it to move on.
-          const words = text.split(/\s+/).length;
-          if (
-            lastBotTurnRef.current &&
-            words >= REPETITION_MIN_WORDS &&
-            wordOverlapRatio(text, lastBotTurnRef.current) >= REPETITION_THRESHOLD
-          ) {
-            console.warn('[Session] Repetition detected — interrupting and sending recovery prompt');
-            stopActiveAudio();
-            liveSessionRef.current?.sendRealtimeInput({
-              text: '[System: you just repeated yourself almost verbatim. Do not repeat. Move the conversation forward by asking a new question or exploring a new topic.]',
-            });
-          } else {
-            lastBotTurnRef.current = text;
-          }
-        }
-        return prev;
-      });
+      sealBotTurn('turnComplete');
     }
 
     // User speech (input transcription)
@@ -697,6 +732,8 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
     transcriptRef.current = [];
     messageIndexRef.current = 0;
     lastBotTurnRef.current = '';
+    currentBotTurnRef.current = '';
+    botTurnSealedRef.current = true;
     isStoppingRef.current = false;
     reconnectAttemptsRef.current = 0;
     toolCallCountRef.current = 0;
