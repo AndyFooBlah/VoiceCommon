@@ -45,11 +45,52 @@ import {
   getDoc,
   Timestamp,
 } from 'firebase/firestore';
-import { db, storage } from './firebase';
+import { db, storage, auth } from './firebase';
 import { TranscriptEntry, SessionMetadata, SessionStatus } from '../types';
 
 /** Default top-level Firestore collection used for sessions. */
 const DEFAULT_SESSIONS = 'sessions';
+
+/**
+ * Returns the currently-authenticated user's UID, or throws.
+ *
+ * Used as defense-in-depth at the client-library boundary: Firestore/Storage
+ * rules are the authoritative enforcement, but failing fast client-side when
+ * no user is authenticated gives a clearer error and avoids round-tripping
+ * unauthenticated requests.
+ */
+function requireCurrentUserId(): string {
+  const uid = auth.currentUser?.uid;
+  if (!uid) {
+    throw new Error('Not authenticated — call requires a signed-in Firebase user.');
+  }
+  return uid;
+}
+
+/**
+ * Verifies the caller owns the given session. Fetches the session document
+ * and throws if either it doesn't exist or its userId does not match the
+ * current authenticated user.
+ *
+ * Defense-in-depth — Firestore rules already enforce this, but a client-side
+ * check surfaces ownership errors with clearer messages and prevents partial
+ * writes on subcollections whose rules cascade via get() lookups.
+ */
+async function requireSessionOwnership(
+  sessionId: string,
+  sessionsCollection: string,
+): Promise<string> {
+  const uid = requireCurrentUserId();
+  const snap = await getDoc(doc(db, sessionsCollection, sessionId));
+  if (!snap.exists()) {
+    throw new Error(`Session ${sessionId} not found.`);
+  }
+  const data = snap.data();
+  if (data.userId !== uid) {
+    throw new Error(`Session ${sessionId} is not owned by the current user.`);
+  }
+  return uid;
+}
 
 // ---------------------------------------------------------------------------
 // Session lifecycle
@@ -67,6 +108,10 @@ export async function createSession(
   userId: string,
   sessionsCollection = DEFAULT_SESSIONS,
 ): Promise<string> {
+  const currentUid = requireCurrentUserId();
+  if (userId !== currentUid) {
+    throw new Error('createSession: userId must match the authenticated user.');
+  }
   const colRef = collection(db, sessionsCollection);
   const session: Omit<SessionMetadata, 'id'> = {
     userId,
@@ -92,6 +137,7 @@ export async function finalizeSession(
   audioUrl?: string,
   sessionsCollection = DEFAULT_SESSIONS,
 ): Promise<void> {
+  await requireSessionOwnership(sessionId, sessionsCollection);
   const docRef = doc(db, sessionsCollection, sessionId);
   await updateDoc(docRef, {
     endTime: Timestamp.now(),
@@ -184,6 +230,10 @@ export async function archiveAudioToGCS(
   userId: string,
   sessionId: string,
 ): Promise<string> {
+  const currentUid = requireCurrentUserId();
+  if (userId !== currentUid) {
+    throw new Error('archiveAudioToGCS: userId must match the authenticated user.');
+  }
   const storagePath = `sessions/${userId}/${sessionId}.webm`;
   const storageRef = ref(storage, storagePath);
 
@@ -209,6 +259,10 @@ export async function syncTranscriptToFirestore(
   entries: TranscriptEntry[],
   sessionsCollection = DEFAULT_SESSIONS,
 ): Promise<void> {
+  // Hot path — called on every transcript entry. Skip the session-ownership
+  // read here (Firestore rules still enforce it) and just require an auth'd
+  // user, which catches the common "caller forgot to check auth" mistake.
+  requireCurrentUserId();
   const docRef = doc(db, sessionsCollection, sessionId, 'transcript', 'entries');
   await setDoc(docRef, { entries }, { merge: false });
 }
@@ -222,6 +276,7 @@ export async function getTranscriptEntries(
   sessionId: string,
   sessionsCollection = DEFAULT_SESSIONS,
 ): Promise<TranscriptEntry[]> {
+  await requireSessionOwnership(sessionId, sessionsCollection);
   const docRef = doc(db, sessionsCollection, sessionId, 'transcript', 'entries');
   const snap = await getDoc(docRef);
   if (!snap.exists()) return [];
