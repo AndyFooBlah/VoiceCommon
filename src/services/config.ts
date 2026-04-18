@@ -40,8 +40,12 @@ export interface VoiceCommonConfig {
  * survives across bundler chunk boundaries — if the consuming app (e.g.
  * LegacyBot with Vite code-splitting) places VoiceCommon's code in multiple
  * chunks, all copies share the same globalThis and therefore the same config.
+ *
+ * A Symbol (via Symbol.for) is used instead of a string property so third-party
+ * code scanning Object.keys(globalThis) does not surface the config. The
+ * registry-based Symbol.for lookup still gives us cross-chunk singleton behavior.
  */
-const GLOBAL_CONFIG_KEY = '__voiceCommon_config__';
+const GLOBAL_CONFIG_KEY = Symbol.for('@andyfooblah/voice-common/config');
 
 /**
  * Initialize VoiceCommon with your app's configuration.
@@ -58,20 +62,35 @@ const GLOBAL_CONFIG_KEY = '__voiceCommon_config__';
  * ```
  */
 export function initializeVoiceCommon(config: VoiceCommonConfig): void {
-  (globalThis as Record<string, unknown>)[GLOBAL_CONFIG_KEY] = config;
+  (globalThis as Record<symbol, unknown>)[GLOBAL_CONFIG_KEY] = config;
   _initFirebase(config.firebase);
 }
 
 /**
  * Returns the active VoiceCommon configuration.
+ *
+ * INTERNAL API — deliberately not re-exported from `lib.ts`. The full config
+ * contains the Gemini API key, so only tightly-scoped getters (see
+ * `getGeminiApiKey`) are exposed to consumers. Internal modules (useSession,
+ * etc.) may import this directly.
+ *
  * Throws if `initializeVoiceCommon()` has not been called yet.
  */
 export function getConfig(): VoiceCommonConfig {
-  const config = (globalThis as Record<string, unknown>)[GLOBAL_CONFIG_KEY] as VoiceCommonConfig | undefined;
+  const config = (globalThis as Record<symbol, unknown>)[GLOBAL_CONFIG_KEY] as VoiceCommonConfig | undefined;
   if (!config) {
     throw new Error(
       'VoiceCommon is not initialized. Call initializeVoiceCommon(config) before using any VoiceCommon hooks or services.',
     );
   }
   return config;
+}
+
+/**
+ * Narrow accessor for the Gemini API key. Consumers that need the key for
+ * direct Gemini API calls (e.g. non-Live generate/embed) should use this
+ * instead of retrieving the whole config object.
+ */
+export function getGeminiApiKey(): string {
+  return getConfig().geminiApiKey;
 }

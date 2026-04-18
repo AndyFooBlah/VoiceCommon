@@ -23,7 +23,7 @@
  */
 
 // Initialization
-export { initializeVoiceCommon, getConfig } from './services/config';
+export { initializeVoiceCommon, getGeminiApiKey } from './services/config';
 export type { VoiceCommonConfig } from './services/config';
 export type { FirebaseConfig } from './services/firebase';
 
