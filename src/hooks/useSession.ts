@@ -280,7 +280,12 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
     transcriptRef.current = [...transcriptRef.current, entry];
     if (sessionRef.current) {
       syncTranscriptToFirestore(sessionRef.current, transcriptRef.current, sessionsCollectionRef.current).catch((err) => {
-        console.error('[Session] Transcript sync failed:', err);
+        // M13: Firestore error objects may embed raw request payloads /
+        // document data in `err.data` or `.stack`, and transcript rows
+        // contain user speech. Log only the code + message.
+        const code = (err as { code?: string })?.code ?? 'unknown';
+        const message = (err as { message?: string })?.message ?? 'no-message';
+        console.error(`[Session] Transcript sync failed: code=${code} message=${message}`);
       });
     }
   }, []);

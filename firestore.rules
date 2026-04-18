@@ -23,12 +23,18 @@ service cloud.firestore {
       allow read, write: if isOwner(uid);
     }
 
-    // --- Wikipedia cache (shared, not user-scoped) ---
+    // --- Wikipedia cache (shared, read-only from clients) ---
+    // Writes happen server-side via a `cacheWikipediaArticle` Cloud
+    // Function (consuming apps must implement one — see KnowledgeCommon
+    // config option of the same name). Client writes are denied to
+    // prevent cache-poisoning.
     match /wikipedia_cache/{articleId} {
-      allow read, write: if isAuthenticated();
+      allow read: if isAuthenticated();
+      allow write: if false;
 
       match /chunks/{chunkIndex} {
-        allow read, write: if isAuthenticated();
+        allow read: if isAuthenticated();
+        allow write: if false;
       }
     }
 
