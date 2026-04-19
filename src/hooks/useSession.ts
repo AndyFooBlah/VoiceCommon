@@ -238,6 +238,14 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
   // Reconnect state
   const isStoppingRef = useRef(false);          // true when stopSession is intentional
   const reconnectAttemptsRef = useRef(0);
+  // Guards against concurrent reconnect flows when onclose fires multiple times.
+  // Without this, two reconnect flows can spawn two mixers (and two mic/bot
+  // pipelines) — the root cause of the "two audio streams playing" symptom.
+  const reconnectInProgressRef = useRef(false);
+  // Synchronous guard against startSession re-entry. setIsRecording(true) is
+  // async so two rapid calls (StrictMode double-invoke, double-clicks) can both
+  // pass the isRecording check — the ref closes the window.
+  const startInProgressRef = useRef(false);
 
   // Session telemetry counters
   const toolCallCountRef = useRef(0);
@@ -687,8 +695,18 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
    * resume prompt so the bot can acknowledge the interruption naturally.
    */
   const attemptReconnect = useCallback(async () => {
+    if (reconnectInProgressRef.current) {
+      console.warn('[Session] attemptReconnect called while already reconnecting — skipping duplicate');
+      return;
+    }
+    reconnectInProgressRef.current = true;
+
     const existingSessionId = sessionRef.current;
     console.log(`[Session] Reconnecting — session=${existingSessionId}, transcript entries=${transcriptRef.current.length}`);
+
+    // Stop any bot audio buffers still scheduled against the old context so
+    // they can't bleed into the new stream after reconnect completes.
+    stopActiveAudio();
 
     // Flush partial audio before restarting mixer
     const partialBlob = mixer.flush();
@@ -709,6 +727,7 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
     } catch (err) {
       console.error('[Session] Failed to restart audio mixer during reconnect:', err);
       setConnectionStatus(ConnectionStatus.ERROR);
+      reconnectInProgressRef.current = false;
       return;
     }
 
@@ -735,18 +754,21 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
       console.error('[Session] Reconnect failed:', err);
       setConnectionStatus(ConnectionStatus.ERROR);
       setError('Reconnect failed — please restart the session.');
+    } finally {
+      reconnectInProgressRef.current = false;
     }
-  }, [userId, mixer, connectGemini]);
+  }, [userId, mixer, connectGemini, stopActiveAudio]);
 
   // ---------------------------------------------------------------------------
   // Session lifecycle: start
   // ---------------------------------------------------------------------------
 
   const startSession = useCallback(async (overrideInstruction?: string, overrideAutoGreetText?: string) => {
-    if (isRecording) {
-      console.log('[Session] startSession called but already recording — ignoring');
+    if (isRecording || startInProgressRef.current) {
+      console.log('[Session] startSession called but already recording/starting — ignoring');
       return;
     }
+    startInProgressRef.current = true;
     setError(null);
     setMessages([]);
     transcriptRef.current = [];
@@ -756,6 +778,7 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
     botTurnSealedRef.current = true;
     isStoppingRef.current = false;
     reconnectAttemptsRef.current = 0;
+    reconnectInProgressRef.current = false;
     toolCallCountRef.current = 0;
     errorCountRef.current = 0;
 
@@ -783,12 +806,14 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
       await connectGemini(instructionToUse, greetToUse, speechConfigRef.current, () => {
         setConnectionStatus(ConnectionStatus.CONNECTED);
         setIsRecording(true);
+        startInProgressRef.current = false;
         console.log('[Session] Session ready, sessionRef set');
       });
     } catch (err) {
       console.error('[Session] Start error:', err);
       setError(`Failed to start session: ${String(err)}`);
       setConnectionStatus(ConnectionStatus.ERROR);
+      startInProgressRef.current = false;
 
       // Clean up orphaned Firestore session if connect failed after creation
       if (sessionRef.current) {
