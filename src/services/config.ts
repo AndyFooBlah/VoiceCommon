@@ -25,12 +25,33 @@
 import type { FirebaseConfig } from './firebase';
 import { _initFirebase } from './firebase';
 
+/** Ephemeral token returned by the consumer's server-side broker. */
+export interface GeminiLiveToken {
+  /** Single-use token string passed as `apiKey` to GoogleGenAI's live.connect(). */
+  token: string;
+  /** ISO timestamp when the token (and the Live session) expires. */
+  expireTime: string;
+}
+
 /** Full configuration required to use VoiceCommon. */
 export interface VoiceCommonConfig {
   /** Firebase project configuration. */
   firebase: FirebaseConfig;
-  /** Google Gemini API key (from Google AI Studio). */
-  geminiApiKey: string;
+  /**
+   * Long-lived Google Gemini API key. **Discouraged** for browser-side use
+   * because it ships in the bundle and is harvestable. Provide `tokenProvider`
+   * instead so VoiceCommon can mint short-lived ephemeral tokens via the
+   * consumer's server-side broker. Required only as a fallback when no
+   * `tokenProvider` is set.
+   */
+  geminiApiKey?: string;
+  /**
+   * Optional: returns a single-use ephemeral token minted server-side. When
+   * set, VoiceCommon's internal session uses this in place of `geminiApiKey`,
+   * so the long-lived key never reaches the browser. The callback is invoked
+   * once per Live session opening.
+   */
+  tokenProvider?: () => Promise<GeminiLiveToken>;
 }
 
 /**
@@ -87,10 +108,44 @@ export function getConfig(): VoiceCommonConfig {
 }
 
 /**
- * Narrow accessor for the Gemini API key. Consumers that need the key for
- * direct Gemini API calls (e.g. non-Live generate/embed) should use this
- * instead of retrieving the whole config object.
+ * Narrow accessor for the Gemini API key.
+ *
+ * @deprecated Will be removed in the next major release. New consumers must
+ * pass a server-side `tokenProvider` to `initializeVoiceCommon` and never
+ * have a long-lived key in the browser. This accessor exists only to keep
+ * older consumers working during the migration window.
+ *
+ * @throws if neither `geminiApiKey` nor `tokenProvider` is configured. Returns
+ * empty string if only `tokenProvider` is configured (the key is intentionally
+ * absent — call sites should switch to using `mintLiveToken()` instead).
  */
 export function getGeminiApiKey(): string {
-  return getConfig().geminiApiKey;
+  return getConfig().geminiApiKey ?? '';
+}
+
+/**
+ * Mint a single-use ephemeral token for opening a Gemini Live session.
+ *
+ * If `tokenProvider` is configured, calls it and returns the result. If only
+ * `geminiApiKey` is configured (legacy mode), returns the long-lived key in
+ * the same `{ token, expireTime }` shape so internal callers can stay
+ * uniform. The legacy fallback's `expireTime` is set ~24 h in the future.
+ *
+ * Internal API — not re-exported from `lib.ts`.
+ */
+export async function mintLiveToken(): Promise<GeminiLiveToken> {
+  const config = getConfig();
+  if (config.tokenProvider) {
+    return config.tokenProvider();
+  }
+  if (config.geminiApiKey) {
+    return {
+      token: config.geminiApiKey,
+      expireTime: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+    };
+  }
+  throw new Error(
+    'VoiceCommon needs either `tokenProvider` (preferred) or `geminiApiKey` ' +
+      'in initializeVoiceCommon(config). Both are missing.',
+  );
 }

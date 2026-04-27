@@ -44,7 +44,7 @@ import {
   EndSensitivity,
   SpeechConfig,
 } from '@google/genai';
-import { getConfig } from '../services/config';
+import { mintLiveToken } from '../services/config';
 import { Timestamp } from 'firebase/firestore';
 import { Message, ConnectionStatus, TranscriptEntry } from '../types';
 import { useAudioMixer } from './useAudioMixer';
@@ -545,7 +545,11 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
     speechConfig: SpeechConfig | undefined,
     onConnected: () => void,
   ) => {
-    const ai = new GoogleGenAI({ apiKey: getConfig().geminiApiKey });
+    // Prefer a single-use ephemeral token from the consumer's server-side
+    // broker. Falls back to the long-lived key if no tokenProvider is
+    // configured (legacy / dev mode only — see VoiceCommonConfig).
+    const { token } = await mintLiveToken();
+    const ai = new GoogleGenAI({ apiKey: token });
 
     const allTools: FunctionDeclaration[] = [
       ...toolsRef.current,

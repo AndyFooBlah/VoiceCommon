@@ -178,6 +178,10 @@ vi.mock('../../services/storage', () => storageSpies);
 vi.mock('../../services/config', () => ({
   getConfig: vi.fn(() => ({ geminiApiKey: 'test-api-key', firebase: {} })),
   initializeVoiceCommon: vi.fn(),
+  mintLiveToken: vi.fn().mockResolvedValue({
+    token: 'test-ephemeral-token',
+    expireTime: '2099-01-01T00:00:00.000Z',
+  }),
 }));
 
 // AudioWorkletNode is not available in jsdom — install a global stub.
