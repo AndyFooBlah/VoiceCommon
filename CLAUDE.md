@@ -1,5 +1,30 @@
 # VoiceCommon — Claude Code Instructions
 
+## 🔑 Sensitive API keys — read first
+
+**VoiceCommon is a library and never holds a Gemini API key.** The only sanctioned auth path is the consumer-supplied `tokenProvider` callback:
+
+```ts
+initializeVoiceCommon({
+  firebase: { ... },
+  tokenProvider: async () => {
+    const result = await myMintGeminiLiveTokenCallable();
+    return result; // { token: string, expireTime: string }
+  },
+});
+```
+
+`tokenProvider` is **required** by `VoiceCommonConfig` (the previous `geminiApiKey` field was deleted in 0.6.0). `useSession`'s `connectGemini` calls it once per Live session and passes the returned ephemeral token as the `apiKey` to `GoogleGenAI` — the long-lived key never reaches the browser, in this library or any consumer's bundle.
+
+**Do not** add a `geminiApiKey?: string` "convenience" field "just for local dev". The whole point of dropping it was that the easier path always wins, and developers who reach for it ship keys to production. Local dev that needs Gemini Live must implement a `tokenProvider`. The demo (`src/index.tsx`) ships a placeholder that throws an explanatory error so a missing broker fails loudly at session start.
+
+**Two automated guards stop accidental regressions:**
+
+1. **ESLint** (`eslint.config.js`) — `no-restricted-syntax` errors on any read of `import.meta.env.VITE_GEMINI_*`, `VITE_GOOGLE_MAPS_*`, or `VITE_*_(SECRET|TOKEN)` inside `src/**`. The demo entry point is exempted only for `VITE_FIREBASE_*`.
+2. **Post-build bundle scan** (`scripts/check-bundle-for-secrets.mjs`, run as part of `npm run build:lib`) — greps the published `dist/` for known secret shapes and **fails on any match** (no allowlist — libraries must never ship a key, not even Firebase config; consumers supply that at runtime).
+
+If either guard fires, **fix the leak**; do not weaken the rule.
+
 ## After any material change
 
 Before considering a task complete, ensure all of the following are done:
