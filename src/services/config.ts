@@ -108,22 +108,6 @@ export function getConfig(): VoiceCommonConfig {
 }
 
 /**
- * Narrow accessor for the Gemini API key.
- *
- * @deprecated Will be removed in the next major release. New consumers must
- * pass a server-side `tokenProvider` to `initializeVoiceCommon` and never
- * have a long-lived key in the browser. This accessor exists only to keep
- * older consumers working during the migration window.
- *
- * @throws if neither `geminiApiKey` nor `tokenProvider` is configured. Returns
- * empty string if only `tokenProvider` is configured (the key is intentionally
- * absent — call sites should switch to using `mintLiveToken()` instead).
- */
-export function getGeminiApiKey(): string {
-  return getConfig().geminiApiKey ?? '';
-}
-
-/**
  * Mint a single-use ephemeral token for opening a Gemini Live session.
  *
  * If `tokenProvider` is configured, calls it and returns the result. If only
