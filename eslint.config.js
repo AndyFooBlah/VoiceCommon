@@ -47,7 +47,35 @@ export default [
       'react-hooks/set-state-in-effect': 'off',
       // Disallow the generic Function type (use explicit signatures instead)
       '@typescript-eslint/no-unsafe-function-type': 'error',
+      // Hard rule: a library must never read sensitive VITE_*-prefixed env
+      // vars in production code. Anything VITE_* gets baked into the
+      // consumer's bundle, so reading one here would force every consumer
+      // to ship that key. All Gemini access is via the consumer-supplied
+      // tokenProvider; the demo entry point (src/index.tsx) is exempted
+      // below since it's not part of the published library bundle.
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector:
+            "MemberExpression[object.object.type='MetaProperty'][object.property.name='env'][property.name=/^VITE_(GEMINI|GOOGLE_MAPS)/]",
+          message:
+            'A library must not read VITE_GEMINI_* / VITE_GOOGLE_MAPS_*. Consumers pass a tokenProvider; the library never holds a long-lived key.',
+        },
+        {
+          selector:
+            "MemberExpression[object.object.type='MetaProperty'][object.property.name='env'][property.name=/_(SECRET|TOKEN)$/]",
+          message:
+            'A library must not read VITE_*_SECRET / VITE_*_TOKEN. All credentials are consumer-supplied at runtime via initializeVoiceCommon(...).',
+        },
+      ],
     },
+  },
+  {
+    // Demo entry point — not part of the published library; allowed to read
+    // VITE_FIREBASE_* for local dev. The library-wide rule above still
+    // explicitly blocks GEMINI/MAPS/SECRET/TOKEN.
+    files: ['src/index.tsx'],
+    rules: { 'no-restricted-syntax': 'off' },
   },
   {
     // Relax rules in test and mock files
