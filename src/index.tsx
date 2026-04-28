@@ -32,7 +32,19 @@ initializeVoiceCommon({
     messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
     appId: import.meta.env.VITE_FIREBASE_APP_ID,
   },
-  geminiApiKey: import.meta.env.VITE_GEMINI_API_KEY,
+  // The demo app does NOT carry a Gemini key — VoiceCommon never accepts
+  // long-lived keys in browser config. To run the demo end-to-end against
+  // Gemini Live, point this at a Cloud Function in your own project that
+  // mints an ephemeral token via Gemini's authTokens.create API. See
+  // design.md §5 for the broker contract; see LegacyBot or CarBot's
+  // functions/src/liveToken.ts for a reference implementation.
+  tokenProvider: () => {
+    throw new Error(
+      'VoiceCommon demo: no tokenProvider wired up. To run the demo against ' +
+        'Gemini Live, replace this with a call to your own server-side ' +
+        'mintGeminiLiveToken Cloud Function. See design.md §5.',
+    );
+  },
 });
 
 const rootElement = document.getElementById('root');

@@ -185,16 +185,23 @@ Audio chunks are scheduled sequentially using a `scheduleTime` cursor. If the lo
 
 ### Gemini API key handling
 
-VoiceCommon does **not** ship the consumer's Gemini API key into the browser. Consumers configure either of two modes via `initializeVoiceCommon(config)`:
+VoiceCommon **never** accepts a long-lived Gemini API key. The only sanctioned auth path is `tokenProvider`:
 
-| Mode | Config field | When to use |
-|---|---|---|
-| **Broker (recommended)** | `tokenProvider: () => Promise<{ token, expireTime }>` | Production. The callback is implemented by the consumer to call its own server-side broker (e.g. a Firebase callable that holds `GEMINI_API_KEY` in Secret Manager and mints single-use, ~30-min ephemeral tokens). VoiceCommon's `useSession` calls `tokenProvider()` once per Live session opening and uses the returned token as the `apiKey` passed to `GoogleGenAI`. The browser never sees the long-lived key. |
-| **Direct key (legacy)** | `geminiApiKey: string` | Local development only. Equivalent to the previous behaviour — convenient for solo testing, never for production. The key ships in the consumer's bundle and is harvestable. |
+```ts
+initializeVoiceCommon({
+  firebase: { /* ... */ },
+  tokenProvider: async () => {
+    // Call your own Cloud Function (which holds GEMINI_API_KEY in Secret
+    // Manager and uses ai.authTokens.create to mint a single-use token).
+    const result = await myMintGeminiLiveTokenCallable();
+    return result; // { token: string, expireTime: string }
+  },
+});
+```
 
-Internally, `mintLiveToken()` (services/config.ts) abstracts the choice: it calls `tokenProvider` if set, otherwise wraps the long-lived key in the same `{ token, expireTime }` shape so call sites stay uniform.
+`tokenProvider` is required by `VoiceCommonConfig` and called once per Live session opening. `useSession` uses the returned ephemeral token as the `apiKey` passed to `GoogleGenAI`; the long-lived key never reaches the browser.
 
-This replaces the prior design where `geminiApiKey` was required and the long-lived key was passed straight to `new GoogleGenAI({ apiKey })` in the browser. That was abandoned after a real incident in which a consumer's bundled key was harvested and abused at scale.
+The earlier `geminiApiKey?: string` field has been **removed** in 0.6.0 — even as a "local dev only" fallback it allowed key-bundling-by-accident, which is the exact incident pattern that triggered this redesign in the first place. Local dev that needs Gemini Live must implement a `tokenProvider`; the demo app in `src/index.tsx` ships a placeholder that throws an explanatory error so a missing broker fails loudly at session start instead of silently shipping a key.
 
 ---
 

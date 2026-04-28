@@ -15,8 +15,16 @@
 /// <reference types="vite/client" />
 
 /**
- * Type declarations for Vite environment variables.
- * These are set in .env.local and exposed via import.meta.env.
+ * Type declarations for Vite environment variables used by the demo app.
+ *
+ * Only Firebase web config lives here — those values are public by design
+ * (security comes from Firestore Rules + GCP API key restrictions).
+ *
+ * NEVER add a VITE_*_KEY/_SECRET/_TOKEN entry for a sensitive credential.
+ * Anything VITE_* prefixed is bundled into the browser JS and is trivially
+ * extractable. The Gemini API key is held only by the consumer's
+ * server-side broker; VoiceCommon's `tokenProvider` config invokes that
+ * broker to mint short-lived ephemeral tokens.
  */
 interface ImportMetaEnv {
   readonly VITE_FIREBASE_API_KEY: string;
@@ -25,7 +33,6 @@ interface ImportMetaEnv {
   readonly VITE_FIREBASE_STORAGE_BUCKET: string;
   readonly VITE_FIREBASE_MESSAGING_SENDER_ID: string;
   readonly VITE_FIREBASE_APP_ID: string;
-  readonly VITE_GEMINI_API_KEY: string;
 }
 
 interface ImportMeta {
