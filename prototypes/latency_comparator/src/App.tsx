@@ -73,10 +73,19 @@ function App() {
       },
     };
 
+    const tokenProvider = async () => {
+      const key = import.meta.env.VITE_GEMINI_API_KEY;
+      if (!key) {
+        const promptKey = prompt('VITE_GEMINI_API_KEY not found in environment. Please enter your Gemini API key:');
+        return promptKey || '';
+      }
+      return key;
+    };
+
     if (architecture === 'hybrid') {
-      serviceRef.current = new HybridService(serviceConfig);
+      serviceRef.current = new HybridService(serviceConfig, tokenProvider);
     } else {
-      serviceRef.current = new IntegratedService(serviceConfig);
+      serviceRef.current = new IntegratedService(serviceConfig, tokenProvider);
     }
   }, [architecture]);
 

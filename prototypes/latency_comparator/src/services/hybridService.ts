@@ -48,7 +48,8 @@ const ts = () => new Date().toISOString().slice(11, 23);
 
 export class HybridService {
   private config: HybridServiceConfig;
-  private genAI: GoogleGenerativeAI;
+  private tokenProvider: () => Promise<string>;
+  private genAI: GoogleGenerativeAI | null = null;
 
   private sttSocket: WebSocket | null = null;
   private audioContext: AudioContext | null = null;
@@ -69,13 +70,9 @@ export class HybridService {
   private storedContext = '';
   private storedHistory: { speaker: string; text: string }[] = [];
 
-  constructor(config: HybridServiceConfig) {
+  constructor(config: HybridServiceConfig, tokenProvider: () => Promise<string>) {
     this.config = config;
-
-    const geminiApiKey = import.meta.env.VITE_GEMINI_API_KEY;
-    if (!geminiApiKey) throw new Error("VITE_GEMINI_API_KEY is not set.");
-    this.genAI = new GoogleGenerativeAI(geminiApiKey);
-
+    this.tokenProvider = tokenProvider;
     console.log(`[${ts()}] [Hybrid] Service initialized.`);
   }
 
@@ -84,6 +81,10 @@ export class HybridService {
   // ---------------------------------------------------------------------------
 
   public async start(context: string, history: { speaker: string; text: string }[]): Promise<void> {
+    const apiKey = await this.tokenProvider();
+    if (!apiKey) throw new Error("Gemini API key is required.");
+    this.genAI = new GoogleGenerativeAI(apiKey);
+    
     this.finalTranscript = '';
     this.lastTextSegmentTime = 0;
     this.silenceFrameCount = 0;
@@ -304,6 +305,7 @@ export class HybridService {
     context: string,
     history: { speaker: string; text: string }[],
   ): Promise<string | null> {
+    if (!this.genAI) throw new Error("GoogleGenerativeAI not initialized");
     const model = this.genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
     const prompt = `
 ${context}

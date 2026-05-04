@@ -53,7 +53,8 @@ function pcmToAudioBuffer(data: Uint8Array, ctx: AudioContext, sampleRate: numbe
 
 export class IntegratedService {
   private config: IntegratedServiceConfig;
-  private genAI: GoogleGenAI;
+  private tokenProvider: () => Promise<string>;
+  private genAI: GoogleGenAI | null = null;
 
   private session: LiveSession | null = null;
   private inputCtx: AudioContext | null = null;
@@ -76,11 +77,9 @@ export class IntegratedService {
   private currentInputTranscript = '';
   private currentOutputTranscript = '';
 
-  constructor(config: IntegratedServiceConfig) {
+  constructor(config: IntegratedServiceConfig, tokenProvider: () => Promise<string>) {
     this.config = config;
-    const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
-    if (!apiKey) throw new Error('VITE_GEMINI_API_KEY is not set.');
-    this.genAI = new GoogleGenAI({ apiKey });
+    this.tokenProvider = tokenProvider;
     console.log(`[${ts()}] [Integrated] Service initialized.`);
   }
 
@@ -89,6 +88,10 @@ export class IntegratedService {
   // ---------------------------------------------------------------------------
 
   public async start(context: string, history: { speaker: string; text: string }[]): Promise<void> {
+    const apiKey = await this.tokenProvider();
+    if (!apiKey) throw new Error('Gemini API key (or ephemeral token) is required.');
+    this.genAI = new GoogleGenAI({ apiKey });
+
     this.currentInputTranscript = '';
     this.currentOutputTranscript = '';
     this.speakingStarted = false;
@@ -104,6 +107,7 @@ export class IntegratedService {
 
     console.log(`[${ts()}] [Integrated] Connecting to Gemini Live…`);
 
+    if (!this.genAI) throw new Error('GoogleGenAI not initialized');
     this.session = await this.genAI.live.connect({
       model: 'gemini-2.5-flash-native-audio-preview-12-2025',
       callbacks: {
