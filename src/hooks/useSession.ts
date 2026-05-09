@@ -497,6 +497,14 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
         } catch (err) {
           console.error('[Session] sendToolResponse for endSession failed:', err);
         }
+        // Flush the in-progress bot turn (the goodbye) before tearing the
+        // session down. Gemini delivers transcription chunks via
+        // appendBotChunk into currentBotTurnRef.current; sealBotTurn is
+        // normally called only on `turnComplete`, but for tool-initiated
+        // endSession that turnComplete often arrives after the consumer
+        // has already closed the WebSocket — so without this seal, the
+        // bot's last reply never lands in Firestore.
+        sealBotTurn('turnComplete');
         onSessionEndRequestRef.current?.();
         return;
       }
@@ -845,6 +853,12 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
     isStoppingRef.current = true;
     setIsRecording(false);
     setConnectionStatus(ConnectionStatus.DISCONNECTED);
+    // Defence-in-depth: flush any in-progress bot turn before closing the
+    // WebSocket. The endSession tool handler already seals on its way out,
+    // but stopSession can also be called from the manual stop button or
+    // from auto-recovery error paths — both of which would otherwise
+    // silently drop whatever the bot was mid-saying.
+    sealBotTurn('interrupted');
     stopActiveAudio();
 
     try {

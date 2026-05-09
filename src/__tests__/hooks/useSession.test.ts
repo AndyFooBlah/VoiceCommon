@@ -955,6 +955,66 @@ describe('endSession tool', () => {
 
     expect(onToolCall).not.toHaveBeenCalled();
   });
+
+  it("flushes the bot's in-progress goodbye to the transcript before ending", async () => {
+    // Reproduces the bug where the bot's final reply was missing from the
+    // raw transcript: Gemini delivers transcription chunks via
+    // outputTranscription, then calls endSession before turnComplete fires.
+    // Without explicit sealing, currentBotTurnRef.current is dropped.
+    const onSessionEndRequest = vi.fn();
+    const { result } = renderSession({ onSessionEndRequest });
+    await startSession(result);
+
+    await act(async () => {
+      // Bot streams the goodbye in two chunks
+      capturedCallbacks.current.onmessage?.({
+        serverContent: { outputTranscription: { text: 'Talk to you' } },
+      });
+      capturedCallbacks.current.onmessage?.({
+        serverContent: { outputTranscription: { text: ' next time!' } },
+      });
+      // Bot calls endSession BEFORE turnComplete arrives (the failure mode)
+      capturedCallbacks.current.onmessage?.({
+        toolCall: {
+          functionCalls: [{ id: 'end-call-bye', name: 'endSession', args: {} }],
+        },
+      });
+      await new Promise((res) => setTimeout(res, 10));
+    });
+
+    // syncTranscriptToFirestore should have been called with the bot's
+    // accumulated text — this is what the user sees in the saved transcript.
+    const calls = storageSpies.syncTranscriptToFirestore.mock.calls;
+    const allEntries = calls.flatMap((c) => c[1] as Array<{ role: string; text: string }>);
+    const botEntries = allEntries.filter((e) => e.role === 'bot');
+    expect(botEntries.length).toBeGreaterThan(0);
+    expect(botEntries[botEntries.length - 1].text).toBe('Talk to you next time!');
+  });
+
+  it("flushes the bot's in-progress turn when stopSession is called manually", async () => {
+    // Defence-in-depth coverage: even if the bot is mid-sentence and the
+    // user hits the manual stop button, whatever was already transcribed
+    // should land in the persistent transcript.
+    const { result } = renderSession({});
+    await startSession(result);
+
+    await act(async () => {
+      capturedCallbacks.current.onmessage?.({
+        serverContent: { outputTranscription: { text: 'I was just about to' } },
+      });
+      await new Promise((res) => setTimeout(res, 10));
+    });
+
+    await act(async () => {
+      await result.current.stopSession();
+    });
+
+    const calls = storageSpies.syncTranscriptToFirestore.mock.calls;
+    const allEntries = calls.flatMap((c) => c[1] as Array<{ role: string; text: string }>);
+    const botEntries = allEntries.filter((e) => e.role === 'bot');
+    expect(botEntries.length).toBeGreaterThan(0);
+    expect(botEntries[botEntries.length - 1].text).toBe('I was just about to');
+  });
 });
 
 // ---------------------------------------------------------------------------
