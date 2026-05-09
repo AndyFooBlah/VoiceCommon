@@ -549,7 +549,10 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
     // broker. Falls back to the long-lived key if no tokenProvider is
     // configured (legacy / dev mode only — see VoiceCommonConfig).
     const { token } = await mintLiveToken();
-    const ai = new GoogleGenAI({ apiKey: token });
+    // Ephemeral token + v1alpha — the SDK's auth-token support is wired
+    // only to the v1alpha endpoint; the default v1 returns a URL shape that
+    // rejects the token. See https://ai.google.dev/gemini-api/docs/ephemeral-tokens
+    const ai = new GoogleGenAI({ apiKey: token, httpOptions: { apiVersion: 'v1alpha' } });
 
     const allTools: FunctionDeclaration[] = [
       ...toolsRef.current,
