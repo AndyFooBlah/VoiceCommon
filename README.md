@@ -94,9 +94,27 @@ initializeVoiceCommon({
     messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
     appId: import.meta.env.VITE_FIREBASE_APP_ID,
   },
-  geminiApiKey: import.meta.env.VITE_GEMINI_API_KEY,
+  // Required. VoiceCommon never accepts a long-lived Gemini API key —
+  // the long-lived key would end up in your bundle, which is the exact
+  // failure mode this library is designed to prevent. Implement
+  // tokenProvider as a thin wrapper around your own server-side broker
+  // (e.g. a Firebase Cloud Function that holds GEMINI_API_KEY in Secret
+  // Manager and returns a single-use ephemeral token via Gemini's
+  // authTokens.create API). It's invoked once per Live session opening.
+  tokenProvider: async () => {
+    const result = await myMintGeminiLiveTokenCallable();
+    return result.data; // { token: string, expireTime: string }
+  },
 });
 ```
+
+> **Note:** the `geminiApiKey?: string` field that earlier versions
+> accepted was deleted in 0.6.0. Even as a "local dev" fallback it
+> caused keys to ship in consumers' bundles by accident — the same
+> incident pattern that motivated the broker design in the first
+> place. See `design.md` §5 for the full rationale and `CLAUDE.md`
+> for the type-system + ESLint + post-build-scan guards that enforce
+> this at compile and build time.
 
 ### Custom system instruction
 
