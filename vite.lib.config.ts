@@ -30,7 +30,7 @@ export default defineConfig({
   plugins: [
     react(),
     dts({
-      include: ['src/lib.ts', 'src/services/**/*.ts', 'src/hooks/**/*.ts', 'src/types.ts'],
+      include: ['src/lib.ts', 'src/services/**/*.ts', 'src/hooks/**/*.ts', 'src/types.ts', 'src/testing/**/*.ts'],
       exclude: ['src/__tests__/**', 'src/__mocks__/**'],
       tsConfigFilePath: './tsconfig.lib.json',
     }),
@@ -43,10 +43,12 @@ export default defineConfig({
   },
   build: {
     lib: {
-      entry: path.resolve(__dirname, 'src/lib.ts'),
+      entry: {
+        index: path.resolve(__dirname, 'src/lib.ts'),
+        testing: path.resolve(__dirname, 'src/testing/index.ts'),
+      },
       name: 'VoiceCommon',
       formats: ['es'],
-      fileName: 'index',
     },
     outDir: 'dist',
     emptyOutDir: true,
