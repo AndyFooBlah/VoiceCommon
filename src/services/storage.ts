@@ -107,13 +107,15 @@ async function requireSessionOwnership(
 export async function createSession(
   userId: string,
   sessionsCollection = DEFAULT_SESSIONS,
+  additionalData: Record<string, any> = {},
 ): Promise<string> {
   const currentUid = requireCurrentUserId();
   if (userId !== currentUid) {
     throw new Error('createSession: userId must match the authenticated user.');
   }
   const colRef = collection(db, sessionsCollection);
-  const session: Omit<SessionMetadata, 'id'> = {
+  const session: Omit<SessionMetadata, 'id'> & Record<string, any> = {
+    ...additionalData,
     userId,
     startTime: Timestamp.now(),
     endTime: null,

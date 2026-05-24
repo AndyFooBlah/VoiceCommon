@@ -126,6 +126,11 @@ export interface UseSessionOptions {
    */
   sessionsCollection?: string;
   /**
+   * Additional fields to merge into the session document in Firestore.
+   * Useful for app-specific metadata (e.g. LegacyBot's storytellerUid).
+   */
+  additionalSessionData?: Record<string, any>;
+  /**
    * Override for audio archival. When provided, VoiceCommon calls this instead
    * of its default `sessions/{userId}/{sessionId}.webm` upload path. Use this
    * when the consuming app has Storage rules scoped to a different layout
@@ -194,6 +199,8 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
   archiveAudioRef.current = options.archiveAudio;
   const autoGreetTextRef = useRef(autoGreetText);
   autoGreetTextRef.current = autoGreetText;
+  const additionalSessionDataRef = useRef(options.additionalSessionData);
+  additionalSessionDataRef.current = options.additionalSessionData;
 
   // ---------------------------------------------------------------------------
   // State
@@ -804,7 +811,7 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
       console.log('[Session] Starting session for user:', userId);
 
       // Create Firestore session record
-      const sId = await createSession(userId, sessionsCollectionRef.current);
+      const sId = await createSession(userId, sessionsCollectionRef.current, additionalSessionDataRef.current);
       sessionRef.current = sId;
       setSessionId(sId);
       sessionStartRef.current = new Date();
