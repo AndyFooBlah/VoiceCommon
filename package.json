@@ -44,11 +44,11 @@
   },
   "dependencies": {
     "@andyfooblah/knowledge-common": "file:../knowledgecommon",
+    "@google/genai": ">=1.0.0",
     "firebase": ">=12.0.0",
     "react": ">=19.0.0",
     "react-dom": ">=19.0.0",
-    "react-router-dom": "^7.13.0",
-    "@google/genai": ">=1.0.0"
+    "react-router-dom": "^7.13.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
@@ -72,7 +72,7 @@
     "tailwindcss": "^4.2.0",
     "typescript": "~5.8.2",
     "vite": "^6.2.0",
-    "vite-plugin-dts": "^3.9.1",
+    "vite-plugin-dts": "^5.0.1",
     "vitest": "^4.1.5"
   }
 }
