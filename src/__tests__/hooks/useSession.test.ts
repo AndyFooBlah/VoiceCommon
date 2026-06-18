@@ -318,7 +318,7 @@ describe('startSession', () => {
     await startSession(result);
 
     expect(storageSpies.createSession).toHaveBeenCalledTimes(1);
-    expect(storageSpies.createSession).toHaveBeenCalledWith('user-123', 'sessions');
+    expect(storageSpies.createSession).toHaveBeenCalledWith('user-123', 'sessions', undefined);
   });
 
   it('sets sessionId from Firestore response', async () => {
@@ -895,6 +895,53 @@ describe('tool call dispatch', () => {
     const toolMsg = result.current.messages.find((m) => m.role === 'tool');
     expect(toolMsg).toBeDefined();
     expect(toolMsg?.toolName).toBe('myTool');
+    expect(toolMsg?.toolResult).toBe('ok');
+  });
+
+  it('does not send sendToolResponse if user interrupts before tool call finishes', async () => {
+    let resolveTool: (res: string) => void = () => {};
+    const toolPromise = new Promise<string>((resolve) => {
+      resolveTool = resolve;
+    });
+    const onToolCall = vi.fn().mockReturnValue(toolPromise);
+    const { result } = renderSession({ onToolCall });
+    await startSession(result);
+
+    // 1. Dispatch the tool call
+    act(() => {
+      capturedCallbacks.current.onmessage?.({
+        toolCall: {
+          functionCalls: [{ id: 'call-5', name: 'slowTool', args: {} }],
+        },
+      });
+    });
+
+    // Verify onToolCall was initiated but hasn't resolved
+    expect(onToolCall).toHaveBeenCalledTimes(1);
+    expect(mockLiveSession.sendToolResponse).not.toHaveBeenCalled();
+
+    // 2. User interrupts while tool is in-flight
+    await act(async () => {
+      capturedCallbacks.current.onmessage?.({
+        serverContent: { interrupted: true },
+      });
+    });
+
+    // 3. Resolve the tool call
+    await act(async () => {
+      resolveTool('tool result after interrupt');
+      // Flush microtask queue
+      await new Promise((res) => setTimeout(res, 10));
+    });
+
+    // 4. Verify sendToolResponse was NOT called
+    expect(mockLiveSession.sendToolResponse).not.toHaveBeenCalled();
+
+    // 5. Verify the tool message is still added to the messages array with the result
+    const toolMsg = result.current.messages.find((m) => m.role === 'tool');
+    expect(toolMsg).toBeDefined();
+    expect(toolMsg?.toolName).toBe('slowTool');
+    expect(toolMsg?.toolResult).toBe('tool result after interrupt');
   });
 });
 
@@ -1046,6 +1093,7 @@ describe('sessionsCollection', () => {
     expect(storageSpies.createSession).toHaveBeenCalledWith(
       'user-123',
       'families/fam-1/sessions',
+      undefined,
     );
   });
 
@@ -1083,7 +1131,7 @@ describe('sessionsCollection', () => {
     const { result } = renderSession();
     await startSession(result);
 
-    expect(storageSpies.createSession).toHaveBeenCalledWith('user-123', 'sessions');
+    expect(storageSpies.createSession).toHaveBeenCalledWith('user-123', 'sessions', undefined);
   });
 });
 

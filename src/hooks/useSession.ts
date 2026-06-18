@@ -227,6 +227,10 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
   // Repetition detection
   const lastBotTurnRef = useRef('');
 
+  // Turn tracking for tool-call cancellation on interrupt
+  const currentTurnIdRef = useRef(0);
+  const cancelledTurnsRef = useRef<Set<number>>(new Set());
+
   // Current bot turn accumulator.
   //
   // We track the text of the in-progress bot turn in a ref (not derived from
@@ -435,6 +439,8 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
     // partial transcript so the next bot chunk starts a fresh message.
     if (msg.serverContent?.interrupted) {
       console.log('[Session] User interrupted — purging bot audio queue');
+      cancelledTurnsRef.current.add(currentTurnIdRef.current);
+      currentTurnIdRef.current += 1;
       stopActiveAudio();
       sealBotTurn('interrupted');
     }
@@ -468,6 +474,7 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
 
     // Turn complete — flush to transcript and run repetition detection
     if (msg.serverContent?.turnComplete) {
+      currentTurnIdRef.current += 1;
       sealBotTurn('turnComplete');
     }
 
@@ -516,6 +523,7 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
         return;
       }
 
+      const turnAtDispatch = currentTurnIdRef.current;
       let result = 'Tool executed.';
       if (onToolCallRef.current) {
         try {
@@ -527,16 +535,20 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
         }
       }
 
-      addMessage('tool', `[${name}]`, { toolName: name, toolArgs: args });
+      addMessage('tool', `[${name}]`, { toolName: name, toolArgs: args, toolResult: result });
       appendToTranscript('tool', `[${name}]`, { toolName: name, toolArgs: args, toolResult: result.slice(0, 500) });
 
-      try {
-        liveSessionRef.current?.sendToolResponse({
-          functionResponses: [{ id: call.id, name, response: { result } }],
-        });
-      } catch (err) {
-        console.error(`[Session] sendToolResponse failed for ${name}:`, err);
-        errorCountRef.current++;
+      if (cancelledTurnsRef.current.has(turnAtDispatch)) {
+        console.log(`[Session] Skipping sendToolResponse for ${name} — turn was cancelled`);
+      } else {
+        try {
+          liveSessionRef.current?.sendToolResponse({
+            functionResponses: [{ id: call.id, name, response: { result } }],
+          });
+        } catch (err) {
+          console.error(`[Session] sendToolResponse failed for ${name}:`, err);
+          errorCountRef.current++;
+        }
       }
     }
   }
@@ -803,6 +815,8 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
     reconnectInProgressRef.current = false;
     toolCallCountRef.current = 0;
     errorCountRef.current = 0;
+    currentTurnIdRef.current = 0;
+    cancelledTurnsRef.current.clear();
 
     const instructionToUse = overrideInstruction ?? systemInstructionRef.current;
     const greetToUse = overrideAutoGreetText !== undefined ? overrideAutoGreetText : autoGreetTextRef.current;

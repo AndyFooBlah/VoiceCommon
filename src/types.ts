@@ -81,6 +81,7 @@ export interface Message {
   timestamp: Date;
   toolName?: string;
   toolArgs?: Record<string, unknown>;
+  toolResult?: string;
 }
 
 // ---------------------------------------------------------------------------
