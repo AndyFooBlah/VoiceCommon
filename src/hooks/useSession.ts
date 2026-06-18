@@ -231,6 +231,60 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
   const currentTurnIdRef = useRef(0);
   const cancelledTurnsRef = useRef<Set<number>>(new Set());
 
+  // Per-turn timing instrumentation.
+  //
+  // Logs each significant model-output event with millisecond offsets so the
+  // consumer can see, on a single timeline, *exactly* when filler text was
+  // produced vs. when a tool call was dispatched. Specifically helpful for
+  // diagnosing "the bot calls the tool first and then says 'one sec' after"
+  // problems — those show up here as a `tool-call` event before any
+  // `audio-chunk` / `output-text` events in the same turn.
+  //
+  // All event times are taken at the moment the event arrives over the
+  // WebSocket, not when the audio finishes playing. The audio queue depth
+  // (in ms) is also logged so you can tell whether scheduled audio has been
+  // delivered before a tool call lands.
+  const turnStartMsRef = useRef<number>(0);
+  const turnHasEventsRef = useRef(false);
+  const turnAudioMsRef = useRef(0);
+  const turnTextRef = useRef('');
+  const turnEventCountRef = useRef(0);
+
+  function logTurnEvent(label: string, extra: string = ''): void {
+    const now = performance.now();
+    if (!turnHasEventsRef.current) {
+      turnStartMsRef.current = now;
+      turnHasEventsRef.current = true;
+      turnAudioMsRef.current = 0;
+      turnTextRef.current = '';
+      turnEventCountRef.current = 0;
+    }
+    turnEventCountRef.current += 1;
+    const offset = (now - turnStartMsRef.current).toFixed(0).padStart(5, ' ');
+    // Audio queue depth: ms of scheduled bot audio still ahead of the
+    // playback cursor. Lets you correlate "tool-call at +120ms with 0ms
+    // queued" (silent dispatch) vs. "+1200ms with 800ms queued" (filler
+    // already playing).
+    const ctx = audioContextRef.current;
+    const queuedMs = ctx
+      ? Math.max(0, (scheduleTimeRef.current - ctx.currentTime) * 1000).toFixed(0)
+      : '?';
+    console.log(
+      `[Session-Turn turn=${currentTurnIdRef.current} +${offset}ms #${turnEventCountRef.current} queue=${queuedMs}ms] ${label}${extra ? ' ' + extra : ''}`,
+    );
+  }
+
+  function resetTurnTiming(reason: string): void {
+    if (turnHasEventsRef.current) {
+      const totalAudio = turnAudioMsRef.current.toFixed(0);
+      const transcript = turnTextRef.current.trim().slice(0, 120);
+      console.log(
+        `[Session-Turn turn=${currentTurnIdRef.current} END reason=${reason} events=${turnEventCountRef.current} audio=${totalAudio}ms text=${JSON.stringify(transcript)}]`,
+      );
+    }
+    turnHasEventsRef.current = false;
+  }
+
   // Current bot turn accumulator.
   //
   // We track the text of the in-progress bot turn in a ref (not derived from
@@ -439,6 +493,8 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
     // partial transcript so the next bot chunk starts a fresh message.
     if (msg.serverContent?.interrupted) {
       console.log('[Session] User interrupted — purging bot audio queue');
+      logTurnEvent('interrupted', '(barge-in)');
+      resetTurnTiming('interrupted');
       cancelledTurnsRef.current.add(currentTurnIdRef.current);
       currentTurnIdRef.current += 1;
       stopActiveAudio();
@@ -447,20 +503,36 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
 
     // Audio output — play chunks and record them to the archive via mixedDest
     if (msg.serverContent?.modelTurn?.parts) {
+      let audioChunkCount = 0;
+      let totalSamples = 0;
       for (const part of msg.serverContent.modelTurn.parts) {
         if (part.inlineData?.mimeType?.startsWith('audio/pcm')) {
           const raw = atob(part.inlineData.data ?? '');
           const bytes = new Uint8Array(raw.length);
           for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
           playAudioChunk(bytes.buffer);
+          audioChunkCount += 1;
+          // PCM16 @ 24kHz → 2 bytes per sample → ms = bytes / (24000 * 2 / 1000)
+          totalSamples += bytes.length / 2;
         }
+      }
+      if (audioChunkCount > 0) {
+        const chunkMs = (totalSamples / 24).toFixed(0); // 24 samples/ms at 24kHz
+        turnAudioMsRef.current += Number(chunkMs);
+        logTurnEvent('audio-chunk', `count=${audioChunkCount} duration=${chunkMs}ms`);
       }
     }
 
     // Output audio transcription (Gemini 3.1+)
     if (msg.serverContent?.outputTranscription?.text) {
       const text = msg.serverContent.outputTranscription.text;
-      if (text.trim()) appendBotChunk(text);
+      if (text.trim()) {
+        turnTextRef.current += text;
+        // Truncate for log — full text is captured in the END line.
+        const preview = text.length > 40 ? text.slice(0, 40) + '…' : text;
+        logTurnEvent('output-text', JSON.stringify(preview));
+        appendBotChunk(text);
+      }
     }
 
     // Text output (fallback for non-audio-only models)
@@ -469,11 +541,18 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
         .filter((p) => p.text)
         .map((p) => p.text!)
         .join('');
-      if (textParts) appendBotChunk(textParts);
+      if (textParts) {
+        turnTextRef.current += textParts;
+        logTurnEvent('output-text(fallback)',
+          JSON.stringify(textParts.slice(0, 40) + (textParts.length > 40 ? '…' : '')));
+        appendBotChunk(textParts);
+      }
     }
 
     // Turn complete — flush to transcript and run repetition detection
     if (msg.serverContent?.turnComplete) {
+      logTurnEvent('turn-complete');
+      resetTurnTiming('turnComplete');
       currentTurnIdRef.current += 1;
       sealBotTurn('turnComplete');
     }
@@ -489,6 +568,13 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
 
     // Function calls
     if (msg.toolCall?.functionCalls?.length) {
+      // Log BEFORE dispatch so the turn timeline shows whether the tool-call
+      // landed before any audio/text (silent dispatch — bad) or after some
+      // filler audio (good).
+      for (const c of msg.toolCall.functionCalls) {
+        logTurnEvent('tool-call-received',
+          `name=${c.name} args=${JSON.stringify(c.args ?? {}).slice(0, 80)}`);
+      }
       // Handle tool calls asynchronously but don't let errors propagate into the handler
       void handleToolCalls(msg.toolCall.functionCalls);
     }
@@ -524,6 +610,8 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
       }
 
       const turnAtDispatch = currentTurnIdRef.current;
+      logTurnEvent('tool-dispatch-start', `name=${name}`);
+      const dispatchStartMs = performance.now();
       let result = 'Tool executed.';
       if (onToolCallRef.current) {
         try {
@@ -534,17 +622,22 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
           console.error(`[Session] Tool ${name} threw:`, err);
         }
       }
+      const dispatchMs = (performance.now() - dispatchStartMs).toFixed(0);
+      logTurnEvent('tool-dispatch-end',
+        `name=${name} took=${dispatchMs}ms resultLen=${result.length}`);
 
       addMessage('tool', `[${name}]`, { toolName: name, toolArgs: args, toolResult: result });
       appendToTranscript('tool', `[${name}]`, { toolName: name, toolArgs: args, toolResult: result.slice(0, 500) });
 
       if (cancelledTurnsRef.current.has(turnAtDispatch)) {
         console.log(`[Session] Skipping sendToolResponse for ${name} — turn was cancelled`);
+        logTurnEvent('tool-response-skipped', `name=${name} (turn cancelled)`);
       } else {
         try {
           liveSessionRef.current?.sendToolResponse({
             functionResponses: [{ id: call.id, name, response: { result } }],
           });
+          logTurnEvent('tool-response-sent', `name=${name}`);
         } catch (err) {
           console.error(`[Session] sendToolResponse failed for ${name}:`, err);
           errorCountRef.current++;
