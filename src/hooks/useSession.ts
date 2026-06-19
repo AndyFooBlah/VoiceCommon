@@ -154,8 +154,17 @@ export interface UseSessionReturn {
    *
    * @param overrideInstruction - System instruction to use instead of options.systemInstruction
    * @param overrideAutoGreetText - Opening cue to send instead of options.autoGreetText
+   * @param overrideTools - Tool declarations to use instead of options.tools.
+   *   The same list is also used on auto-reconnect within the session
+   *   (stored in toolsRef), so a session that started with a fresh set
+   *   of tools fetched from a backend will continue to use them on
+   *   reconnect.
    */
-  startSession: (overrideInstruction?: string, overrideAutoGreetText?: string) => Promise<void>;
+  startSession: (
+    overrideInstruction?: string,
+    overrideAutoGreetText?: string,
+    overrideTools?: FunctionDeclaration[],
+  ) => Promise<void>;
   stopSession: () => Promise<void>;
   isRecording: boolean;
   sessionId: string | null;
@@ -890,7 +899,11 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
   // Session lifecycle: start
   // ---------------------------------------------------------------------------
 
-  const startSession = useCallback(async (overrideInstruction?: string, overrideAutoGreetText?: string) => {
+  const startSession = useCallback(async (
+    overrideInstruction?: string,
+    overrideAutoGreetText?: string,
+    overrideTools?: FunctionDeclaration[],
+  ) => {
     if (isRecording || startInProgressRef.current) {
       console.log('[Session] startSession called but already recording/starting — ignoring');
       return;
@@ -913,6 +926,14 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
 
     const instructionToUse = overrideInstruction ?? systemInstructionRef.current;
     const greetToUse = overrideAutoGreetText !== undefined ? overrideAutoGreetText : autoGreetTextRef.current;
+
+    // If the caller passed a fresh tools list (e.g. fetched from a backend
+    // tool registry), pin it into toolsRef so connectGemini AND auto-reconnect
+    // both use it for the duration of the session. Without this, reconnect
+    // would silently revert to whatever was passed at hook-construction time.
+    if (overrideTools !== undefined) {
+      toolsRef.current = overrideTools;
+    }
 
     try {
       console.log('[Session] Starting session for user:', userId);
