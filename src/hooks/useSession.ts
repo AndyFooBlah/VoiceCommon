@@ -631,12 +631,25 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
           console.error(`[Session] Tool ${name} threw:`, err);
         }
       }
-      const dispatchMs = (performance.now() - dispatchStartMs).toFixed(0);
+      const dispatchMsNum = Math.round(performance.now() - dispatchStartMs);
+      const dispatchMs = dispatchMsNum.toString();
       logTurnEvent('tool-dispatch-end',
         `name=${name} took=${dispatchMs}ms resultLen=${result.length}`);
 
-      addMessage('tool', `[${name}]`, { toolName: name, toolArgs: args, toolResult: result });
-      appendToTranscript('tool', `[${name}]`, { toolName: name, toolArgs: args, toolResult: result.slice(0, 500) });
+      addMessage('tool', `[${name}]`, {
+        toolName: name,
+        toolArgs: args,
+        toolResult: result,
+        toolDurationMs: dispatchMsNum,
+        toolResultBytes: result.length,
+      });
+      appendToTranscript('tool', `[${name}]`, {
+        toolName: name,
+        toolArgs: args,
+        toolResult: result.slice(0, 500),
+        toolDurationMs: dispatchMsNum,
+        toolResultBytes: result.length,
+      });
 
       if (cancelledTurnsRef.current.has(turnAtDispatch)) {
         console.log(`[Session] Skipping sendToolResponse for ${name} — turn was cancelled`);

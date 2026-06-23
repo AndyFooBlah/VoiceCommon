@@ -67,6 +67,14 @@ export interface TranscriptEntry {
   toolName?: string;
   toolArgs?: Record<string, unknown>;
   toolResult?: string;       // truncated result for audit purposes
+  /** Wall-clock time spent inside the consumer's onToolCall callback,
+   * measured from dispatch start to dispatch end. Surfaces tool latency
+   * in the UI without the consumer having to track it themselves. */
+  toolDurationMs?: number;
+  /** Length in chars of the tool result we handed back to Gemini Live.
+   * Useful for diagnosing oversize-payload disconnects (Gemini's
+   * WebSocket has a per-frame size limit ~1 MB). */
+  toolResultBytes?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -82,6 +90,10 @@ export interface Message {
   toolName?: string;
   toolArgs?: Record<string, unknown>;
   toolResult?: string;
+  /** Wall-clock duration of the tool dispatch (consumer's onToolCall). */
+  toolDurationMs?: number;
+  /** Length in chars of the result returned to Gemini Live. */
+  toolResultBytes?: number;
 }
 
 // ---------------------------------------------------------------------------
