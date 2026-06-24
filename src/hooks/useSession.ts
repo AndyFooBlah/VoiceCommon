@@ -705,6 +705,16 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
       } as FunctionDeclaration,
     ];
 
+    // Tool-registry visibility log at connect time — proves what was
+    // ACTUALLY handed to Gemini Live, not what we hoped. Critical when
+    // a session shows "model never called a tool"; without this log we
+    // can't distinguish "model chose not to" from "model didn't have
+    // any tools to call".
+    console.log(
+      `[Session] Connecting to Gemini with ${allTools.length} tool declaration(s):`,
+      allTools.map((t) => t.name).join(', '),
+    );
+
     const liveSession = await ai.live.connect({
       model: GEMINI_MODEL,
       config: {
