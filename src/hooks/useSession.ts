@@ -200,8 +200,22 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
   // Current instruction and tools stored in refs so reconnect uses latest values
   const systemInstructionRef = useRef(systemInstruction);
   systemInstructionRef.current = systemInstruction;
+  // Tools: two-mode pattern.
+  //   - Mode A (static): consumer passes a fixed tools array at hook
+  //     construction; we want it to track on re-render so updates land.
+  //   - Mode B (dynamic): consumer calls startSession(_, _, overrideTools)
+  //     with a list fetched at start time. The override MUST survive the
+  //     re-renders that startSession's own setState calls trigger; if we
+  //     unconditionally synced from `options.tools` here, the override
+  //     would be wiped before connectGemini reads the ref.
+  // The flag below switches between modes: once an override lands, the
+  // auto-sync stops, and the override is the source of truth for the
+  // rest of the session. stopSession clears the flag for the next start.
   const toolsRef = useRef(tools);
-  toolsRef.current = tools;
+  const toolsOverriddenRef = useRef(false);
+  if (!toolsOverriddenRef.current) {
+    toolsRef.current = tools;
+  }
   const sessionsCollectionRef = useRef(sessionsCollection);
   sessionsCollectionRef.current = sessionsCollection;
   const archiveAudioRef = useRef(options.archiveAudio);
@@ -956,6 +970,7 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
     // would silently revert to whatever was passed at hook-construction time.
     if (overrideTools !== undefined) {
       toolsRef.current = overrideTools;
+      toolsOverriddenRef.current = true;
     }
 
     try {
@@ -1009,6 +1024,9 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
     }
     console.log('[Session] Stopping session...');
     isStoppingRef.current = true;
+    // Clear the tools-override latch so the next session start either
+    // installs a fresh override or falls back to the static options.tools.
+    toolsOverriddenRef.current = false;
     setIsRecording(false);
     setConnectionStatus(ConnectionStatus.DISCONNECTED);
     // Defence-in-depth: flush any in-progress bot turn before closing the
