@@ -64,6 +64,14 @@ const MAX_AUDIO_LOOKAHEAD_S = 30;
 /** Consecutive failed session-resumption attempts before we halt the session. */
 const MAX_RESUME_FAILURES = 3;
 
+/**
+ * Length of the turn-opening fingerprint used to detect a mid-turn restart
+ * (e.g. the native-audio model emitting its greeting twice in one turn). If the
+ * first ~16 chars of a turn reappear later in the SAME turn, the model has
+ * restarted and we suppress the duplicate audio for the rest of the turn.
+ */
+const TURN_OPENING_FINGERPRINT_LEN = 16;
+
 /** Word overlap ratio above which a bot turn is considered a repetition (0–1). */
 const REPETITION_THRESHOLD = 0.85;
 
@@ -358,6 +366,9 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
   const turnAudioMsRef = useRef(0);
   const turnTextRef = useRef('');
   const turnEventCountRef = useRef(0);
+  // Mid-turn restart detection (e.g. double greeting). Reset at each turn start.
+  const turnOpeningRef = useRef('');       // fingerprint of this turn's opening
+  const suppressTurnRef = useRef(false);   // true once a restart is detected → drop the rest
 
   function logTurnEvent(label: string, extra: string = ''): void {
     const now = performance.now();
@@ -367,6 +378,8 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
       turnAudioMsRef.current = 0;
       turnTextRef.current = '';
       turnEventCountRef.current = 0;
+      turnOpeningRef.current = '';
+      suppressTurnRef.current = false;
     }
     turnEventCountRef.current += 1;
     const offset = (now - turnStartMsRef.current).toFixed(0).padStart(5, ' ');
@@ -578,6 +591,34 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
   }
 
   /**
+   * Detect a mid-turn restart: the native-audio model sometimes emits its
+   * opening twice in a single turn (the "double greeting"). We fingerprint the
+   * first ~16 chars of the turn; if that fingerprint reappears later in the same
+   * turn, the model has started over, so we set suppressTurnRef to drop the
+   * duplicate's audio and transcript for the remainder of the turn. Called after
+   * each bot transcription chunk is appended to turnTextRef.
+   */
+  function detectTurnRestart(): void {
+    if (suppressTurnRef.current) return;
+    const acc = turnTextRef.current.toLowerCase();
+    if (!turnOpeningRef.current) {
+      if (acc.trim().length >= TURN_OPENING_FINGERPRINT_LEN) {
+        turnOpeningRef.current = acc.trim().slice(0, TURN_OPENING_FINGERPRINT_LEN);
+      }
+      return;
+    }
+    const opening = turnOpeningRef.current;
+    const first = acc.indexOf(opening);
+    const second = first === -1 ? -1 : acc.indexOf(opening, first + opening.length);
+    if (second !== -1) {
+      suppressTurnRef.current = true;
+      console.warn(
+        `[Session] Mid-turn restart detected (opening "${opening.trim()}" repeated) — suppressing the duplicate for the rest of this turn`,
+      );
+    }
+  }
+
+  /**
    * Finalize the current bot turn: write to transcript, run repetition
    * detection, reset accumulator. Safe to call zero or many times per turn —
    * does nothing if the accumulator is empty or already sealed.
@@ -727,6 +768,10 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
       let totalSamples = 0;
       for (const part of msg.serverContent.modelTurn.parts) {
         if (part.inlineData?.mimeType?.startsWith('audio/pcm')) {
+          // Drop audio once we've detected a mid-turn restart (double greeting):
+          // the already-scheduled first greeting keeps playing; the duplicate is
+          // never scheduled.
+          if (suppressTurnRef.current) continue;
           const raw = atob(part.inlineData.data ?? '');
           const bytes = new Uint8Array(raw.length);
           for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
@@ -747,11 +792,16 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
     if (msg.serverContent?.outputTranscription?.text) {
       const text = msg.serverContent.outputTranscription.text;
       if (text.trim()) {
-        turnTextRef.current += text;
-        // Truncate for log — full text is captured in the END line.
+        // logTurnEvent first: it resets per-turn refs on a turn's first event,
+        // so turnTextRef must accumulate AFTER it (otherwise the opening chunk,
+        // which carries the greeting fingerprint, would be wiped).
         const preview = text.length > 40 ? text.slice(0, 40) + '…' : text;
         logTurnEvent('output-text', JSON.stringify(preview));
-        appendBotChunk(text);
+        turnTextRef.current += text;
+        detectTurnRestart();
+        // Skip the transcript/UI append for a detected duplicate so the record
+        // shows a single clean greeting.
+        if (!suppressTurnRef.current) appendBotChunk(text);
       }
     }
 
@@ -762,10 +812,11 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
         .map((p) => p.text!)
         .join('');
       if (textParts) {
-        turnTextRef.current += textParts;
         logTurnEvent('output-text(fallback)',
           JSON.stringify(textParts.slice(0, 40) + (textParts.length > 40 ? '…' : '')));
-        appendBotChunk(textParts);
+        turnTextRef.current += textParts;
+        detectTurnRestart();
+        if (!suppressTurnRef.current) appendBotChunk(textParts);
       }
     }
 
