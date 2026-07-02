@@ -744,6 +744,15 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
       allTools.map((t) => t.name).join(', '),
     );
 
+    // VAD visibility log — proves the end-of-speech silence value ACTUALLY
+    // handed to Gemini, so we can distinguish "the configured wait never
+    // propagated" from "the model ignored it". See endOfSpeechSilenceMs.
+    console.log(
+      `[Session] VAD: silenceDurationMs=${
+        endOfSpeechSilenceMsRef.current ?? '(server default ~800ms)'
+      } endOfSpeechSensitivity=HIGH`,
+    );
+
     const liveSession = await ai.live.connect({
       model: GEMINI_MODEL,
       config: {
