@@ -158,7 +158,7 @@ vi.mock('@google/genai', () => ({
   Type: { OBJECT: 'object', STRING: 'string', NUMBER: 'number' },
   ThinkingLevel: { MINIMAL: 'MINIMAL', LOW: 'LOW', MEDIUM: 'MEDIUM', HIGH: 'HIGH', NONE: 'NONE' },
   StartSensitivity: { START_SENSITIVITY_HIGH: 'START_SENSITIVITY_HIGH' },
-  EndSensitivity: { END_SENSITIVITY_HIGH: 'END_SENSITIVITY_HIGH' },
+  EndSensitivity: { END_SENSITIVITY_HIGH: 'END_SENSITIVITY_HIGH', END_SENSITIVITY_LOW: 'END_SENSITIVITY_LOW' },
 }));
 
 vi.mock('../../hooks/useAudioMixer', () => ({
@@ -220,6 +220,7 @@ function renderSession(overrides: Partial<typeof DEFAULT_OPTIONS & {
   onBotSpeaking?: (speaking: boolean) => void;
   speechConfig?: any;
   endOfSpeechSilenceMs?: number;
+  endOfSpeechSensitivity?: 'HIGH' | 'LOW';
   sessionsCollection?: string;
   archiveAudio?: (blob: Blob, userId: string, sessionId: string) => Promise<string>;
 }> = {}) {
@@ -1105,6 +1106,29 @@ describe('endOfSpeechSilenceMs', () => {
     expect(
       callArgs.config.realtimeInputConfig.automaticActivityDetection,
     ).not.toHaveProperty('silenceDurationMs');
+  });
+});
+
+// ---------------------------------------------------------------------------
+describe('endOfSpeechSensitivity', () => {
+  it('defaults to HIGH end-of-speech sensitivity', async () => {
+    const { result } = renderSession({});
+    await startSession(result);
+
+    const callArgs = mockLiveConnect.mock.calls[0][0];
+    expect(
+      callArgs.config.realtimeInputConfig.automaticActivityDetection.endOfSpeechSensitivity,
+    ).toBe('END_SENSITIVITY_HIGH');
+  });
+
+  it('uses LOW end-of-speech sensitivity when requested', async () => {
+    const { result } = renderSession({ endOfSpeechSensitivity: 'LOW' });
+    await startSession(result);
+
+    const callArgs = mockLiveConnect.mock.calls[0][0];
+    expect(
+      callArgs.config.realtimeInputConfig.automaticActivityDetection.endOfSpeechSensitivity,
+    ).toBe('END_SENSITIVITY_LOW');
   });
 });
 

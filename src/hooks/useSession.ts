@@ -128,6 +128,15 @@ export interface UseSessionOptions {
    */
   endOfSpeechSilenceMs?: number;
   /**
+   * How eager the model is to decide the user has *finished* speaking.
+   * 'HIGH' (default) commits end-of-speech quickly — good for snappy
+   * back-and-forth. 'LOW' makes the model wait through longer/uncertain
+   * pauses before taking its turn — use it when the speaker tends to pause
+   * mid-thought and you don't want the bot jumping in. Maps to
+   * `automaticActivityDetection.endOfSpeechSensitivity`. Updated every render.
+   */
+  endOfSpeechSensitivity?: 'HIGH' | 'LOW';
+  /**
    * Firestore collection path for session documents.
    * Default: 'sessions' (top-level flat collection).
    * For apps with nested/scoped sessions use a path like:
@@ -198,6 +207,11 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
   // (or reconnect) picks up the latest "how patiently the bot waits" value.
   const endOfSpeechSilenceMsRef = useRef(options.endOfSpeechSilenceMs);
   endOfSpeechSilenceMsRef.current = options.endOfSpeechSilenceMs;
+
+  // End-of-speech sensitivity ref — 'LOW' makes the model less eager to
+  // declare the user's turn finished. Defaults to 'HIGH' (current behavior).
+  const endOfSpeechSensitivityRef = useRef(options.endOfSpeechSensitivity);
+  endOfSpeechSensitivityRef.current = options.endOfSpeechSensitivity;
 
   // ---------------------------------------------------------------------------
   // Callback refs — updated every render, read by stable callbacks to prevent
@@ -747,10 +761,14 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
     // VAD visibility log — proves the end-of-speech silence value ACTUALLY
     // handed to Gemini, so we can distinguish "the configured wait never
     // propagated" from "the model ignored it". See endOfSpeechSilenceMs.
+    const endSensitivity =
+      endOfSpeechSensitivityRef.current === 'LOW'
+        ? EndSensitivity.END_SENSITIVITY_LOW
+        : EndSensitivity.END_SENSITIVITY_HIGH;
     console.log(
       `[Session] VAD: silenceDurationMs=${
         endOfSpeechSilenceMsRef.current ?? '(server default ~800ms)'
-      } endOfSpeechSensitivity=HIGH`,
+      } endOfSpeechSensitivity=${endOfSpeechSensitivityRef.current ?? 'HIGH'}`,
     );
 
     const liveSession = await ai.live.connect({
@@ -769,7 +787,7 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
         realtimeInputConfig: {
           automaticActivityDetection: {
             startOfSpeechSensitivity: StartSensitivity.START_SENSITIVITY_HIGH,
-            endOfSpeechSensitivity: EndSensitivity.END_SENSITIVITY_HIGH,
+            endOfSpeechSensitivity: endSensitivity,
             // How long a pause the user is allowed before the bot commits
             // end-of-speech and takes its turn. Omit to use the API default.
             ...(endOfSpeechSilenceMsRef.current != null
