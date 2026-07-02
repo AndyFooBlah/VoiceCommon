@@ -424,6 +424,14 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
   const currentBotTurnRef = useRef('');
   const botTurnSealedRef = useRef(true);
 
+  // User-turn accumulation mirrors the bot-turn refs above. Input transcription
+  // arrives in many small chunks; we grow a single live message (and write a
+  // single transcript entry) per user turn instead of one bubble per chunk, so
+  // the storyteller sees their words stream into one growing bubble. The turn
+  // is sealed when the bot starts responding (or on stop/reset).
+  const currentUserTurnRef = useRef('');
+  const userTurnSealedRef = useRef(true);
+
   // Stop/halt state
   const isStoppingRef = useRef(false);          // true when stopSession is intentional
   const reconnectAttemptsRef = useRef(0);       // total resume attempts (session metric)
@@ -588,6 +596,9 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
    */
   function appendBotChunk(text: string): void {
     if (!text) return;
+    // The bot has begun its reply — finalize any in-progress user turn so the
+    // next user speech starts a fresh bubble.
+    sealUserTurn();
     currentBotTurnRef.current += text;
     const sealed = botTurnSealedRef.current;
     botTurnSealedRef.current = false;
@@ -630,6 +641,41 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
         lastBotTurnRef.current = text;
       }
     }
+  }
+
+  /**
+   * Append a chunk of the user's input transcription to the in-progress user
+   * turn, both to the ref (for finalization) and to messages state (for live
+   * UI rendering). Starts a new message on a sealed boundary; otherwise extends
+   * the last user message so the transcript streams into one growing bubble.
+   */
+  function appendUserChunk(text: string): void {
+    if (!text) return;
+    currentUserTurnRef.current += text;
+    const sealed = userTurnSealedRef.current;
+    userTurnSealedRef.current = false;
+    setMessages((prev) => {
+      const last = prev[prev.length - 1];
+      if (!sealed && last?.role === 'user') {
+        return [...prev.slice(0, -1), { ...last, text: last.text + text }];
+      }
+      return [...prev, { id: crypto.randomUUID(), role: 'user', text, timestamp: new Date() }];
+    });
+  }
+
+  /**
+   * Finalize the current user turn: write one consolidated entry to the
+   * transcript and reset the accumulator. Safe to call zero or many times per
+   * turn — does nothing if the accumulator is empty or already sealed. Sealed
+   * when the bot begins responding, on barge-in, and on stop/reset.
+   */
+  function sealUserTurn(): void {
+    if (userTurnSealedRef.current) return;
+    const text = currentUserTurnRef.current.trim();
+    currentUserTurnRef.current = '';
+    userTurnSealedRef.current = true;
+    if (!text) return;
+    appendToTranscript('user', text);
   }
 
   /** Send a manual activity signal (turn boundary) to Gemini. */
@@ -760,6 +806,9 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
         }
       }
       if (audioChunkCount > 0) {
+        // Bot audio has started — seal the user turn (covers audio-only turns
+        // where no output transcription chunk precedes the audio).
+        sealUserTurn();
         const chunkMs = (totalSamples / 24).toFixed(0); // 24 samples/ms at 24kHz
         turnAudioMsRef.current += Number(chunkMs);
         logTurnEvent('audio-chunk', `count=${audioChunkCount} duration=${chunkMs}ms`);
@@ -802,12 +851,13 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
       sealBotTurn('turnComplete');
     }
 
-    // User speech (input transcription)
+    // User speech (input transcription). Accumulate chunks into one growing
+    // user turn (live bubble + single transcript entry) rather than emitting a
+    // separate message per chunk.
     if (msg.serverContent?.inputTranscription?.text) {
       const text = msg.serverContent.inputTranscription.text;
       if (text.trim()) {
-        addMessage('user', text);
-        appendToTranscript('user', text);
+        appendUserChunk(text);
       }
     }
 
@@ -1250,6 +1300,8 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
     lastBotTurnRef.current = '';
     currentBotTurnRef.current = '';
     botTurnSealedRef.current = true;
+    currentUserTurnRef.current = '';
+    userTurnSealedRef.current = true;
     isStoppingRef.current = false;
     reconnectAttemptsRef.current = 0;
     // Fresh session — do not resume a previous one.
@@ -1342,6 +1394,9 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
     // from auto-recovery error paths — both of which would otherwise
     // silently drop whatever the bot was mid-saying.
     sealBotTurn('interrupted');
+    // Likewise flush any in-progress user utterance so a final answer that the
+    // bot never got to respond to still lands in the transcript.
+    sealUserTurn();
     stopActiveAudio();
 
     try {

@@ -1299,16 +1299,25 @@ describe('transcript sync', () => {
     expect(storageSpies.syncTranscriptToFirestore).toHaveBeenCalled();
   });
 
-  it('syncs transcript to Firestore when user speech arrives', async () => {
+  it('syncs the user turn to Firestore once the bot begins responding', async () => {
     const { result } = renderSession();
     await startSession(result);
 
+    // User speech alone accumulates a live bubble but is not yet persisted —
+    // the turn is only written to the transcript when it seals.
     await act(async () => {
       capturedCallbacks.current.onmessage?.({
         serverContent: { inputTranscription: { text: 'I said something.' } },
       });
     });
+    expect(storageSpies.syncTranscriptToFirestore).not.toHaveBeenCalled();
 
+    // The bot beginning its reply seals the user turn → one transcript entry.
+    await act(async () => {
+      capturedCallbacks.current.onmessage?.({
+        serverContent: { outputTranscription: { text: 'Thanks for sharing.' } },
+      });
+    });
     expect(storageSpies.syncTranscriptToFirestore).toHaveBeenCalled();
   });
 
@@ -1325,6 +1334,51 @@ describe('transcript sync', () => {
     const userMsg = result.current.messages.find((m) => m.role === 'user');
     expect(userMsg).toBeDefined();
     expect(userMsg?.text).toBe('User said this.');
+  });
+
+  it('accumulates multiple input chunks into a single growing user bubble', async () => {
+    const { result } = renderSession();
+    await startSession(result);
+
+    await act(async () => {
+      capturedCallbacks.current.onmessage?.({
+        serverContent: { inputTranscription: { text: 'I grew up ' } },
+      });
+      capturedCallbacks.current.onmessage?.({
+        serverContent: { inputTranscription: { text: 'on a farm ' } },
+      });
+      capturedCallbacks.current.onmessage?.({
+        serverContent: { inputTranscription: { text: 'in Ohio.' } },
+      });
+    });
+
+    const userMsgs = result.current.messages.filter((m) => m.role === 'user');
+    expect(userMsgs).toHaveLength(1);
+    expect(userMsgs[0].text).toBe('I grew up on a farm in Ohio.');
+  });
+
+  it('starts a fresh user bubble after the bot has spoken', async () => {
+    const { result } = renderSession();
+    await startSession(result);
+
+    await act(async () => {
+      capturedCallbacks.current.onmessage?.({
+        serverContent: { inputTranscription: { text: 'First answer.' } },
+      });
+      // Bot replies — seals the first user turn.
+      capturedCallbacks.current.onmessage?.({
+        serverContent: { outputTranscription: { text: 'Interesting!' } },
+      });
+      // User speaks again — new bubble, not appended to the first.
+      capturedCallbacks.current.onmessage?.({
+        serverContent: { inputTranscription: { text: 'Second answer.' } },
+      });
+    });
+
+    const userMsgs = result.current.messages.filter((m) => m.role === 'user');
+    expect(userMsgs).toHaveLength(2);
+    expect(userMsgs[0].text).toBe('First answer.');
+    expect(userMsgs[1].text).toBe('Second answer.');
   });
 
   it('appends bot output transcription to messages', async () => {
