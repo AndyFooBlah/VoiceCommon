@@ -185,6 +185,9 @@ import { useSession } from '@andyfooblah/voice-common';
 | `onBotSpeaking` | `(speaking: boolean) => void` | No | Called when bot audio starts or stops (for UI feedback) |
 | `autoGreetText` | `string` | No | Text sent via `sendRealtimeInput` immediately after connecting so the bot takes the first turn. Use bracket notation for system cues, e.g. `"[Session started. Please greet the family.]"` |
 | `speechConfig` | `SpeechConfig` | No | Voice configuration for the Gemini model (e.g. prebuilt voice name). Passed directly to the Gemini Live `speechConfig` field |
+| `endOfSpeechSilenceMs` | `number` | No | How long a pause the user may take before their turn ends. In server-VAD mode maps to `automaticActivityDetection.silenceDurationMs`; in manual mode it's the client-side end-of-turn silence. |
+| `endOfSpeechSensitivity` | `'HIGH' \| 'LOW'` | No | Server-VAD end-of-speech eagerness. `'HIGH'` (default) ends turns quickly; `'LOW'` waits through longer pauses. Ignored in manual mode. |
+| `manualTurnControl` | `boolean` | No | When true, disable server VAD and drive turn boundaries with a client-side energy VAD (patient, robust to eager end-of-turn on native-audio models). Default false. |
 | `sessionsCollection` | `string` | No | Firestore collection path for session documents. Default: `'sessions'`. For nested/scoped sessions, use a path like `'families/{familyId}/dossiers/{dossierId}/sessions'` |
 
 ### `UseSessionReturn`

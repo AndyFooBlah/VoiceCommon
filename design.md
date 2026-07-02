@@ -111,7 +111,10 @@ sessions/{userId}/{sessionId}.webm    # Mixed session audio (WebM/Opus 128kbps)
 **User speech:**
 - The AudioWorklet captures microphone samples and sends PCM16 at 16kHz to Gemini.
 - Gemini returns input transcription events which are added to the live transcript.
-- Turn-taking is governed by Gemini's automatic activity detection (`realtimeInputConfig.automaticActivityDetection`). Start/end-of-speech sensitivities are set high so the bot is quick to yield when the user starts talking. The optional `endOfSpeechSilenceMs` option maps to `silenceDurationMs` — how long a pause the user may take before the bot commits end-of-speech and responds; larger values make the bot wait more patiently. It is held in a ref so mid-session changes apply on the next (re)connect.
+- Turn-taking has two modes:
+  - **Server VAD (default):** Gemini's automatic activity detection (`realtimeInputConfig.automaticActivityDetection`). Start-of-speech sensitivity is HIGH (quick to yield when the user starts). `endOfSpeechSensitivity` is configurable (`'HIGH'` default, `'LOW'` = less eager to end the user's turn). `endOfSpeechSilenceMs` maps to `silenceDurationMs`. Note: the native-audio model (`gemini-3.1-flash-live-preview`) largely ignores large `silenceDurationMs` values, so server VAD cannot enforce a multi-second patient wait.
+  - **Manual turn control (`manualTurnControl: true`):** disables server VAD (`automaticActivityDetection.disabled`) and drives turn boundaries from a client-side energy VAD in the mic frame handler. It sends `activityStart` on sustained speech and holds `activityEnd` until `endOfSpeechSilenceMs` of continuous silence, so the bot waits patiently through pauses. An adaptive noise floor plus a re-trigger threshold (`VAD_RETRIGGER_MS`) keep transient background-noise blips from restarting the wait. Barge-in is preserved with a stricter threshold while the bot is speaking; the mic requests `echoCancellation`/`noiseSuppression`/`autoGainControl` so bot playback doesn't trip detection.
+  - All of these options are held in refs so mid-session changes apply on the next (re)connect. The resolved config is logged at connect (`[Session] VAD: …`).
 
 **Bot response:**
 - Gemini returns `inlineData` audio parts (PCM at 24kHz) which are scheduled on the AudioContext for continuous playback.
