@@ -61,9 +61,6 @@ const GEMINI_MODEL = 'gemini-3.1-flash-live-preview';
 /** Maximum seconds of audio lookahead before triggering a runaway-loop reset. */
 const MAX_AUDIO_LOOKAHEAD_S = 30;
 
-/** Maximum auto-reconnect attempts per session before giving up. */
-const MAX_RECONNECT_ATTEMPTS = 3;
-
 /** Word overlap ratio above which a bot turn is considered a repetition (0–1). */
 const REPETITION_THRESHOLD = 0.85;
 
@@ -409,13 +406,13 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
   const currentBotTurnRef = useRef('');
   const botTurnSealedRef = useRef(true);
 
-  // Reconnect state
+  // Stop/halt state
   const isStoppingRef = useRef(false);          // true when stopSession is intentional
-  const reconnectAttemptsRef = useRef(0);
-  // Guards against concurrent reconnect flows when onclose fires multiple times.
-  // Without this, two reconnect flows can spawn two mixers (and two mic/bot
-  // pipelines) — the root cause of the "two audio streams playing" symptom.
-  const reconnectInProgressRef = useRef(false);
+  const reconnectAttemptsRef = useRef(0);       // retained for session metrics (now always 0)
+  // Set to the latest haltWithError so the WebSocket onclose handler (created
+  // inside connectGemini before stopSession exists) can trigger a clean halt
+  // without a stale closure.
+  const haltWithErrorRef = useRef<(message: string) => void>(() => {});
   // Synchronous guard against startSession re-entry. setIsRecording(true) is
   // async so two rapid calls (StrictMode double-invoke, double-clicks) can both
   // pass the isRecording check — the ref closes the window.
@@ -985,17 +982,16 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
             return;
           }
 
-          // Unexpected disconnect — attempt auto-reconnect
-          if (reconnectAttemptsRef.current < MAX_RECONNECT_ATTEMPTS) {
-            reconnectAttemptsRef.current++;
-            console.log(`[Session] Auto-reconnect attempt ${reconnectAttemptsRef.current}/${MAX_RECONNECT_ATTEMPTS}`);
-            setConnectionStatus(ConnectionStatus.CONNECTING);
-            void attemptReconnect();
-          } else {
-            console.warn('[Session] Max reconnect attempts reached — giving up');
-            setConnectionStatus(ConnectionStatus.ERROR);
-            setError('Connection lost — please restart the session.');
-          }
+          // Unexpected disconnect. We deliberately do NOT auto-reconnect: the
+          // previous reconnect path restarted the recorder and re-uploaded to
+          // the same storage path, silently overwriting the first part of the
+          // interview (permanent audio loss). For a recording-critical
+          // interview the correct behaviour is to HALT — finalize the complete
+          // recording captured so far and ask the user to start a new session.
+          console.warn('[Session] Unexpected disconnect — halting and finalizing (recording preserved; no auto-reconnect)');
+          void haltWithErrorRef.current(
+            'The connection to the interviewer dropped unexpectedly. Your recording up to this point has been saved — please start a new session to continue.',
+          );
         },
       },
     });
@@ -1083,80 +1079,6 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
   }, [mixer, disconnectWorklet]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---------------------------------------------------------------------------
-  // Auto-reconnect
-  // ---------------------------------------------------------------------------
-
-  /**
-   * Reconnects to Gemini after an unexpected disconnect.
-   * Flushes partial audio to GCS, restarts the mixer, and sends a context-aware
-   * resume prompt so the bot can acknowledge the interruption naturally.
-   */
-  const attemptReconnect = useCallback(async () => {
-    if (reconnectInProgressRef.current) {
-      console.warn('[Session] attemptReconnect called while already reconnecting — skipping duplicate');
-      return;
-    }
-    reconnectInProgressRef.current = true;
-
-    const existingSessionId = sessionRef.current;
-    console.log(`[Session] Reconnecting — session=${existingSessionId}, transcript entries=${transcriptRef.current.length}`);
-
-    // Stop any bot audio buffers still scheduled against the old context so
-    // they can't bleed into the new stream after reconnect completes.
-    stopActiveAudio();
-
-    // Flush partial audio before restarting mixer
-    const partialBlob = mixer.flush();
-    if (partialBlob && existingSessionId) {
-      const archive = archiveAudioRef.current ?? archiveAudioToGCS;
-      archive(partialBlob, userId, existingSessionId).catch((err) =>
-        console.error('[Session] Partial audio upload failed:', err),
-      );
-    }
-
-    // Restart the mixer for new audio capture
-    try {
-      await mixer.stop().catch(() => null);
-      await mixer.start();
-      audioContextRef.current = mixer.playbackContext ?? new AudioContext({ sampleRate: 24000 });
-      scheduleTimeRef.current = 0;
-      activeSourcesRef.current.clear();
-    } catch (err) {
-      console.error('[Session] Failed to restart audio mixer during reconnect:', err);
-      setConnectionStatus(ConnectionStatus.ERROR);
-      reconnectInProgressRef.current = false;
-      return;
-    }
-
-    // Build resume context from recent transcript
-    const recentEntries = transcriptRef.current.slice(-20);
-    const recentContext = recentEntries
-      .map((e) => `${e.role === 'user' ? 'User' : 'Assistant'}: ${e.text}`)
-      .join('\n');
-    const resumeCue = recentContext
-      ? `[Network interruption. Briefly acknowledge the glitch, recap the specific moment you were at, then continue naturally. Recent context:\n${recentContext}]`
-      : `[Network interruption. Briefly acknowledge the glitch, then invite the user to continue.]`;
-
-    try {
-      await connectGemini(systemInstructionRef.current, resumeCue, speechConfigRef.current, () => {
-        // Restore session ID — we're continuing the same session, not starting a new one
-        if (existingSessionId) {
-          sessionRef.current = existingSessionId;
-          setSessionId(existingSessionId);
-        }
-        setConnectionStatus(ConnectionStatus.CONNECTED);
-        console.log('[Session] Reconnect successful');
-      });
-    } catch (err) {
-      console.error('[Session] Reconnect failed:', err);
-      setConnectionStatus(ConnectionStatus.ERROR);
-      setError('Reconnect failed — please restart the session.');
-    } finally {
-      reconnectInProgressRef.current = false;
-    }
-  }, [userId, mixer, connectGemini, stopActiveAudio]);
-
-  // ---------------------------------------------------------------------------
   // Session lifecycle: start
   // ---------------------------------------------------------------------------
 
@@ -1179,7 +1101,6 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
     botTurnSealedRef.current = true;
     isStoppingRef.current = false;
     reconnectAttemptsRef.current = 0;
-    reconnectInProgressRef.current = false;
     toolCallCountRef.current = 0;
     errorCountRef.current = 0;
     currentTurnIdRef.current = 0;
@@ -1207,8 +1128,14 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
       sessionStartRef.current = new Date();
       console.log('[Session] Firestore session created:', sId);
 
-      // Start audio mixer (captures mic + bot audio for archival)
-      await mixer.start();
+      // Start audio mixer (captures mic + bot audio for archival). If the
+      // recorder fails mid-session, halt — an interview must never continue
+      // without its raw audio being recorded.
+      await mixer.start(() =>
+        haltWithErrorRef.current(
+          'Audio recording stopped working, so the session was ended to avoid conducting the interview without a recording. Please start a new session.',
+        ),
+      );
       audioContextRef.current = mixer.playbackContext ?? new AudioContext({ sampleRate: 24000 });
       scheduleTimeRef.current = 0;
       activeSourcesRef.current.clear();
@@ -1313,6 +1240,26 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
       onSessionEndRef.current?.();
     }
   }, [isRecording, userId, mixer, disconnectWorklet, stopActiveAudio]);
+
+  /**
+   * Halt the session because of an unrecoverable failure (unexpected
+   * disconnect, or the audio recorder failing). Finalizes the complete
+   * recording captured so far via stopSession (a single upload — no
+   * overwrite), then surfaces an error and leaves the session in ERROR so the
+   * UI can tell the user to start a new session. Idempotent.
+   */
+  const haltWithError = useCallback(async (message: string) => {
+    if (isStoppingRef.current) return; // already stopping/halting
+    console.warn('[Session] Halting session:', message);
+    errorCountRef.current += 1;
+    setError(message);
+    try {
+      await stopSession();
+    } finally {
+      setConnectionStatus(ConnectionStatus.ERROR);
+    }
+  }, [stopSession]);
+  haltWithErrorRef.current = haltWithError;
 
   return {
     messages,

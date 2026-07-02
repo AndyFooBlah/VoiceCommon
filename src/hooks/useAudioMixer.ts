@@ -52,8 +52,12 @@ export interface AudioMixerHandle {
   inputContext: AudioContext | null;
   /** The mixed destination node — connect bot audio sources here for archival. */
   mixedDest: MediaStreamAudioDestinationNode | null;
-  /** Start the mixer: request mic, set up AudioContexts, start MediaRecorder. */
-  start: () => Promise<void>;
+  /**
+   * Start the mixer: request mic, set up AudioContexts, start MediaRecorder.
+   * @param onRecordingError - called if the MediaRecorder emits an error mid-
+   *   session (recording is no longer reliable). Consumers should halt.
+   */
+  start: (onRecordingError?: () => void) => Promise<void>;
   /** Stop the mixer: stop MediaRecorder and mic, return the recorded audio blob. */
   stop: () => Promise<Blob | null>;
   /** Flush current audio chunks without stopping (for partial recovery). */
@@ -73,7 +77,7 @@ export function useAudioMixer(): AudioMixerHandle {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
 
-  const start = useCallback(async () => {
+  const start = useCallback(async (onRecordingError?: () => void) => {
     // Request microphone access
     let stream: MediaStream;
     try {
@@ -132,8 +136,20 @@ export function useAudioMixer(): AudioMixerHandle {
         audioChunksRef.current.push(e.data);
       }
     };
+    // Surface recorder failures so the session can halt — an interview must not
+    // continue if its raw audio is no longer being recorded.
+    mediaRecorder.onerror = (e) => {
+      console.error('[AudioMixer] MediaRecorder error — recording is no longer reliable:', e);
+      onRecordingError?.();
+    };
     mediaRecorder.start(TIMESLICE_MS);
     mediaRecorderRef.current = mediaRecorder;
+
+    // Verify the recorder actually entered the recording state; if not, the
+    // session must not proceed (we'd capture nothing).
+    if (mediaRecorder.state !== 'recording') {
+      throw new Error('Audio recording failed to start (MediaRecorder did not enter the recording state).');
+    }
   }, []);
 
   const stop = useCallback(async (): Promise<Blob | null> => {

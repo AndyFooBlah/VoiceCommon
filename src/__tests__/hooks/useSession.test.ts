@@ -22,8 +22,8 @@
  *   - startSession failure paths: mixer error (no orphaned session), Gemini connect error
  *   - stopSession: finalizes as 'completed', archives audio, closes Gemini, calls onSessionEnd
  *   - stopSession when not recording: no-op
- *   - Auto-reconnect: unexpected onclose triggers CONNECTING + attemptReconnect
- *   - Max reconnect attempts: status → ERROR after 3 failures
+ *   - Halt on unexpected disconnect: finalize the recording once, status → ERROR,
+ *     no auto-reconnect (avoids the recorder-restart that overwrote earlier audio)
  *   - Tool call dispatch: onToolCall called, sendToolResponse sent with result
  *   - endSession tool: sends tool response then calls onSessionEndRequest
  *   - speechConfig: passed through to Gemini config
@@ -686,101 +686,54 @@ describe('stopSession', () => {
 });
 
 // ---------------------------------------------------------------------------
-describe('auto-reconnect on unexpected disconnect', () => {
-  it('sets status to CONNECTING while reconnect is in progress', async () => {
+describe('halt on unexpected disconnect (no auto-reconnect)', () => {
+  it('halts and finalizes on an unexpected disconnect: status ERROR, error set, no reconnect', async () => {
     const { result } = renderSession();
     await startSession(result);
+    const connectCallsBefore = mockLiveConnect.mock.calls.length;
 
-    // Make the reconnect connect call hang so we can observe CONNECTING state
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let resolveConnect!: (v: any) => void;
-    // The next mockLiveConnect call (reconnect) will be the 2nd call.
-    // We need to intercept it — set up after the initial connect already consumed the mock.
-    mockLiveConnect.mockImplementationOnce(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      () => new Promise<any>((res) => { resolveConnect = res; }),
-    );
-
+    // Unexpected server disconnect (e.g. Gemini 1011). The old behaviour was to
+    // auto-reconnect, which restarted the recorder and overwrote earlier audio.
+    // The new behaviour is to halt and finalize the recording captured so far.
     await act(async () => {
-      capturedCallbacks.current.onclose?.({ code: 1006, wasClean: false });
-    });
-
-    // Should be CONNECTING while reconnect is in progress
-    expect(result.current.connectionStatus).toBe(ConnectionStatus.CONNECTING);
-
-    // Cleanup: resolve the pending connect to avoid dangling promise
-    await act(async () => {
-      resolveConnect(mockLiveSession);
+      capturedCallbacks.current.onclose?.({ code: 1011, wasClean: true });
       await new Promise((res) => setTimeout(res, 0));
     });
+
+    // Must NOT try to reconnect (no additional live.connect calls).
+    expect(mockLiveConnect.mock.calls.length).toBe(connectCallsBefore);
+    expect(result.current.connectionStatus).toBe(ConnectionStatus.ERROR);
+    expect(result.current.error).toBeTruthy();
   });
 
-  it('does not trigger reconnect when onclose fires during intentional stopSession', async () => {
+  it('finalizes (uploads) the recording once on an unexpected disconnect', async () => {
+    const { result } = renderSession();
+    await startSession(result);
+    storageSpies.archiveAudioToGCS.mockClear();
+
+    await act(async () => {
+      capturedCallbacks.current.onclose?.({ code: 1011, wasClean: true });
+      await new Promise((res) => setTimeout(res, 0));
+    });
+
+    // Exactly one upload (no partial-then-final overwrite of the same path).
+    expect(storageSpies.archiveAudioToGCS).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not halt or reconnect when onclose fires during an intentional stopSession', async () => {
     const { result } = renderSession();
     await startSession(result);
 
-    // Stop session (sets isStoppingRef = true)
     await act(async () => {
       await result.current.stopSession();
     });
-
     const connectCallCount = mockLiveConnect.mock.calls.length;
 
-    // onclose fires after stop — should NOT trigger reconnect
     await act(async () => {
       capturedCallbacks.current.onclose?.({ code: 1000, wasClean: true });
     });
 
     expect(mockLiveConnect.mock.calls.length).toBe(connectCallCount);
-  });
-
-  it('sets status to ERROR after MAX_RECONNECT_ATTEMPTS (3) onclose events when reconnect fails', async () => {
-    // The hook increments reconnectAttemptsRef on each onclose and calls attemptReconnect.
-    // When reconnectAttemptsRef reaches MAX (3), the 4th onclose sets ERROR directly.
-    // We simulate 3 successful reconnects (incrementing the counter) then the 4th disconnect.
-    //
-    // Each successful reconnect re-establishes a new captured callback set — so we must
-    // trigger onclose on the freshly-captured callbacks each time.
-
-    const { result } = renderSession();
-    await startSession(result);
-
-    // Fire onclose 3 times to exhaust MAX_RECONNECT_ATTEMPTS.
-    // Each time, attemptReconnect() succeeds (mockLiveConnect resolves), incrementing
-    // reconnectAttemptsRef. After 3, the next onclose will see count >= MAX and set ERROR.
-    for (let i = 0; i < 3; i++) {
-      await act(async () => {
-        capturedCallbacks.current.onclose?.({ code: 1006, wasClean: false });
-        // Flush microtasks so attemptReconnect runs and updates capturedCallbacks
-        await new Promise((res) => setTimeout(res, 0));
-      });
-    }
-
-    // 4th onclose — counter is now at MAX, so hook goes to ERROR immediately
-    await act(async () => {
-      capturedCallbacks.current.onclose?.({ code: 1006, wasClean: false });
-    });
-
-    expect(result.current.connectionStatus).toBe(ConnectionStatus.ERROR);
-  });
-
-  it('sets error message after max reconnect attempts exhausted', async () => {
-    const { result } = renderSession();
-    await startSession(result);
-
-    // Exhaust all 3 reconnect slots, then trigger the 4th disconnect
-    for (let i = 0; i < 3; i++) {
-      await act(async () => {
-        capturedCallbacks.current.onclose?.({ code: 1006, wasClean: false });
-        await new Promise((res) => setTimeout(res, 0));
-      });
-    }
-
-    await act(async () => {
-      capturedCallbacks.current.onclose?.({ code: 1006, wasClean: false });
-    });
-
-    expect(result.current.error).toBeTruthy();
   });
 });
 

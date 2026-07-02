@@ -140,9 +140,15 @@ sessions/{userId}/{sessionId}.webm    # Mixed session audio (WebM/Opus 128kbps)
 5. The session document is updated: `status: 'completed'`, `endTime`, `durationSeconds`, `audioUrl`.
 6. The `onSessionCompleted` Cloud Function fires and runs any configured post-processing.
 
-### 3.4 Error handling
+### 3.4 Error handling — halt, don't reconnect
 
-If the Gemini connection drops unexpectedly, the session is finalized with `status: 'interrupted'`. Any transcript entries recorded before the disconnect are preserved.
+The session recording is treated as critical data: an interview must never continue while its raw audio is not being recorded.
+
+On an **unexpected Gemini disconnect** (e.g. a `1011` server error), the session **halts** rather than auto-reconnecting. It finalizes the complete recording captured so far in a single upload, surfaces an error (`error`) with `connectionStatus = ERROR`, and asks the user to start a new session. Transcript entries and audio up to the disconnect are preserved.
+
+> Historical note: an earlier version auto-reconnected by flushing the recorder buffer, uploading a partial blob, and restarting the mixer. Because the post-reconnect segment was later uploaded to the *same* storage path, it **overwrote** the first segment — silently losing the opening minutes of the interview. Auto-reconnect was removed for this reason.
+
+The **MediaRecorder** is also monitored: if it fails to enter the recording state at start, or emits an `onerror` mid-session, the session halts the same way. `useAudioMixer.start(onRecordingError)` reports recorder failures to `useSession`.
 
 ---
 
