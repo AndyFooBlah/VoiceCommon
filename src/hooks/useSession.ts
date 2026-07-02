@@ -70,6 +70,25 @@ const REPETITION_THRESHOLD = 0.85;
 /** Minimum words in a turn before repetition detection fires. */
 const REPETITION_MIN_WORDS = 12;
 
+// ---------------------------------------------------------------------------
+// Client-side VAD tuning (manual turn control). Energy is RMS of the 16kHz
+// mic frame in [0,1]. These defaults are a starting point — the per-frame
+// tuning log lets consumers dial them in from real sessions.
+// ---------------------------------------------------------------------------
+/** Initial noise-floor estimate before adaptation kicks in. */
+const VAD_INIT_FLOOR = 0.005;
+/** Clamp bounds for the adaptive noise floor. */
+const VAD_MIN_FLOOR = 0.0008;
+const VAD_MAX_FLOOR = 0.05;
+/** rms must exceed floor×factor to count as speech (idle vs. during bot speech). */
+const VAD_SPEECH_FACTOR = 3.0;
+const VAD_BARGEIN_FACTOR = 6.0;
+/** Sustained speech required before committing activityStart (idle vs. barge-in). */
+const VAD_START_DEBOUNCE_MS = 120;
+const VAD_BARGEIN_DEBOUNCE_MS = 300;
+/** Fallback end-of-turn silence when no endOfSpeechSilenceMs is configured. */
+const VAD_DEFAULT_WAIT_MS = 1500;
+
 /** Compute word-overlap ratio between two strings to detect near-duplicate bot turns. */
 function wordOverlapRatio(a: string, b: string): number {
   const tokenize = (s: string) =>
@@ -136,6 +155,19 @@ export interface UseSessionOptions {
    * `automaticActivityDetection.endOfSpeechSensitivity`. Updated every render.
    */
   endOfSpeechSensitivity?: 'HIGH' | 'LOW';
+  /**
+   * Opt-in manual turn control. When true, VoiceCommon disables Gemini's
+   * automatic voice-activity detection (`automaticActivityDetection.disabled`)
+   * and instead decides turn boundaries on the client: it detects when the
+   * user starts speaking (energy-based VAD) and only ends their turn after
+   * `endOfSpeechSilenceMs` of continuous silence. Use this when the bot must
+   * wait patiently through long pauses — the native-audio model ignores large
+   * `silenceDurationMs` values, so server-side VAD cannot deliver it. Barge-in
+   * is preserved with a stricter threshold while the bot is speaking. Requires
+   * mic echo cancellation (enabled by the mixer) so the bot's own audio does
+   * not trip detection.
+   */
+  manualTurnControl?: boolean;
   /**
    * Firestore collection path for session documents.
    * Default: 'sessions' (top-level flat collection).
@@ -212,6 +244,24 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
   // declare the user's turn finished. Defaults to 'HIGH' (current behavior).
   const endOfSpeechSensitivityRef = useRef(options.endOfSpeechSensitivity);
   endOfSpeechSensitivityRef.current = options.endOfSpeechSensitivity;
+
+  // Manual turn control (client-side VAD) opt-in.
+  const manualTurnControlRef = useRef(options.manualTurnControl);
+  manualTurnControlRef.current = options.manualTurnControl;
+
+  // Internal bot-speaking flag (mirrors onBotSpeaking) used to gate barge-in
+  // detection in manual turn control.
+  const botSpeakingRef = useRef(false);
+
+  // Client-side VAD state machine — reset on each connect. `frame` energy is
+  // RMS; the noise floor adapts during quiet, non-bot, non-speech frames.
+  const vadRef = useRef({
+    noiseFloor: VAD_INIT_FLOOR,
+    userSpeaking: false,
+    speechMs: 0,
+    silenceMs: 0,
+    logAccumMs: 0,
+  });
 
   // ---------------------------------------------------------------------------
   // Callback refs — updated every render, read by stable callbacks to prevent
@@ -440,6 +490,7 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
     }
     activeSourcesRef.current.clear();
     scheduleTimeRef.current = audioContextRef.current?.currentTime ?? 0;
+    botSpeakingRef.current = false;
     onBotSpeakingRef.current?.(false);
   }, []);
 
@@ -475,12 +526,14 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
       activeSourcesRef.current.delete(source);
       // If no more scheduled audio, notify speaking stopped
       if (scheduleTimeRef.current <= ctx.currentTime + 0.05) {
+        botSpeakingRef.current = false;
         onBotSpeakingRef.current?.(false);
       }
     };
 
     source.start(startAt);
     scheduleTimeRef.current = startAt + buffer.duration;
+    botSpeakingRef.current = true;
     onBotSpeakingRef.current?.(true);
   }
 
@@ -535,6 +588,86 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
         });
       } else {
         lastBotTurnRef.current = text;
+      }
+    }
+  }
+
+  /** Send a manual activity signal (turn boundary) to Gemini. */
+  function sendActivity(kind: 'start' | 'end'): void {
+    try {
+      liveSessionRef.current?.sendRealtimeInput(
+        kind === 'start' ? { activityStart: {} } : { activityEnd: {} },
+      );
+    } catch (err) {
+      console.error(`[Session] sendRealtimeInput(activity${kind}) failed:`, err);
+    }
+  }
+
+  /**
+   * Client-side voice-activity detection for manual turn control. Called per
+   * mic frame (only when manualTurnControl is enabled). Detects utterance
+   * start/end from frame energy and brackets the user's turn with
+   * activityStart/activityEnd — holding activityEnd until endOfSpeechSilenceMs
+   * of continuous silence so the bot waits patiently through pauses. Barge-in
+   * is preserved with a stricter threshold while the bot is speaking.
+   */
+  function runClientVad(frame: Float32Array): void {
+    const v = vadRef.current;
+    const frameMs = frame.length / 16; // 16 samples per ms at 16kHz
+
+    let sumSquares = 0;
+    for (let i = 0; i < frame.length; i++) sumSquares += frame[i] * frame[i];
+    const rms = Math.sqrt(sumSquares / frame.length);
+
+    const botSpeaking = botSpeakingRef.current;
+    const factor = botSpeaking ? VAD_BARGEIN_FACTOR : VAD_SPEECH_FACTOR;
+    const startDebounceMs = botSpeaking ? VAD_BARGEIN_DEBOUNCE_MS : VAD_START_DEBOUNCE_MS;
+    const threshold = v.noiseFloor * factor;
+    const waitMs = endOfSpeechSilenceMsRef.current ?? VAD_DEFAULT_WAIT_MS;
+
+    // Periodic tuning log so thresholds can be dialed in from real sessions.
+    v.logAccumMs += frameMs;
+    if (v.logAccumMs >= 2000) {
+      v.logAccumMs = 0;
+      console.log(
+        `[Session] VAD level: rms=${rms.toFixed(4)} floor=${v.noiseFloor.toFixed(4)} ` +
+          `thr=${threshold.toFixed(4)} speaking=${v.userSpeaking} bot=${botSpeaking}`,
+      );
+    }
+
+    if (rms > threshold) {
+      v.speechMs += frameMs;
+      v.silenceMs = 0;
+      if (!v.userSpeaking && v.speechMs >= startDebounceMs) {
+        v.userSpeaking = true;
+        v.speechMs = 0;
+        sendActivity('start');
+        console.log(
+          `[Session] VAD activityStart (rms=${rms.toFixed(4)} thr=${threshold.toFixed(4)} bargeIn=${botSpeaking})`,
+        );
+        // Guarded barge-in: user cut in while the bot was speaking — stop the
+        // queued bot audio and seal its partial turn immediately.
+        if (botSpeaking) {
+          stopActiveAudio();
+          sealBotTurn('interrupted');
+        }
+      }
+    } else {
+      v.silenceMs += frameMs;
+      v.speechMs = 0;
+      // Adapt the noise floor only during quiet, non-bot, non-speech frames so
+      // the bot's echo can't inflate it.
+      if (!botSpeaking && !v.userSpeaking) {
+        v.noiseFloor = Math.min(
+          VAD_MAX_FLOOR,
+          Math.max(VAD_MIN_FLOOR, v.noiseFloor * 0.95 + rms * 0.05),
+        );
+      }
+      if (v.userSpeaking && v.silenceMs >= waitMs) {
+        v.userSpeaking = false;
+        v.silenceMs = 0;
+        sendActivity('end');
+        console.log(`[Session] VAD activityEnd (waited ${Math.round(waitMs)}ms of silence)`);
       }
     }
   }
@@ -765,11 +898,19 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
       endOfSpeechSensitivityRef.current === 'LOW'
         ? EndSensitivity.END_SENSITIVITY_LOW
         : EndSensitivity.END_SENSITIVITY_HIGH;
-    console.log(
-      `[Session] VAD: silenceDurationMs=${
-        endOfSpeechSilenceMsRef.current ?? '(server default ~800ms)'
-      } endOfSpeechSensitivity=${endOfSpeechSensitivityRef.current ?? 'HIGH'}`,
-    );
+    if (manualTurnControlRef.current) {
+      console.log(
+        `[Session] VAD: manual turn control (client-side; end-of-turn after ${
+          endOfSpeechSilenceMsRef.current ?? VAD_DEFAULT_WAIT_MS
+        }ms silence)`,
+      );
+    } else {
+      console.log(
+        `[Session] VAD: silenceDurationMs=${
+          endOfSpeechSilenceMsRef.current ?? '(server default ~800ms)'
+        } endOfSpeechSensitivity=${endOfSpeechSensitivityRef.current ?? 'HIGH'}`,
+      );
+    }
 
     const liveSession = await ai.live.connect({
       model: GEMINI_MODEL,
@@ -782,18 +923,23 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
         outputAudioTranscription: {},
         thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL },
         tools: [{ functionDeclarations: allTools }],
-        // High sensitivity makes the bot interruptible faster when the user
-        // begins talking — the API default is too sluggish.
+        // Turn detection. In manual mode we disable the server's automatic
+        // VAD entirely and drive turn boundaries from the client (runClientVad),
+        // because the native-audio model ignores large silenceDurationMs values.
+        // Otherwise: high start sensitivity keeps barge-in snappy; end-of-speech
+        // sensitivity/silence are configurable.
         realtimeInputConfig: {
-          automaticActivityDetection: {
-            startOfSpeechSensitivity: StartSensitivity.START_SENSITIVITY_HIGH,
-            endOfSpeechSensitivity: endSensitivity,
-            // How long a pause the user is allowed before the bot commits
-            // end-of-speech and takes its turn. Omit to use the API default.
-            ...(endOfSpeechSilenceMsRef.current != null
-              ? { silenceDurationMs: endOfSpeechSilenceMsRef.current }
-              : {}),
-          },
+          automaticActivityDetection: manualTurnControlRef.current
+            ? { disabled: true }
+            : {
+                startOfSpeechSensitivity: StartSensitivity.START_SENSITIVITY_HIGH,
+                endOfSpeechSensitivity: endSensitivity,
+                // How long a pause the user is allowed before the bot commits
+                // end-of-speech and takes its turn. Omit to use the API default.
+                ...(endOfSpeechSilenceMsRef.current != null
+                  ? { silenceDurationMs: endOfSpeechSilenceMsRef.current }
+                  : {}),
+              },
         },
         // Voice selection — only included when the caller provides a speech config
         ...(speechConfig ? { speechConfig } : {}),
@@ -871,10 +1017,27 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
     workletSourceRef.current = source;
     workletNodeRef.current = worklet;
 
+    // Reset client-side VAD state for this connection (manual turn control).
+    vadRef.current = {
+      noiseFloor: VAD_INIT_FLOOR,
+      userSpeaking: false,
+      speechMs: 0,
+      silenceMs: 0,
+      logAccumMs: 0,
+    };
+    botSpeakingRef.current = false;
+
     let pcmFrameCount = 0;
     worklet.port.onmessage = (e: MessageEvent<{ channelData: Float32Array }>) => {
       if (!liveSessionRef.current) return;
       const float32 = e.data.channelData;
+
+      // Manual turn control: derive turn boundaries from frame energy and send
+      // activityStart/activityEnd. The raw audio is still streamed below.
+      if (manualTurnControlRef.current) {
+        runClientVad(float32);
+      }
+
       const int16 = new Int16Array(float32.length);
       for (let i = 0; i < float32.length; i++) {
         int16[i] = Math.max(-32768, Math.min(32767, float32[i] * 32768));

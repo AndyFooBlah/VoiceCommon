@@ -77,7 +77,15 @@ export function useAudioMixer(): AudioMixerHandle {
     // Request microphone access
     let stream: MediaStream;
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Echo cancellation keeps the bot's own playback out of the mic — critical
+      // for manual turn control's client-side VAD, and generally cleaner audio.
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
     } catch (err: any) {
       if (err.name === 'NotAllowedError') {
         throw Object.assign(new Error('Microphone access denied. Please allow microphone access in your browser settings.'), { name: 'NotAllowedError' });

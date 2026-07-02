@@ -48,7 +48,13 @@ describe('useAudioMixer — start', () => {
       await result.current.start();
     });
 
-    expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledWith({ audio: true });
+    expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledWith({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      },
+    });
   });
 
   it('creates playback AudioContext at 24kHz', async () => {

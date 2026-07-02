@@ -221,6 +221,7 @@ function renderSession(overrides: Partial<typeof DEFAULT_OPTIONS & {
   speechConfig?: any;
   endOfSpeechSilenceMs?: number;
   endOfSpeechSensitivity?: 'HIGH' | 'LOW';
+  manualTurnControl?: boolean;
   sessionsCollection?: string;
   archiveAudio?: (blob: Blob, userId: string, sessionId: string) => Promise<string>;
 }> = {}) {
@@ -1129,6 +1130,29 @@ describe('endOfSpeechSensitivity', () => {
     expect(
       callArgs.config.realtimeInputConfig.automaticActivityDetection.endOfSpeechSensitivity,
     ).toBe('END_SENSITIVITY_LOW');
+  });
+});
+
+// ---------------------------------------------------------------------------
+describe('manualTurnControl', () => {
+  it('disables server automatic activity detection when enabled', async () => {
+    const { result } = renderSession({ manualTurnControl: true });
+    await startSession(result);
+
+    const callArgs = mockLiveConnect.mock.calls[0][0];
+    expect(callArgs.config.realtimeInputConfig.automaticActivityDetection).toEqual({
+      disabled: true,
+    });
+  });
+
+  it('uses server VAD (not disabled) when manualTurnControl is off', async () => {
+    const { result } = renderSession({ manualTurnControl: false });
+    await startSession(result);
+
+    const callArgs = mockLiveConnect.mock.calls[0][0];
+    expect(
+      callArgs.config.realtimeInputConfig.automaticActivityDetection.disabled,
+    ).toBeUndefined();
   });
 });
 
