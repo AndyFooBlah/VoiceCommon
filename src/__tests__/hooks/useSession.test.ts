@@ -775,48 +775,6 @@ describe('session resumption on unexpected disconnect', () => {
 });
 
 // ---------------------------------------------------------------------------
-describe('mid-turn restart (double greeting) suppression', () => {
-  it('suppresses a duplicate greeting emitted within the same turn', async () => {
-    const { result } = renderSession();
-    await startSession(result);
-
-    const g1 = "Hi Andy, it's me, Zephyr. Last time you told me about the trip. What next?";
-    const g2 = "Hi Andy, it's me, Zephyr. Last time you told me about the wedding. What day?";
-
-    await act(async () => {
-      // First greeting, then the model restarts with a second full greeting in
-      // the SAME turn (no turnComplete in between).
-      capturedCallbacks.current.onmessage?.({ serverContent: { outputTranscription: { text: g1 } } });
-      capturedCallbacks.current.onmessage?.({ serverContent: { outputTranscription: { text: g2 } } });
-    });
-
-    const botText = result.current.messages
-      .filter((m) => m.role === 'bot')
-      .map((m) => m.text)
-      .join('');
-    expect(botText).toContain('What next?');     // first greeting kept
-    expect(botText).not.toContain('What day?');  // duplicate suppressed
-  });
-
-  it('does not suppress a normal, non-repeating turn', async () => {
-    const { result } = renderSession();
-    await startSession(result);
-
-    await act(async () => {
-      capturedCallbacks.current.onmessage?.({ serverContent: { outputTranscription: { text: 'Welcome back, Andy. ' } } });
-      capturedCallbacks.current.onmessage?.({ serverContent: { outputTranscription: { text: 'What did you do next?' } } });
-    });
-
-    const botText = result.current.messages
-      .filter((m) => m.role === 'bot')
-      .map((m) => m.text)
-      .join('');
-    expect(botText).toContain('Welcome back, Andy.');
-    expect(botText).toContain('What did you do next?');
-  });
-});
-
-// ---------------------------------------------------------------------------
 describe('Gemini onerror callback', () => {
   it('sets status to ERROR when onerror fires', async () => {
     const { result } = renderSession();

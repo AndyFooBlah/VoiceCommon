@@ -110,6 +110,7 @@ sessions/{userId}/{sessionId}.webm    # Mixed session audio (WebM/Opus 128kbps)
 
 **User speech:**
 - The AudioWorklet captures microphone samples and sends PCM16 at 16kHz to Gemini.
+- **Greeting echo mute:** when a session auto-greets, mic audio is *not* forwarded to Gemini until the opening greeting has finished playing (`micSendEnabledRef`, released in the bot-audio `onended` drain, with a `GREETING_MUTE_MAX_MS` safety cap). Speaker→mic echo of the greeting would otherwise trip the server VAD and make the native-audio model restart its greeting (the "double greeting"). The mute applies only on the initial greeting connect, not on resume. Archival recording is unaffected — the mixer captures the mic on a separate audio graph.
 - Gemini returns input transcription events which are added to the live transcript.
 - Turn-taking has two modes:
   - **Server VAD (default):** Gemini's automatic activity detection (`realtimeInputConfig.automaticActivityDetection`). Start-of-speech sensitivity is HIGH (quick to yield when the user starts). `endOfSpeechSensitivity` is configurable (`'HIGH'` default, `'LOW'` = less eager to end the user's turn). `endOfSpeechSilenceMs` maps to `silenceDurationMs`. Note: the native-audio model (`gemini-3.1-flash-live-preview`) largely ignores large `silenceDurationMs` values, so server VAD cannot enforce a multi-second patient wait.

@@ -65,12 +65,11 @@ const MAX_AUDIO_LOOKAHEAD_S = 30;
 const MAX_RESUME_FAILURES = 3;
 
 /**
- * Length of the turn-opening fingerprint used to detect a mid-turn restart
- * (e.g. the native-audio model emitting its greeting twice in one turn). If the
- * first ~16 chars of a turn reappear later in the SAME turn, the model has
- * restarted and we suppress the duplicate audio for the rest of the turn.
+ * Safety cap: if the "bot finished its opening greeting" signal never fires,
+ * start sending mic audio to Gemini anyway after this long. See the greeting
+ * echo mute in connectGemini / startSession.
  */
-const TURN_OPENING_FINGERPRINT_LEN = 16;
+const GREETING_MUTE_MAX_MS = 15_000;
 
 /** Word overlap ratio above which a bot turn is considered a repetition (0–1). */
 const REPETITION_THRESHOLD = 0.85;
@@ -366,9 +365,14 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
   const turnAudioMsRef = useRef(0);
   const turnTextRef = useRef('');
   const turnEventCountRef = useRef(0);
-  // Mid-turn restart detection (e.g. double greeting). Reset at each turn start.
-  const turnOpeningRef = useRef('');       // fingerprint of this turn's opening
-  const suppressTurnRef = useRef(false);   // true once a restart is detected → drop the rest
+
+  // Greeting echo mute: mic audio is NOT forwarded to Gemini until the bot's
+  // opening greeting has finished playing. Echo of the greeting through the
+  // speakers can otherwise trip the server VAD and make the model restart its
+  // greeting (the "double greeting"). Recording is unaffected — the mixer
+  // captures the mic continuously regardless.
+  const micSendEnabledRef = useRef(false);   // false until the greeting finishes (or the safety cap)
+  const greetingMuteActiveRef = useRef(false); // true while we're holding mic input for the greeting
 
   function logTurnEvent(label: string, extra: string = ''): void {
     const now = performance.now();
@@ -378,8 +382,6 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
       turnAudioMsRef.current = 0;
       turnTextRef.current = '';
       turnEventCountRef.current = 0;
-      turnOpeningRef.current = '';
-      suppressTurnRef.current = false;
     }
     turnEventCountRef.current += 1;
     const offset = (now - turnStartMsRef.current).toFixed(0).padStart(5, ' ');
@@ -558,6 +560,14 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
       if (scheduleTimeRef.current <= ctx.currentTime + 0.05) {
         botSpeakingRef.current = false;
         onBotSpeakingRef.current?.(false);
+        // The bot just finished speaking. If we were holding mic input for the
+        // opening greeting, release it now — the greeting has fully played, so
+        // its echo can no longer trigger a restart.
+        if (greetingMuteActiveRef.current) {
+          greetingMuteActiveRef.current = false;
+          micSendEnabledRef.current = true;
+          console.log('[Session] Opening greeting finished — mic input to Gemini enabled');
+        }
       }
     };
 
@@ -588,34 +598,6 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
       }
       return [...prev, { id: crypto.randomUUID(), role: 'bot', text, timestamp: new Date() }];
     });
-  }
-
-  /**
-   * Detect a mid-turn restart: the native-audio model sometimes emits its
-   * opening twice in a single turn (the "double greeting"). We fingerprint the
-   * first ~16 chars of the turn; if that fingerprint reappears later in the same
-   * turn, the model has started over, so we set suppressTurnRef to drop the
-   * duplicate's audio and transcript for the remainder of the turn. Called after
-   * each bot transcription chunk is appended to turnTextRef.
-   */
-  function detectTurnRestart(): void {
-    if (suppressTurnRef.current) return;
-    const acc = turnTextRef.current.toLowerCase();
-    if (!turnOpeningRef.current) {
-      if (acc.trim().length >= TURN_OPENING_FINGERPRINT_LEN) {
-        turnOpeningRef.current = acc.trim().slice(0, TURN_OPENING_FINGERPRINT_LEN);
-      }
-      return;
-    }
-    const opening = turnOpeningRef.current;
-    const first = acc.indexOf(opening);
-    const second = first === -1 ? -1 : acc.indexOf(opening, first + opening.length);
-    if (second !== -1) {
-      suppressTurnRef.current = true;
-      console.warn(
-        `[Session] Mid-turn restart detected (opening "${opening.trim()}" repeated) — suppressing the duplicate for the rest of this turn`,
-      );
-    }
   }
 
   /**
@@ -768,10 +750,6 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
       let totalSamples = 0;
       for (const part of msg.serverContent.modelTurn.parts) {
         if (part.inlineData?.mimeType?.startsWith('audio/pcm')) {
-          // Drop audio once we've detected a mid-turn restart (double greeting):
-          // the already-scheduled first greeting keeps playing; the duplicate is
-          // never scheduled.
-          if (suppressTurnRef.current) continue;
           const raw = atob(part.inlineData.data ?? '');
           const bytes = new Uint8Array(raw.length);
           for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
@@ -798,10 +776,7 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
         const preview = text.length > 40 ? text.slice(0, 40) + '…' : text;
         logTurnEvent('output-text', JSON.stringify(preview));
         turnTextRef.current += text;
-        detectTurnRestart();
-        // Skip the transcript/UI append for a detected duplicate so the record
-        // shows a single clean greeting.
-        if (!suppressTurnRef.current) appendBotChunk(text);
+        appendBotChunk(text);
       }
     }
 
@@ -815,8 +790,7 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
         logTurnEvent('output-text(fallback)',
           JSON.stringify(textParts.slice(0, 40) + (textParts.length > 40 ? '…' : '')));
         turnTextRef.current += textParts;
-        detectTurnRestart();
-        if (!suppressTurnRef.current) appendBotChunk(textParts);
+        appendBotChunk(textParts);
       }
     }
 
@@ -949,6 +923,25 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
     speechConfig: SpeechConfig | undefined,
     onConnected: () => void,
   ) => {
+    // Greeting echo mute. If this connect auto-greets (initial start), hold mic
+    // audio out of Gemini until the greeting has played, so speaker→mic echo
+    // can't trip the VAD into a restarted greeting. On resume (no greetText),
+    // send mic immediately — there is no greeting to protect.
+    if (greetText) {
+      micSendEnabledRef.current = false;
+      greetingMuteActiveRef.current = true;
+      setTimeout(() => {
+        if (greetingMuteActiveRef.current) {
+          greetingMuteActiveRef.current = false;
+          micSendEnabledRef.current = true;
+          console.log('[Session] Greeting mute safety cap reached — enabling mic input');
+        }
+      }, GREETING_MUTE_MAX_MS);
+    } else {
+      greetingMuteActiveRef.current = false;
+      micSendEnabledRef.current = true;
+    }
+
     // Prefer a single-use ephemeral token from the consumer's server-side
     // broker. Falls back to the long-lived key if no tokenProvider is
     // configured (legacy / dev mode only — see VoiceCommonConfig).
@@ -1135,6 +1128,18 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
       if (!liveSessionRef.current) return;
       const float32 = e.data.channelData;
 
+      pcmFrameCount++;
+      if (pcmFrameCount <= 5 || pcmFrameCount % 200 === 0) {
+        console.log(`[Session] PCM frame #${pcmFrameCount} — samples=${float32.length}`);
+      }
+
+      // Greeting echo mute: until the bot's opening greeting has finished
+      // playing, do NOT forward mic audio to Gemini (nor run client VAD on it).
+      // Speaker→mic echo of the greeting would otherwise trip the server VAD and
+      // make the model restart its greeting. Recording is unaffected (the mixer
+      // captures the mic on a separate graph).
+      if (!micSendEnabledRef.current) return;
+
       // Manual turn control: derive turn boundaries from frame energy and send
       // activityStart/activityEnd. The raw audio is still streamed below.
       if (manualTurnControlRef.current) {
@@ -1146,11 +1151,6 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
         int16[i] = Math.max(-32768, Math.min(32767, float32[i] * 32768));
       }
       const pcm16 = encode(new Uint8Array(int16.buffer));
-
-      pcmFrameCount++;
-      if (pcmFrameCount <= 5 || pcmFrameCount % 200 === 0) {
-        console.log(`[Session] PCM frame #${pcmFrameCount} — samples=${float32.length}`);
-      }
 
       try {
         liveSessionRef.current.sendRealtimeInput({
