@@ -118,6 +118,16 @@ export interface UseSessionOptions {
    */
   speechConfig?: SpeechConfig;
   /**
+   * How long the user may pause (silence, in milliseconds) before the bot
+   * treats the turn as finished and responds. Larger values make the bot wait
+   * more patiently for the user to keep talking; smaller values make it step
+   * in sooner. Maps to the Gemini Live
+   * `realtimeInputConfig.automaticActivityDetection.silenceDurationMs` field.
+   * Omit to use the API default. Updated every render, so mid-session changes
+   * take effect on the next (re)connect.
+   */
+  endOfSpeechSilenceMs?: number;
+  /**
    * Firestore collection path for session documents.
    * Default: 'sessions' (top-level flat collection).
    * For apps with nested/scoped sessions use a path like:
@@ -183,6 +193,11 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
   // Speech config ref — updated every render so reconnect uses latest voice setting
   const speechConfigRef = useRef(options.speechConfig);
   speechConfigRef.current = options.speechConfig;
+
+  // End-of-speech silence ref — updated every render so a mid-session change
+  // (or reconnect) picks up the latest "how patiently the bot waits" value.
+  const endOfSpeechSilenceMsRef = useRef(options.endOfSpeechSilenceMs);
+  endOfSpeechSilenceMsRef.current = options.endOfSpeechSilenceMs;
 
   // ---------------------------------------------------------------------------
   // Callback refs — updated every render, read by stable callbacks to prevent
@@ -746,6 +761,11 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
           automaticActivityDetection: {
             startOfSpeechSensitivity: StartSensitivity.START_SENSITIVITY_HIGH,
             endOfSpeechSensitivity: EndSensitivity.END_SENSITIVITY_HIGH,
+            // How long a pause the user is allowed before the bot commits
+            // end-of-speech and takes its turn. Omit to use the API default.
+            ...(endOfSpeechSilenceMsRef.current != null
+              ? { silenceDurationMs: endOfSpeechSilenceMsRef.current }
+              : {}),
           },
         },
         // Voice selection — only included when the caller provides a speech config

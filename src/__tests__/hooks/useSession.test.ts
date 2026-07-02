@@ -219,6 +219,7 @@ function renderSession(overrides: Partial<typeof DEFAULT_OPTIONS & {
   onSessionEnd?: () => void;
   onBotSpeaking?: (speaking: boolean) => void;
   speechConfig?: any;
+  endOfSpeechSilenceMs?: number;
   sessionsCollection?: string;
   archiveAudio?: (blob: Blob, userId: string, sessionId: string) => Promise<string>;
 }> = {}) {
@@ -1081,6 +1082,29 @@ describe('speechConfig', () => {
 
     const callArgs = mockLiveConnect.mock.calls[0][0];
     expect(callArgs.config).not.toHaveProperty('speechConfig');
+  });
+});
+
+// ---------------------------------------------------------------------------
+describe('endOfSpeechSilenceMs', () => {
+  it('sets silenceDurationMs on automaticActivityDetection when provided', async () => {
+    const { result } = renderSession({ endOfSpeechSilenceMs: 2500 });
+    await startSession(result);
+
+    const callArgs = mockLiveConnect.mock.calls[0][0];
+    expect(
+      callArgs.config.realtimeInputConfig.automaticActivityDetection.silenceDurationMs,
+    ).toBe(2500);
+  });
+
+  it('omits silenceDurationMs when not provided (uses API default)', async () => {
+    const { result } = renderSession({ endOfSpeechSilenceMs: undefined });
+    await startSession(result);
+
+    const callArgs = mockLiveConnect.mock.calls[0][0];
+    expect(
+      callArgs.config.realtimeInputConfig.automaticActivityDetection,
+    ).not.toHaveProperty('silenceDurationMs');
   });
 });
 

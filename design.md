@@ -111,6 +111,7 @@ sessions/{userId}/{sessionId}.webm    # Mixed session audio (WebM/Opus 128kbps)
 **User speech:**
 - The AudioWorklet captures microphone samples and sends PCM16 at 16kHz to Gemini.
 - Gemini returns input transcription events which are added to the live transcript.
+- Turn-taking is governed by Gemini's automatic activity detection (`realtimeInputConfig.automaticActivityDetection`). Start/end-of-speech sensitivities are set high so the bot is quick to yield when the user starts talking. The optional `endOfSpeechSilenceMs` option maps to `silenceDurationMs` — how long a pause the user may take before the bot commits end-of-speech and responds; larger values make the bot wait more patiently. It is held in a ref so mid-session changes apply on the next (re)connect.
 
 **Bot response:**
 - Gemini returns `inlineData` audio parts (PCM at 24kHz) which are scheduled on the AudioContext for continuous playback.
