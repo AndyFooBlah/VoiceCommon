@@ -22,8 +22,9 @@
  *   - startSession failure paths: mixer error (no orphaned session), Gemini connect error
  *   - stopSession: finalizes as 'completed', archives audio, closes Gemini, calls onSessionEnd
  *   - stopSession when not recording: no-op
- *   - Halt on unexpected disconnect: finalize the recording once, status → ERROR,
- *     no auto-reconnect (avoids the recorder-restart that overwrote earlier audio)
+ *   - Session resumption on unexpected disconnect: reconnect with the resumption
+ *     handle WITHOUT restarting the recorder (one continuous recording); halt and
+ *     finalize only after repeated resume failures
  *   - Tool call dispatch: onToolCall called, sendToolResponse sent with result
  *   - endSession tool: sends tool response then calls onSessionEndRequest
  *   - speechConfig: passed through to Gemini config
@@ -686,41 +687,53 @@ describe('stopSession', () => {
 });
 
 // ---------------------------------------------------------------------------
-describe('halt on unexpected disconnect (no auto-reconnect)', () => {
-  it('halts and finalizes on an unexpected disconnect: status ERROR, error set, no reconnect', async () => {
+describe('session resumption on unexpected disconnect', () => {
+  it('enables session resumption and context-window compression on connect', async () => {
     const { result } = renderSession();
     await startSession(result);
-    const connectCallsBefore = mockLiveConnect.mock.calls.length;
 
-    // Unexpected server disconnect (e.g. Gemini 1011). The old behaviour was to
-    // auto-reconnect, which restarted the recorder and overwrote earlier audio.
-    // The new behaviour is to halt and finalize the recording captured so far.
-    await act(async () => {
-      capturedCallbacks.current.onclose?.({ code: 1011, wasClean: true });
-      await new Promise((res) => setTimeout(res, 0));
-    });
-
-    // Must NOT try to reconnect (no additional live.connect calls).
-    expect(mockLiveConnect.mock.calls.length).toBe(connectCallsBefore);
-    expect(result.current.connectionStatus).toBe(ConnectionStatus.ERROR);
-    expect(result.current.error).toBeTruthy();
+    const cfg = mockLiveConnect.mock.calls[0][0].config;
+    expect(cfg.sessionResumption).toBeDefined();
+    expect(cfg.contextWindowCompression).toBeDefined();
   });
 
-  it('finalizes (uploads) the recording once on an unexpected disconnect', async () => {
+  it('resumes the session on an unexpected disconnect without restarting the recorder', async () => {
     const { result } = renderSession();
     await startSession(result);
-    storageSpies.archiveAudioToGCS.mockClear();
+    const connectsBefore = mockLiveConnect.mock.calls.length; // initial connect
+    const mixerStartsBefore = mockMixerStart.mock.calls.length; // recorder started once
 
     await act(async () => {
       capturedCallbacks.current.onclose?.({ code: 1011, wasClean: true });
       await new Promise((res) => setTimeout(res, 0));
     });
 
-    // Exactly one upload (no partial-then-final overwrite of the same path).
-    expect(storageSpies.archiveAudioToGCS).toHaveBeenCalledTimes(1);
+    // Reconnected (a new live.connect) but did NOT restart the recorder — the
+    // recording must be one continuous file across the reconnect.
+    expect(mockLiveConnect.mock.calls.length).toBe(connectsBefore + 1);
+    expect(mockMixerStart.mock.calls.length).toBe(mixerStartsBefore);
+    expect(result.current.connectionStatus).not.toBe(ConnectionStatus.ERROR);
   });
 
-  it('does not halt or reconnect when onclose fires during an intentional stopSession', async () => {
+  it('passes the stored resumption handle when it resumes', async () => {
+    const { result } = renderSession();
+    await startSession(result);
+
+    await act(async () => {
+      capturedCallbacks.current.onmessage?.({
+        sessionResumptionUpdate: { resumable: true, newHandle: 'HANDLE-1' },
+      });
+    });
+    await act(async () => {
+      capturedCallbacks.current.onclose?.({ code: 1011, wasClean: true });
+      await new Promise((res) => setTimeout(res, 0));
+    });
+
+    const resumeCall = mockLiveConnect.mock.calls[mockLiveConnect.mock.calls.length - 1][0];
+    expect(resumeCall.config.sessionResumption).toEqual({ handle: 'HANDLE-1' });
+  });
+
+  it('does not resume when onclose fires during an intentional stopSession', async () => {
     const { result } = renderSession();
     await startSession(result);
 
@@ -734,6 +747,30 @@ describe('halt on unexpected disconnect (no auto-reconnect)', () => {
     });
 
     expect(mockLiveConnect.mock.calls.length).toBe(connectCallCount);
+  });
+
+  it('halts and finalizes after repeated resume failures', async () => {
+    vi.useFakeTimers();
+    try {
+      const { result } = renderSession();
+      await startSession(result);
+
+      // Every subsequent (resume) connect fails.
+      mockLiveConnect.mockRejectedValue(new Error('connect failed'));
+
+      await act(async () => {
+        capturedCallbacks.current.onclose?.({ code: 1011, wasClean: true });
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      // Two retries are scheduled ~1s apart; advance past them.
+      await act(async () => { await vi.advanceTimersByTimeAsync(1100); });
+      await act(async () => { await vi.advanceTimersByTimeAsync(1100); });
+
+      expect(result.current.connectionStatus).toBe(ConnectionStatus.ERROR);
+      expect(result.current.error).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

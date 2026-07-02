@@ -140,15 +140,17 @@ sessions/{userId}/{sessionId}.webm    # Mixed session audio (WebM/Opus 128kbps)
 5. The session document is updated: `status: 'completed'`, `endTime`, `durationSeconds`, `audioUrl`.
 6. The `onSessionCompleted` Cloud Function fires and runs any configured post-processing.
 
-### 3.4 Error handling — halt, don't reconnect
+### 3.4 Reconnection & error handling
 
-The session recording is treated as critical data: an interview must never continue while its raw audio is not being recorded.
+The Live API caps a **connection at ~10 min** and an **audio session at ~15 min** (without compression), so long interviews *will* be disconnected. The session must survive that without losing the conversation or the recording.
 
-On an **unexpected Gemini disconnect** (e.g. a `1011` server error), the session **halts** rather than auto-reconnecting. It finalizes the complete recording captured so far in a single upload, surfaces an error (`error`) with `connectionStatus = ERROR`, and asks the user to start a new session. Transcript entries and audio up to the disconnect are preserved.
+**Session resumption (the reconnect mechanism).** `connect` enables `sessionResumption: {}` and `contextWindowCompression: { slidingWindow: {} }`. The server issues `sessionResumptionUpdate` messages with a `newHandle`, which we store. On an **unexpected disconnect** (an `onclose` that isn't an intentional stop), `resumeConnection` reconnects with `sessionResumption: { handle }` — resuming the **same** session with full context (no re-greeting). Context-window compression lets the session run past the 15-min cap.
 
-> Historical note: an earlier version auto-reconnected by flushing the recorder buffer, uploading a partial blob, and restarting the mixer. Because the post-reconnect segment was later uploaded to the *same* storage path, it **overwrote** the first segment — silently losing the opening minutes of the interview. Auto-reconnect was removed for this reason.
+**Continuous recording — the critical invariant.** On resume we re-establish only the Gemini WebSocket and the mic→PCM input worklet. We deliberately **do NOT stop or restart the mixer**, so the archival `MediaRecorder` runs continuously for the whole interview and produces **one file, uploaded once** at the end.
 
-The **MediaRecorder** is also monitored: if it fails to enter the recording state at start, or emits an `onerror` mid-session, the session halts the same way. `useAudioMixer.start(onRecordingError)` reports recorder failures to `useSession`.
+> Historical note: an earlier auto-reconnect flushed/cleared the recorder, uploaded a partial blob, and restarted the mixer; the post-reconnect segment was then uploaded to the *same* storage path, **overwriting** the first — silently losing the opening minutes. The PCM worklet's `addModule` is now registered once per AudioContext (the input context persists across resumes), keeping recording continuous.
+
+**Halt conditions (recording integrity).** An interview must never continue unrecorded. The session halts — finalizing the complete recording once, then `connectionStatus = ERROR` with a user-facing `error` — if resumption fails `MAX_RESUME_FAILURES` (3) times in a row, or if the `MediaRecorder` fails to enter the recording state at start or emits `onerror` mid-session (`useAudioMixer.start(onRecordingError)`).
 
 ---
 

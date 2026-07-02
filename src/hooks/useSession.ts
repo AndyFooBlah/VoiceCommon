@@ -61,6 +61,9 @@ const GEMINI_MODEL = 'gemini-3.1-flash-live-preview';
 /** Maximum seconds of audio lookahead before triggering a runaway-loop reset. */
 const MAX_AUDIO_LOOKAHEAD_S = 30;
 
+/** Consecutive failed session-resumption attempts before we halt the session. */
+const MAX_RESUME_FAILURES = 3;
+
 /** Word overlap ratio above which a bot turn is considered a repetition (0–1). */
 const REPETITION_THRESHOLD = 0.85;
 
@@ -408,11 +411,21 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
 
   // Stop/halt state
   const isStoppingRef = useRef(false);          // true when stopSession is intentional
-  const reconnectAttemptsRef = useRef(0);       // retained for session metrics (now always 0)
+  const reconnectAttemptsRef = useRef(0);       // total resume attempts (session metric)
   // Set to the latest haltWithError so the WebSocket onclose handler (created
   // inside connectGemini before stopSession exists) can trigger a clean halt
   // without a stale closure.
   const haltWithErrorRef = useRef<(message: string) => void>(() => {});
+
+  // Session-resumption state. The recorder keeps running across resumes (one
+  // continuous recording); only the Gemini WebSocket reconnects underneath it.
+  const resumptionHandleRef = useRef<string | undefined>(undefined); // latest handle from the server
+  const resumeInProgressRef = useRef(false);                          // guards concurrent resumes
+  const resumeFailuresRef = useRef(0);                                // consecutive failures (→ halt at MAX)
+  const pcmModuleContextRef = useRef<BaseAudioContext | null>(null);  // context the PCM worklet is registered on
+  // Late-bound so the onmessage/onclose callbacks (created in connectGemini
+  // before resumeConnection exists) can trigger a resume without a stale closure.
+  const resumeConnectionRef = useRef<(reason: string) => void>(() => {});
   // Synchronous guard against startSession re-entry. setIsRecording(true) is
   // async so two rapid calls (StrictMode double-invoke, double-clicks) can both
   // pass the isRecording check — the ref closes the window.
@@ -684,6 +697,17 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
   }
 
   function handleServerMessage(msg: LiveServerMessage): void {
+    // Session-resumption handle — store the latest so an unexpected disconnect
+    // can resume this exact session (with full context) instead of halting.
+    if (msg.sessionResumptionUpdate?.resumable && msg.sessionResumptionUpdate.newHandle) {
+      resumptionHandleRef.current = msg.sessionResumptionUpdate.newHandle;
+    }
+    // The server warns before it resets a connection. Nothing to do proactively
+    // for now — the onclose handler resumes with the stored handle — but log it.
+    if (msg.goAway) {
+      console.log(`[Session] GoAway received (timeLeft=${msg.goAway.timeLeft ?? 'unknown'}) — will resume on close`);
+    }
+
     // User barge-in — Gemini signals the model's current turn was interrupted
     // by user speech. Stop any queued bot audio immediately and seal the
     // partial transcript so the next bot chunk starts a fresh message.
@@ -954,6 +978,16 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
         },
         // Voice selection — only included when the caller provides a speech config
         ...(speechConfig ? { speechConfig } : {}),
+        // Session resumption: the server issues resumption handles we store and
+        // pass back on reconnect, so a session survives the Live API's ~10-min
+        // connection resets and ~15-min session cap WITH full conversation
+        // context (no re-greeting). Passing a handle resumes; empty starts fresh.
+        sessionResumption: resumptionHandleRef.current
+          ? { handle: resumptionHandleRef.current }
+          : {},
+        // Context-window compression lets long interviews run past the 15-min
+        // audio session limit by summarising older turns.
+        contextWindowCompression: { slidingWindow: {} },
       },
       callbacks: {
         onmessage: (msg: LiveServerMessage) => {
@@ -982,16 +1016,17 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
             return;
           }
 
-          // Unexpected disconnect. We deliberately do NOT auto-reconnect: the
-          // previous reconnect path restarted the recorder and re-uploaded to
-          // the same storage path, silently overwriting the first part of the
-          // interview (permanent audio loss). For a recording-critical
-          // interview the correct behaviour is to HALT — finalize the complete
-          // recording captured so far and ask the user to start a new session.
-          console.warn('[Session] Unexpected disconnect — halting and finalizing (recording preserved; no auto-reconnect)');
-          void haltWithErrorRef.current(
-            'The connection to the interviewer dropped unexpectedly. Your recording up to this point has been saved — please start a new session to continue.',
-          );
+          // Unexpected disconnect (Live API ~10-min connection reset, ~15-min
+          // session cap, or a transient 1011). Resume the SAME session via its
+          // resumption handle rather than starting fresh — this preserves full
+          // conversation context (no re-greeting). Crucially, we do NOT touch
+          // the mixer/recorder: recording stays continuous across the reconnect
+          // (one file, no overwrite — the old restart-and-reupload path lost
+          // the opening minutes). We halt only if resumption keeps failing or
+          // the recorder itself fails (see resumeConnection / haltWithError).
+          console.warn('[Session] Unexpected disconnect — resuming session (recording continues)');
+          setConnectionStatus(ConnectionStatus.CONNECTING);
+          resumeConnectionRef.current('disconnect');
         },
       },
     });
@@ -1016,10 +1051,17 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
       }
       registerProcessor('pcm-processor', PCMProcessor);
     `;
-    const workletBlob = new Blob([workletCode], { type: 'application/javascript' });
-    const workletUrl = URL.createObjectURL(workletBlob);
-    await inputCtx.audioWorklet.addModule(workletUrl);
-    URL.revokeObjectURL(workletUrl);
+    // Register the PCM worklet module ONCE per AudioContext. The input context
+    // persists across session-resumption reconnects (we never restart the mixer,
+    // so recording stays continuous), and re-adding the module to the same
+    // context throws "already registered". A fresh session gets a fresh context.
+    if (pcmModuleContextRef.current !== inputCtx) {
+      const workletBlob = new Blob([workletCode], { type: 'application/javascript' });
+      const workletUrl = URL.createObjectURL(workletBlob);
+      await inputCtx.audioWorklet.addModule(workletUrl);
+      URL.revokeObjectURL(workletUrl);
+      pcmModuleContextRef.current = inputCtx;
+    }
 
     const source = inputCtx.createMediaStreamSource(micStream);
     const worklet = new AudioWorkletNode(inputCtx, 'pcm-processor');
@@ -1079,6 +1121,64 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
   }, [mixer, disconnectWorklet]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---------------------------------------------------------------------------
+  // Session resumption (survive Live API connection resets without losing the
+  // recording or the conversation)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Resume the current session on an unexpected disconnect. Re-establishes the
+   * Gemini WebSocket using the stored resumption handle (full context, no
+   * re-greeting) and re-wires only the mic→PCM input path. The mixer/recorder
+   * is deliberately left running, so the archival recording is one continuous
+   * file across reconnects. After MAX_RESUME_FAILURES consecutive failures we
+   * halt and finalize the recording captured so far.
+   */
+  const resumeConnection = useCallback(async (reason: string) => {
+    if (isStoppingRef.current) return;
+    if (resumeInProgressRef.current) {
+      console.warn('[Session] resumeConnection called while already resuming — skipping');
+      return;
+    }
+    resumeInProgressRef.current = true;
+    reconnectAttemptsRef.current += 1;
+    const handle = resumptionHandleRef.current;
+    console.log(
+      `[Session] Resuming session (reason=${reason}, attempt=${reconnectAttemptsRef.current}, handle=${handle ? 'present' : 'none'})`,
+    );
+
+    // Tear down only the input path + any scheduled bot audio. Do NOT stop the
+    // mixer — recording must stay continuous across the reconnect.
+    disconnectWorklet();
+    stopActiveAudio();
+
+    try {
+      // No greeting cue on resume: session resumption preserves the conversation.
+      await connectGemini(systemInstructionRef.current, undefined, speechConfigRef.current, () => {
+        if (sessionRef.current) setSessionId(sessionRef.current);
+        setConnectionStatus(ConnectionStatus.CONNECTED);
+        resumeFailuresRef.current = 0;
+        console.log('[Session] Resume successful');
+      });
+    } catch (err) {
+      console.error('[Session] Resume failed:', err);
+      errorCountRef.current += 1;
+      resumeFailuresRef.current += 1;
+      resumeInProgressRef.current = false;
+      if (resumeFailuresRef.current >= MAX_RESUME_FAILURES) {
+        void haltWithErrorRef.current(
+          'The connection kept dropping and could not be restored. Your recording so far has been saved — please start a new session to continue.',
+        );
+      } else {
+        // Brief backoff, then retry.
+        setTimeout(() => resumeConnectionRef.current('retry'), 1_000);
+      }
+      return;
+    }
+    resumeInProgressRef.current = false;
+  }, [connectGemini, disconnectWorklet, stopActiveAudio]);
+  resumeConnectionRef.current = resumeConnection;
+
+  // ---------------------------------------------------------------------------
   // Session lifecycle: start
   // ---------------------------------------------------------------------------
 
@@ -1101,6 +1201,11 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
     botTurnSealedRef.current = true;
     isStoppingRef.current = false;
     reconnectAttemptsRef.current = 0;
+    // Fresh session — do not resume a previous one.
+    resumptionHandleRef.current = undefined;
+    resumeFailuresRef.current = 0;
+    resumeInProgressRef.current = false;
+    pcmModuleContextRef.current = null;
     toolCallCountRef.current = 0;
     errorCountRef.current = 0;
     currentTurnIdRef.current = 0;
