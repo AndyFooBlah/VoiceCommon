@@ -86,6 +86,13 @@ const VAD_BARGEIN_FACTOR = 6.0;
 /** Sustained speech required before committing activityStart (idle vs. barge-in). */
 const VAD_START_DEBOUNCE_MS = 120;
 const VAD_BARGEIN_DEBOUNCE_MS = 300;
+/**
+ * Sustained above-threshold speech required to RESET the end-of-turn silence
+ * timer once the user's turn is open. Transient background-noise blips are
+ * shorter than this, so they no longer restart the wait — they only briefly
+ * pause it. Without this, faint intermittent noise keeps a turn open forever.
+ */
+const VAD_RETRIGGER_MS = 200;
 /** Fallback end-of-turn silence when no endOfSpeechSilenceMs is configured. */
 const VAD_DEFAULT_WAIT_MS = 1500;
 
@@ -631,13 +638,20 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
       v.logAccumMs = 0;
       console.log(
         `[Session] VAD level: rms=${rms.toFixed(4)} floor=${v.noiseFloor.toFixed(4)} ` +
-          `thr=${threshold.toFixed(4)} speaking=${v.userSpeaking} bot=${botSpeaking}`,
+          `thr=${threshold.toFixed(4)} speaking=${v.userSpeaking} silence=${Math.round(v.silenceMs)}ms bot=${botSpeaking}`,
       );
     }
 
     if (rms > threshold) {
       v.speechMs += frameMs;
-      v.silenceMs = 0;
+      // Only SUSTAINED speech resets the end-of-turn silence timer. A lone
+      // above-threshold blip (background noise, a cough, a keyboard tap) is
+      // shorter than VAD_RETRIGGER_MS, so it pauses the count for a frame or
+      // two rather than restarting the whole wait. This is what keeps faint
+      // intermittent noise from holding the turn open indefinitely.
+      if (v.speechMs >= VAD_RETRIGGER_MS) {
+        v.silenceMs = 0;
+      }
       if (!v.userSpeaking && v.speechMs >= startDebounceMs) {
         v.userSpeaking = true;
         v.speechMs = 0;
