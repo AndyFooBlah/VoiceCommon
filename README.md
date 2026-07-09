@@ -1,6 +1,6 @@
 # VoiceCommon
 
-`@andyfooblah/voice-common` v0.4.1 — a reusable framework for building voice AI web applications powered by Google Gemini Live and Firebase.
+`@andyfooblah/voice-common` — a reusable framework for building voice AI web applications powered by Google Gemini Live and Firebase. See [CHANGELOG.md](CHANGELOG.md) for the current version and release history.
 
 > **Origin:** VoiceCommon was started as a way to extract reusable common functionality from [LegacyBot](https://github.com/AndyFooBlah/LegacyBot), a voice-first life story preservation app. The patterns for real-time voice sessions, transcript archival, audio recording, and AI tool integrations have been generalized here into a clean framework that any voice AI app can build on.
 
@@ -13,7 +13,7 @@ Knowledge tools (weather, maps, jokes, Wikipedia, date/time) are provided separa
 - **Gemini Live integration** — real-time bidirectional voice sessions with Google's Gemini Live API, including PCM audio streaming, bot audio playback scheduling, and connection lifecycle management
 - **Firebase authentication** — Google OAuth and email/password sign-in, with user profile creation in Firestore
 - **Session archival** — automatic recording of mixed user+bot audio to Cloud Storage (WebM/Opus), real-time transcript sync to Firestore
-- **Auto-reconnect** — on unexpected disconnect, automatically re-establishes the Gemini connection, flushes partial audio, and sends a context-aware resume cue (up to 3 attempts)
+- **Session resumption with continuous recording** — on unexpected disconnect (the Live API's ~10-min connection resets, transient errors), the session is resumed via Gemini session-resumption handles with full conversation context (no re-greeting). The archival recorder is never restarted, so the recording stays one continuous file. If resumption fails 3 times in a row — or the recorder itself fails — the session halts and finalizes the recording captured so far rather than continuing unrecorded (see `design.md` §3.4)
 - **Repetition detection** — detects near-duplicate bot turns and sends a recovery prompt to break the loop
 - **Example application** — a working 3-page app (login, session history, new session) demonstrating the full framework
 
@@ -36,16 +36,28 @@ Knowledge tools (weather, maps, jokes, Wikipedia, date/time) are provided separa
 
 - Node.js 22+
 - A Firebase project (Firestore, Authentication, Cloud Storage enabled)
-- A Google Gemini API key from [Google AI Studio](https://aistudio.google.com)
+- A Google Gemini API key from [Google AI Studio](https://aistudio.google.com) — held **server-side only**, behind your token broker (see below)
 - (Optional) A Google Maps API key for weather and location tools
 
 ### 1. Clone and install
 
+VoiceCommon depends on [`@andyfooblah/knowledge-common`](https://github.com/AndyFooBlah/KnowledgeCommon) via a `file:` link, so **you must check out KnowledgeCommon as a sibling directory named `knowledgecommon`** or `npm install` will fail:
+
+```
+parent/
+├── voicecommon/        # this repo
+└── knowledgecommon/    # sibling checkout, built (npm ci && npm run build:lib)
+```
+
 ```bash
-git clone https://github.com/AndyFooBlah/VoiceCommon.git
-cd VoiceCommon
+git clone https://github.com/AndyFooBlah/KnowledgeCommon.git knowledgecommon
+git clone https://github.com/AndyFooBlah/VoiceCommon.git voicecommon
+(cd knowledgecommon && npm ci && npm run build:lib)
+cd voicecommon
 npm install
 ```
+
+> **CI note for forks:** the GitHub Actions workflow checks out KnowledgeCommon as a sibling using a `PEER_REPO_TOKEN` repository secret (a PAT with `contents:read` on KnowledgeCommon). Forks won't have this secret, so CI will fail on forks unless you add your own.
 
 ### 2. Configure environment
 
@@ -204,7 +216,7 @@ import { useSession } from '@andyfooblah/voice-common';
 
 ### `sessionsCollection` example
 
-LegacyBot uses family-scoped session paths:
+An app with family-scoped data might use nested session paths:
 
 ```typescript
 useSession({
@@ -221,18 +233,7 @@ All VoiceCommon storage calls (create, finalize, transcript sync) use this prefi
 
 ## Changelog
 
-### v0.4.1
-
-- `speechConfig` option added to `UseSessionOptions` — pass a `SpeechConfig` to select a Gemini prebuilt voice or configure audio output
-- `overrideAutoGreetText` parameter added to `startSession()` — lets callers supply the opening cue at call time to avoid stale-closure issues when the cue is built just before starting
-- `endSession` tool fix — VoiceCommon now sends the tool response acknowledgement before triggering `onSessionEndRequest`, allowing Gemini to deliver its closing audio turn before the session tears down
-- `onSessionEnd` callback added — fires after the session is fully finalized (audio uploaded, Firestore updated); use for post-session analysis or UI state cleanup
-- `sessionsCollection` option added — supports nested Firestore paths for apps with family- or dossier-scoped sessions (e.g. LegacyBot)
-
-### v0.4.0
-
-- Extracted from LegacyBot as a standalone library
-- Knowledge tools moved to `@andyfooblah/knowledge-common`
+See [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
@@ -244,12 +245,7 @@ src/
 │   ├── firebase.ts          # Firebase app initialization
 │   ├── gemini.ts            # Gemini Live session instruction builder + tool registry
 │   ├── storage.ts           # Firestore + GCS session/transcript persistence
-│   ├── audioUtils.ts        # PCM encoding, decoding, resampling
-│   └── tools/
-│       ├── weather.ts       # Weather tool (Google Maps Weather API)
-│       ├── maps.ts          # Place search + distance tool (Google Maps Geocoding)
-│       ├── jokes.ts         # Joke tool (JokeAPI)
-│       └── wikipedia.ts     # Wikipedia search tool
+│   └── audioUtils.ts        # PCM encoding, decoding, resampling
 ├── hooks/
 │   ├── useAuth.ts           # Firebase auth state + sign-in/sign-out
 │   ├── useSession.ts        # Live session lifecycle (start, stream, stop, archive)

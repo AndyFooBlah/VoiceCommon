@@ -54,10 +54,14 @@ export interface SimulationResult {
 }
 
 /**
- * VoiceSimulator acts as a headless participant in a Gemini Live session.
- * 
- * It emulates a user by "listening" to bot audio and "speaking" back using
- * a second Gemini instance (the Actor) to generate responses.
+ * VoiceSimulator is intended to act as a headless participant in a Gemini
+ * Live session, emulating a user by "listening" to bot audio and "speaking"
+ * back using a second Gemini instance (the Actor) to generate responses.
+ *
+ * ⚠️ EXPERIMENTAL, UNIMPLEMENTED STUB. `simulate()` does NOT open a WebSocket
+ * or talk to Gemini Live — it returns mock data (see the body). Only
+ * `generateUserResponse()` performs a real Gemini call. Do not build tests
+ * that rely on `simulate()` exercising a live session. See TESTING.md.
  */
 export class VoiceSimulator {
   private config: VoiceSimulatorConfig;
@@ -65,7 +69,7 @@ export class VoiceSimulator {
   
   constructor(config: VoiceSimulatorConfig) {
     this.config = {
-      actorModel: 'gemini-1.5-flash',
+      actorModel: 'gemini-3-flash-preview',
       ...config
     };
     this.actorAI = new GoogleGenAI({ apiKey: this.config.apiKey });
@@ -73,7 +77,9 @@ export class VoiceSimulator {
 
   /**
    * Run a simulated session against a target Gemini Live WebSocket.
-   * 
+   *
+   * ⚠️ STUB: no WebSocket connection is made. Returns mock data only.
+   *
    * @param targetUrl The Gemini Live WebSocket URL to connect to.
    * @param targetToken The ephemeral token or API key for the target session.
    */

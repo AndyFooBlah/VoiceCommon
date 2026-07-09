@@ -4,7 +4,7 @@ This document outlines the plan to develop a prototype application to compare th
 
 ### 1. Foundational Setup
 
-*   **Directory Structure:** A new, self-contained sub-project will be created at `legacybot/prototypes/latency_comparator`.
+*   **Directory Structure:** A new, self-contained sub-project will be created at `voicecommon/prototypes/latency_comparator`.
 *   **Project Initialization:** A new React + TypeScript project will be initialized within this directory using Vite, mirroring the stack of the main project.
 *   **README:** A `README.md` file will be created inside the prototype's directory explaining its purpose, architecture, and instructions on how to install and run it.
 

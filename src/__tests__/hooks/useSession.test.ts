@@ -177,8 +177,9 @@ vi.mock('../../hooks/useAudioMixer', () => ({
 vi.mock('../../services/storage', () => storageSpies);
 
 vi.mock('../../services/config', () => ({
-  getConfig: vi.fn(() => ({ geminiApiKey: 'test-api-key', firebase: {} })),
+  getConfig: vi.fn(() => ({ tokenProvider: vi.fn(), firebase: {} })),
   initializeVoiceCommon: vi.fn(),
+  isDebugEnabled: vi.fn(() => false),
   mintLiveToken: vi.fn().mockResolvedValue({
     token: 'test-ephemeral-token',
     expireTime: '2099-01-01T00:00:00.000Z',
@@ -627,7 +628,7 @@ describe('stopSession', () => {
     );
   });
 
-  // Regression for LegacyBot #128: apps with Storage rules scoped to a different
+  // Regression (reported from a consuming app): apps with Storage rules scoped to a different
   // path layout need to override the default `sessions/{userId}/*` upload path.
   it('calls archiveAudio override instead of default when provided', async () => {
     const archiveAudio = vi.fn().mockResolvedValue('https://custom.example/path.webm');

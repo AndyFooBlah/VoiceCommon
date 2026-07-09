@@ -1,8 +1,17 @@
 # Conversational AI Latency Comparator
 
+> ⚠️ **LOCAL DEV ONLY — NEVER DEPLOY THIS PROTOTYPE.**
+> Unlike the VoiceCommon library (which requires a server-side token broker),
+> this prototype puts API keys directly into the browser bundle: every
+> `VITE_*` variable in `.env.local` is compiled into the client JavaScript
+> and is trivially extractable. That is acceptable only on your own machine
+> against dev/test keys. Do not host it, do not build it for production, and
+> do not point it at production keys. The bundled proxy servers deliberately
+> bind to `127.0.0.1` — keep it that way.
+
 This prototype is a web application designed to compare the real-world performance of two different architectures for building a conversational AI. It provides a hands-on way to measure and feel the difference in latency and response quality between an integrated, all-in-one service and a hybrid, multi-component service.
 
-Tracked by GitHub Issue: [#67](https://github.com/AndyFooBlah/LegacyBot/issues/67)
+Historical note: originally tracked by [issue #67](https://github.com/AndyFooBlah/LegacyBot/issues/67) in the repo this prototype was first developed in.
 
 ## Architectures
 
@@ -30,7 +39,7 @@ The application measures and displays two key metrics:
 Navigate to the prototype directory and install the dependencies:
 
 ```bash
-cd legacybot/prototypes/latency_comparator
+cd voicecommon/prototypes/latency_comparator
 npm install
 ```
 
@@ -62,7 +71,7 @@ The prototype has a two-part startup: a **Node.js proxy** (forwards microphone a
 ```bash
 npm run start-server
 ```
-Expected output: `WebSocket proxy server started on port 3001`
+Expected output: `Proxy server started on 127.0.0.1:3001 (STT: /asr, TTS: /tts)`
 
 **Terminal 2 — Frontend** (port 5173):
 ```bash

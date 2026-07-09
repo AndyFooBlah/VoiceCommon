@@ -70,8 +70,10 @@ async def proxy_websocket(client_websocket, path=None):
         print("Gradium STT stream closed.")
 
 async def main():
-    async with websockets.serve(proxy_websocket, "0.0.0.0", 8001) as server:
-        print("WebSocket proxy server started on port 8001")
+    # Bind to loopback only — this is a local-dev prototype and must never be
+    # reachable from other machines.
+    async with websockets.serve(proxy_websocket, "127.0.0.1", 8001) as server:
+        print("WebSocket proxy server started on 127.0.0.1:8001")
         await server.wait_closed()
 
 if __name__ == "__main__":

@@ -1,7 +1,7 @@
 {
-  "name": "LegacyBot",
-  "short_name": "LegacyBot",
-  "description": "Preserve your family's oral history with AI-powered interviews",
+  "name": "VoiceCommon Demo",
+  "short_name": "VoiceCommon Demo",
+  "description": "Demo app for the VoiceCommon voice AI framework",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#f8fafc",

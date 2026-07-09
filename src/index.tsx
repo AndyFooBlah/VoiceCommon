@@ -34,10 +34,12 @@ initializeVoiceCommon({
   },
   // The demo app does NOT carry a Gemini key — VoiceCommon never accepts
   // long-lived keys in browser config. To run the demo end-to-end against
-  // Gemini Live, point this at a Cloud Function in your own project that
-  // mints an ephemeral token via Gemini's authTokens.create API. See
-  // design.md §5 for the broker contract; see LegacyBot or CarBot's
-  // functions/src/liveToken.ts for a reference implementation.
+  // Gemini Live, point this at your own broker: an authenticated HTTPS
+  // endpoint (e.g. a Firebase callable Cloud Function) that holds
+  // GEMINI_API_KEY server-side (Secret Manager), calls Gemini's
+  // authTokens.create API, and returns a single-use ephemeral token as
+  // { token: string, expireTime: string }. See design.md §5 for the full
+  // broker contract.
   tokenProvider: () => {
     throw new Error(
       'VoiceCommon demo: no tokenProvider wired up. To run the demo against ' +

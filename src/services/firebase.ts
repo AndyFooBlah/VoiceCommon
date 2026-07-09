@@ -55,7 +55,7 @@ export let functions!: Functions;
  * Called internally by `initializeVoiceCommon()` — do not call directly.
  *
  * If the host app has already initialized the default Firebase app (e.g. a
- * consuming app like LegacyBot that does its own `initializeApp()` call),
+ * consuming app that does its own `initializeApp()` call),
  * this reuses that existing app rather than throwing a "duplicate app" error.
  */
 export function _initFirebase(config: FirebaseConfig): FirebaseApp {

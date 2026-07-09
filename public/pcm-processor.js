@@ -13,7 +13,7 @@
 // limitations under the License.
 
 /**
- * AudioWorklet processor for LegacyBot microphone capture.
+ * AudioWorklet processor for VoiceCommon microphone capture.
  *
  * Runs on the dedicated audio thread (AudioWorkletGlobalScope) to capture
  * mic input as Float32 PCM and forward each frame to the main thread via

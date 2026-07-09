@@ -213,6 +213,8 @@ function handleTtsConnection(clientWs: WebSocket, gradiumApiKey: string) {
   });
 }
 
-server.listen(PORT, () => {
-  console.log(`[${ts()}] Proxy server started on port ${PORT} (STT: /asr, TTS: /tts)`);
+// Bind to loopback only — this is a local-dev prototype and must never be
+// reachable from other machines.
+server.listen(PORT, '127.0.0.1', () => {
+  console.log(`[${ts()}] Proxy server started on 127.0.0.1:${PORT} (STT: /asr, TTS: /tts)`);
 });

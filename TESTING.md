@@ -1,12 +1,19 @@
 # Voice Testing and Simulation in VoiceCommon
 
-VoiceCommon provides a `VoiceSimulator` utility to enable automated, end-to-end testing of Gemini Live voice applications. This tool emulates a real user by "listening" to the bot's audio, deciding what to say using a persona-driven LLM "Actor," and "speaking" back via TTS.
+> ⚠️ **Status: experimental, unimplemented stub.** `VoiceSimulator` exists as
+> an API sketch only. Its `simulate()` method does **not** connect to Gemini
+> Live — it returns mock data (see `src/testing/VoiceSimulator.ts`). Only
+> `generateUserResponse()` makes a real Gemini call (Actor text generation).
+> The architecture below describes the *intended* design, not current
+> behavior. Do not depend on it for end-to-end testing yet.
 
-## Architecture
+VoiceCommon sketches a `VoiceSimulator` utility to enable automated, end-to-end testing of Gemini Live voice applications. The idea: emulate a real user by "listening" to the bot's audio, deciding what to say using a persona-driven LLM "Actor," and "speaking" back via TTS.
 
-The `VoiceSimulator` operates as a headless WebSocket client that connects to the same Gemini Live endpoint as your application.
+## Architecture (planned — not yet implemented)
 
-1.  **The Actor (LLM):** A dedicated Gemini 1.5 Flash instance configured with a specific persona (e.g., "Ralph, a retired sailor").
+The `VoiceSimulator` is intended to operate as a headless WebSocket client that connects to the same Gemini Live endpoint as your application.
+
+1.  **The Actor (LLM):** A dedicated Gemini Flash instance (default model: `gemini-3-flash-preview`) configured with a specific persona (e.g., "Ralph, a retired sailor").
 2.  **The Ear (STT):** Transcribes bot audio chunks back into text so the Actor can "understand" the conversation.
 3.  **The Voice (TTS):** Converts Actor text responses into 16kHz PCM audio chunks to stream back to the bot.
 
@@ -29,9 +36,9 @@ const sim = new VoiceSimulator({
 });
 ```
 
-## Running a Simulation
+## Running a Simulation (planned API — `simulate()` currently returns mock data)
 
-You can run a simulation in your integration tests (e.g., using `vitest`).
+Once implemented, you would run a simulation in your integration tests (e.g., using `vitest`).
 
 ```ts
 import { describe, it, expect } from 'vitest';

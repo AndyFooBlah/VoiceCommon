@@ -2,7 +2,7 @@
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability in LegacyBot, please report it responsibly.
+If you discover a security vulnerability in VoiceCommon, please report it responsibly.
 
 **Do not open a public GitHub issue for security vulnerabilities.**
 
@@ -18,9 +18,18 @@ We will acknowledge your report within 48 hours and aim to release a fix within 
 
 ## Scope
 
-This policy covers the LegacyBot web application and its Firebase Cloud Functions backend.
+This policy covers:
 
-## Known Limitations
+- The `@andyfooblah/voice-common` npm package (the library published from `src/`)
+- The demo application shipped in this repository (the example app, its Cloud Functions in `functions/`, and the Firestore/Storage rules)
 
-- Family creation is open to any authenticated user. Abuse prevention is planned but not yet implemented.
-- Cloud Storage access is gated on Firebase Auth custom claims (`familyIds`). Claims are set by the `onMemberWritten` Cloud Function and may have a brief propagation delay after joining a family.
+## API Key Handling
+
+VoiceCommon never accepts a long-lived Gemini API key in browser configuration. The only sanctioned auth path is the **required** `tokenProvider` callback passed to `initializeVoiceCommon(...)`: a consumer-implemented wrapper around a server-side broker that holds `GEMINI_API_KEY` (e.g. in Secret Manager) and returns a single-use ephemeral token (via Gemini's `authTokens.create` API). The long-lived key never reaches the browser — in this library or in any consumer's bundle.
+
+Two automated guards enforce this:
+
+1. An ESLint `no-restricted-syntax` rule that fails the build on any read of secret-shaped `import.meta.env.VITE_*` variables inside `src/**`
+2. A post-build bundle scan (`scripts/check-bundle-for-secrets.mjs`) that greps the published `dist/` output for known secret shapes and fails on any match
+
+If you find a way a secret can leak into the published package or a consumer's bundle, that is in scope — please report it.

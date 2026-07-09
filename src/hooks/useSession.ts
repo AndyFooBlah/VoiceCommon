@@ -19,8 +19,12 @@
  *   1. Start: Initialize audio mixer → Create Firestore session → Connect Gemini Live
  *   2. During: Stream PCM to Gemini, play bot audio (recorded to archive), sync transcript
  *   3. Stop: Close Gemini, stop recorder, upload audio to GCS, finalize session
- *   4. Reconnect: On unexpected disconnect, automatically re-establish the Gemini
- *      connection, flush partial audio, and send a context-aware resume cue.
+ *   4. Resume: On unexpected disconnect, resume the SAME session via Gemini
+ *      session-resumption handles (full context, no re-greeting). The recorder
+ *      is never restarted, so the archival recording stays one continuous file.
+ *      After MAX_RESUME_FAILURES consecutive failed attempts — or if the
+ *      recorder itself fails — the session halts and finalizes the recording
+ *      captured so far rather than continuing unrecorded.
  *
  * The hook is generic — it accepts a system instruction and tool set from the
  * calling application. Tool call dispatch is handled via the onToolCall callback.
@@ -44,7 +48,7 @@ import {
   EndSensitivity,
   SpeechConfig,
 } from '@google/genai';
-import { mintLiveToken } from '../services/config';
+import { mintLiveToken, isDebugEnabled } from '../services/config';
 import { Timestamp } from 'firebase/firestore';
 import { Message, ConnectionStatus, TranscriptEntry } from '../types';
 import { useAudioMixer } from './useAudioMixer';
@@ -192,14 +196,14 @@ export interface UseSessionOptions {
   sessionsCollection?: string;
   /**
    * Additional fields to merge into the session document in Firestore.
-   * Useful for app-specific metadata (e.g. LegacyBot's storytellerUid).
+   * Useful for app-specific metadata (e.g. a storytellerUid field).
    */
   additionalSessionData?: Record<string, any>;
   /**
    * Override for audio archival. When provided, VoiceCommon calls this instead
    * of its default `sessions/{userId}/{sessionId}.webm` upload path. Use this
    * when the consuming app has Storage rules scoped to a different layout
-   * (e.g. LegacyBot uses `{familyId}/{dossierId}/{sessionId}.webm`).
+   * (e.g. a family-scoped app using `{familyId}/{dossierId}/{sessionId}.webm`).
    * Must return a downloadable URL (or empty string) after upload completes.
    */
   archiveAudio?: (
@@ -393,15 +397,19 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
     const queuedMs = ctx
       ? Math.max(0, (scheduleTimeRef.current - ctx.currentTime) * 1000).toFixed(0)
       : '?';
-    console.log(
-      `[Session-Turn turn=${currentTurnIdRef.current} +${offset}ms #${turnEventCountRef.current} queue=${queuedMs}ms] ${label}${extra ? ' ' + extra : ''}`,
-    );
+    // Content-bearing (speech previews, tool args) — only log in debug mode.
+    if (isDebugEnabled()) {
+      console.log(
+        `[Session-Turn turn=${currentTurnIdRef.current} +${offset}ms #${turnEventCountRef.current} queue=${queuedMs}ms] ${label}${extra ? ' ' + extra : ''}`,
+      );
+    }
   }
 
   function resetTurnTiming(reason: string): void {
-    if (turnHasEventsRef.current) {
+    if (turnHasEventsRef.current && isDebugEnabled()) {
       const totalAudio = turnAudioMsRef.current.toFixed(0);
       const transcript = turnTextRef.current.trim().slice(0, 120);
+      // Contains a transcript preview — only log in debug mode.
       console.log(
         `[Session-Turn turn=${currentTurnIdRef.current} END reason=${reason} events=${turnEventCountRef.current} audio=${totalAudio}ms text=${JSON.stringify(transcript)}]`,
       );
@@ -879,7 +887,12 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
     for (const call of calls) {
       const name = call.name ?? '';
       const args = (call.args ?? {}) as Record<string, unknown>;
-      console.log(`[Session] Tool call: ${name}`, args);
+      // Args may carry user-provided content — include them only in debug mode.
+      if (isDebugEnabled()) {
+        console.log(`[Session] Tool call: ${name}`, args);
+      } else {
+        console.log(`[Session] Tool call: ${name}`);
+      }
       toolCallCountRef.current++;
 
       if (name === 'endSession') {
@@ -911,7 +924,10 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
       if (onToolCallRef.current) {
         try {
           result = await onToolCallRef.current(name, args);
-          console.log(`[Session] Tool result for ${name}:`, result.slice(0, 200));
+          // Tool result bodies may carry user data — only log in debug mode.
+          if (isDebugEnabled()) {
+            console.log(`[Session] Tool result for ${name}:`, result.slice(0, 200));
+          }
         } catch (err) {
           result = `Tool error: ${String(err)}`;
           console.error(`[Session] Tool ${name} threw:`, err);
@@ -992,9 +1008,10 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
       micSendEnabledRef.current = true;
     }
 
-    // Prefer a single-use ephemeral token from the consumer's server-side
-    // broker. Falls back to the long-lived key if no tokenProvider is
-    // configured (legacy / dev mode only — see VoiceCommonConfig).
+    // Mint a single-use ephemeral token via the consumer's server-side broker
+    // (the required tokenProvider — see VoiceCommonConfig). There is no
+    // long-lived-key fallback: VoiceCommon never accepts a Gemini API key in
+    // browser config.
     const { token } = await mintLiveToken();
     // Ephemeral token + v1alpha — the SDK's auth-token support is wired
     // only to the v1alpha endpoint; the default v1 returns a URL shape that

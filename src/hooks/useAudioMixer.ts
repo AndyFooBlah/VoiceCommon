@@ -13,7 +13,7 @@
 // limitations under the License.
 
 /**
- * Audio mixer hook for LegacyBot session recording.
+ * Audio mixer hook for VoiceCommon session recording.
  *
  * Manages the browser audio pipeline that:
  *   1. Captures the user's microphone input (getUserMedia)
@@ -22,7 +22,7 @@
  *   3. Runs a MediaRecorder on the mixed stream, producing a WebM/Opus
  *      blob at 128 kbps
  *
- * Architecture (from design.md §3.3):
+ * Architecture (from design.md §4, "Mixed recording (archival)"):
  *
  *   getUserMedia ──→ userNode ──→ mixedDest ──→ MediaRecorder ──→ GCS
  *                                    ↑
@@ -31,8 +31,6 @@
  * The MediaRecorder uses `timeslice` (10s) to emit chunks periodically.
  * This enables partial session recovery — if the connection drops, we
  * can still upload whatever audio was captured up to that point.
- *
- * References: design.md §3.3 | GitHub Issues #8, #9
  */
 
 import { useRef, useCallback } from 'react';

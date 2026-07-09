@@ -58,11 +58,7 @@ Sessions are stored at `sessions/{sessionId}` — a flat top-level collection ke
 Session audio is stored in Cloud Storage at `sessions/{userId}/{sessionId}.webm`. Storage rules enforce that only the owning user can read or write.
 
 ### Tool integrations
-Built-in tools live in `src/services/tools/`. Each module exports:
-- A `FunctionDeclaration` compatible with the Gemini Live API
-- An async implementation function
-
-Register tools via `allTools` from `src/services/gemini.ts`, or compose a custom subset.
+Knowledge tools (weather, maps, jokes, Wikipedia, date/time) live in the sibling `@andyfooblah/knowledge-common` package, not in this repo. VoiceCommon itself ships no built-in tools (`allTools` in `src/services/gemini.ts` is an empty legacy export); consumers pass `FunctionDeclaration`s via `useSession`'s `tools` option and dispatch them in `onToolCall`. The `endSession` tool is always injected automatically.
 
 ### ESLint config
 Flat config (`eslint.config.js`). Notable intentional rule overrides:

@@ -33,7 +33,8 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          # Match the publish workflow and the documented "Node.js 22+" requirement.
+          node-version: 22
           cache: npm
           cache-dependency-path: voicecommon/package-lock.json
 

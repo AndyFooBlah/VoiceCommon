@@ -1,6 +1,6 @@
 {
   "name": "@andyfooblah/voice-common",
-  "version": "0.13.0",
+  "version": "0.14.0",
   "description": "Reusable framework for building voice AI web applications powered by Google Gemini Live and Firebase.",
   "type": "module",
   "main": "./dist/index.js",
@@ -32,27 +32,23 @@
     "lint": "eslint src --ext .ts,.tsx",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:wikipedia": "npx tsx scripts/test-wikipedia-rag.ts",
     "deploy": "vite build && firebase deploy",
     "deploy:preview": "vite build && firebase hosting:channel:deploy preview"
   },
   "peerDependencies": {
-    "@google/genai": ">=1.0.0",
-    "firebase": ">=12.0.0",
-    "react": ">=19.0.0",
-    "react-dom": ">=19.0.0"
-  },
-  "dependencies": {
-    "@andyfooblah/knowledge-common": "file:../knowledgecommon",
-    "@google/genai": ">=1.0.0",
-    "firebase": ">=12.0.0",
-    "react": ">=19.0.0",
-    "react-dom": ">=19.0.0",
-    "react-router-dom": "^7.13.0"
+    "@google/genai": "^2.0.0",
+    "firebase": "^12.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
   },
   "devDependencies": {
+    "@andyfooblah/knowledge-common": "file:../knowledgecommon",
     "@eslint/js": "^9.39.4",
     "@google/genai": "^2.0.1",
+    "firebase": "^12.9.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "react-router-dom": "^7.13.0",
     "@tailwindcss/vite": "^4.2.0",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^6.9.1",

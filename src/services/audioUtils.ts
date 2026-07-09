@@ -13,7 +13,7 @@
 // limitations under the License.
 
 /**
- * Audio encoding/decoding utilities for LegacyBot.
+ * Audio encoding/decoding utilities for VoiceCommon.
  *
  * Handles the low-level conversion between:
  *   - Raw PCM audio (Int16, 16kHz) used by the Gemini Live API
