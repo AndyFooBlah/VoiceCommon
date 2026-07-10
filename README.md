@@ -41,23 +41,15 @@ Knowledge tools (weather, maps, jokes, Wikipedia, date/time) are provided separa
 
 ### 1. Clone and install
 
-VoiceCommon depends on [`@andyfooblah/knowledge-common`](https://github.com/AndyFooBlah/KnowledgeCommon) via a `file:` link, so **you must check out KnowledgeCommon as a sibling directory named `knowledgecommon`** or `npm install` will fail:
-
-```
-parent/
-├── voicecommon/        # this repo
-└── knowledgecommon/    # sibling checkout, built (npm ci && npm run build:lib)
-```
-
 ```bash
-git clone https://github.com/AndyFooBlah/KnowledgeCommon.git knowledgecommon
 git clone https://github.com/AndyFooBlah/VoiceCommon.git voicecommon
-(cd knowledgecommon && npm ci && npm run build:lib)
 cd voicecommon
 npm install
 ```
 
-> **CI note for forks:** the GitHub Actions workflow checks out KnowledgeCommon as a sibling using a `PEER_REPO_TOKEN` repository secret (a PAT with `contents:read` on KnowledgeCommon). Forks won't have this secret, so CI will fail on forks unless you add your own.
+All dependencies — including [`@andyfooblah/knowledge-common`](https://github.com/AndyFooBlah/KnowledgeCommon) — resolve from npmjs.org; no sibling checkouts or tokens required.
+
+> **Iterating on KnowledgeCommon locally?** Check it out anywhere, run `npm link` in it, then `npm link @andyfooblah/knowledge-common` here to use your local copy instead of the published version.
 
 ### 2. Configure environment
 

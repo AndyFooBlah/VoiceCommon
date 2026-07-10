@@ -10,48 +10,27 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
-# VoiceCommon consumes @andyfooblah/knowledge-common via `file:../knowledgecommon`.
-# In CI we check out KnowledgeCommon as a sibling so the path resolves. A PAT
-# with contents:read on KnowledgeCommon must be stored as `PEER_REPO_TOKEN`.
+# @andyfooblah/knowledge-common resolves from npmjs.org like any other
+# dependency — no sibling checkout or PEER_REPO_TOKEN needed.
 jobs:
   test:
     name: Lint, Type Check & Test
     runs-on: ubuntu-latest
 
     steps:
-      - name: Check out VoiceCommon
-        uses: actions/checkout@v4
-        with:
-          path: voicecommon
-
-      - name: Check out KnowledgeCommon
-        uses: actions/checkout@v4
-        with:
-          repository: andyfooblah/KnowledgeCommon
-          token: ${{ secrets.PEER_REPO_TOKEN }}
-          path: knowledgecommon
+      - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
           # Match the publish workflow and the documented "Node.js 22+" requirement.
           node-version: 22
           cache: npm
-          cache-dependency-path: voicecommon/package-lock.json
-
-      - name: Build KnowledgeCommon lib
-        working-directory: knowledgecommon
-        run: |
-          npm ci
-          npm run build:lib
 
       - name: Install dependencies
-        working-directory: voicecommon
         run: npm ci
 
       - name: TypeScript type check
-        working-directory: voicecommon
         run: npx tsc --noEmit
 
       - name: Run tests
-        working-directory: voicecommon
-        run: npm test
+        run: npm test -- --run
