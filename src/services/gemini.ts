@@ -20,7 +20,7 @@
  * instruction; this module provides a composable baseline.
  *
  * Knowledge tools (Wikipedia, Maps, Weather, Jokes, Date/Time) have been moved
- * to @andyfooblah/knowledgecommon. Import allKnowledgeTools from there and
+ * to @andyfooblah/knowledge-common. Import allKnowledgeTools from there and
  * pass them to your session alongside any application-specific tools.
  */
 
@@ -82,11 +82,11 @@ ${appContext ? `\nAPPLICATION CONTEXT:\n${appContext}` : ''}
 
 /**
  * All VoiceCommon-specific tools. Currently empty — knowledge tools have moved
- * to @andyfooblah/knowledgecommon. Applications compose their own tool list:
+ * to @andyfooblah/knowledge-common. Applications compose their own tool list:
  *
  * @example
  * ```ts
- * import { allKnowledgeTools } from '@andyfooblah/knowledgecommon';
+ * import { allKnowledgeTools } from '@andyfooblah/knowledge-common';
  * const sessionTools = [...allKnowledgeTools, ...myAppTools];
  * ```
  */

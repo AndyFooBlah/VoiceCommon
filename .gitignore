@@ -16,6 +16,12 @@ dist-ssr
 functions/lib
 functions/.env
 
+# Local environment files — Firebase web config for the demo app lives here.
+# Never commit them; .env.example is the only tracked template.
+.env
+.env.*
+!.env.example
+
 # Firebase project config — contains your GCP project ID, do not commit
 # Copy .firebaserc.example to .firebaserc and fill in your project ID
 .firebaserc

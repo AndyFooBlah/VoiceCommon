@@ -4,6 +4,27 @@ All notable changes to `@andyfooblah/voice-common`. Entries before 0.14.0 were
 reconstructed from git history; where interim work shipped without a version
 bump it is folded into the next released version.
 
+## 0.14.1 (2026-09-10)
+
+Metadata/housekeeping release — no changes to the session pipeline or the
+published JavaScript:
+
+- `LICENSE` is now the verbatim Apache-2.0 text (GitHub previously reported
+  `NOASSERTION`); `package.json` gains `license`, `repository`, `homepage`,
+  `bugs` (#28)
+- `.env` / `.env.*` are gitignored (only `.env.example` is tracked) and the
+  README no longer suggests putting Gemini credentials in `.env` — Gemini access
+  is via `tokenProvider` only (#27)
+- Removed `prototypes/latency_comparator/` (a copy of LegacyBot's prototype that
+  carried 49 dependabot alerts and browser-side API keys); the last commit
+  containing it is tagged `prototype/latency-comparator` (#29)
+- Fixed the package name in the shipped JSDoc: `@andyfooblah/knowledgecommon` →
+  `@andyfooblah/knowledge-common` (`lib.ts`, `services/gemini.ts`)
+- `publish.yml` now publishes via npm Trusted Publishing (OIDC) with provenance
+  — no `NPM_TOKEN`; triggers on `v*` tags and published GitHub Releases and
+  refuses a tag that does not match `package.json`. Annotated tags `v0.5.0` …
+  `v0.14.0` were back-filled on the commits that bumped those versions (#30)
+
 ## 0.14.0 (2026-07-09)
 
 Pre-publication cleanup release — no functional changes to the session pipeline:

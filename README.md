@@ -55,7 +55,10 @@ All dependencies — including [`@andyfooblah/knowledge-common`](https://github.
 
 ```bash
 cp .env.example .env
-# Edit .env with your Firebase and Gemini credentials
+# Edit .env with your Firebase web-app config (apiKey, projectId, …) only.
+# There is NO Gemini key in .env: Gemini access goes through the `tokenProvider`
+# you pass to useSession — a server-side broker that mints short-lived Gemini
+# Live tokens. `.env` and `.env.*` are gitignored (only .env.example is tracked).
 ```
 
 ### 3. Set up Firebase
@@ -226,6 +229,46 @@ All VoiceCommon storage calls (create, finalize, transcript sync) use this prefi
 ## Changelog
 
 See [CHANGELOG.md](CHANGELOG.md).
+
+---
+
+## Releasing
+
+Releases are published to npmjs.org by `.github/workflows/publish.yml` using
+[npm Trusted Publishing](https://docs.npmjs.com/trusted-publishers) (OIDC) —
+no npm token is stored in the repo or in GitHub secrets, and every publish
+carries provenance.
+
+**One-time setup on npmjs.com (package owner only):**
+
+1. Sign in to <https://www.npmjs.com/> and open
+   <https://www.npmjs.com/package/@andyfooblah/voice-common/access>
+   (Package → *Settings* → *Trusted Publishing*).
+2. Under *Trusted Publisher*, choose **GitHub Actions** and enter:
+   - Organization or user: `AndyFooBlah`
+   - Repository: `VoiceCommon`
+   - Workflow filename: `publish.yml`
+   - Environment name: *(leave blank)*
+3. Save. From then on any run of `publish.yml` from this repo can publish;
+   nothing else can (no token exists to leak).
+
+If the very first tagged run failed with `ENEEDAUTH`/`E404` before this was
+configured, re-run it from the Actions tab after step 3 (or re-push the tag).
+
+**Cutting a release:**
+
+```bash
+# 1. bump "version" in package.json, add a CHANGELOG.md entry, commit + push
+# 2. tag and push the tag — the workflow tests, builds and publishes
+git tag -a v0.14.1 -m "v0.14.1"
+git push origin v0.14.1
+# 3. confirm
+npm view @andyfooblah/voice-common version
+```
+
+Every released version has a matching annotated `vX.Y.Z` tag (back-filled for
+0.5.0–0.14.0). Creating a GitHub Release for a tag also triggers the workflow
+(`release: published`); npm rejects a duplicate version, so re-runs are safe.
 
 ---
 

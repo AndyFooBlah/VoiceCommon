@@ -1,7 +1,16 @@
 {
   "name": "@andyfooblah/voice-common",
-  "version": "0.14.0",
+  "version": "0.14.1",
   "description": "Reusable framework for building voice AI web applications powered by Google Gemini Live and Firebase.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AndyFooBlah/VoiceCommon.git"
+  },
+  "homepage": "https://github.com/AndyFooBlah/VoiceCommon#readme",
+  "bugs": {
+    "url": "https://github.com/AndyFooBlah/VoiceCommon/issues"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",

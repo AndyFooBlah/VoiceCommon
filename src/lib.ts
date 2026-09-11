@@ -19,7 +19,7 @@
  * Start here: call `initializeVoiceCommon(config)` before using any hooks.
  *
  * Knowledge tools (Wikipedia, Maps, Weather, Jokes, Date/Time) are now in
- * @andyfooblah/knowledgecommon. Import and initialize that package separately.
+ * @andyfooblah/knowledge-common. Import and initialize that package separately.
  */
 
 // Initialization
