@@ -28,6 +28,7 @@
  *   - Tool call dispatch: onToolCall called, sendToolResponse sent with result
  *   - endSession tool: sends tool response then calls onSessionEndRequest
  *   - speechConfig: passed through to Gemini config
+ *   - liveModel/thinkingLevel: model override and thinkingConfig omission
  *   - sessionsCollection: custom path used in createSession and finalizeSession
  *   - onBotSpeaking: called true on audio, false when sources drain
  */
@@ -35,7 +36,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
 import { ConnectionStatus } from '../../types';
-import { useSession } from '../../hooks/useSession';
+import { useSession, DEFAULT_LIVE_MODEL } from '../../hooks/useSession';
+import { ThinkingLevel } from '@google/genai';
 
 // ---------------------------------------------------------------------------
 // Hoisted mocks — must be defined before vi.mock() hoisting
@@ -1144,6 +1146,51 @@ describe('manualTurnControl', () => {
     expect(
       callArgs.config.realtimeInputConfig.automaticActivityDetection.disabled,
     ).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+describe('liveModel / thinkingLevel', () => {
+  it('defaults to the legacy model and MINIMAL thinking (unchanged behaviour)', async () => {
+    const { result } = renderSession({});
+    await startSession(result);
+
+    const callArgs = mockLiveConnect.mock.calls[0][0];
+    expect(callArgs.model).toBe(DEFAULT_LIVE_MODEL);
+    expect(callArgs.model).toBe('gemini-3.1-flash-live-preview');
+    expect(callArgs.config.thinkingConfig).toEqual({ thinkingLevel: 'MINIMAL' });
+  });
+
+  it('uses an overridden liveModel', async () => {
+    const { result } = renderSession({ liveModel: 'gemini-3.8-live' });
+    await startSession(result);
+
+    expect(mockLiveConnect.mock.calls[0][0].model).toBe('gemini-3.8-live');
+  });
+
+  it("omits thinkingConfig entirely when thinkingLevel is 'none'", async () => {
+    // gemini-3.8-live closes the socket with 1007 if thinkingConfig is present.
+    const { result } = renderSession({
+      liveModel: 'gemini-3.8-live',
+      thinkingLevel: 'none',
+    });
+    await startSession(result);
+
+    const callArgs = mockLiveConnect.mock.calls[0][0];
+    expect(callArgs.config.thinkingConfig).toBeUndefined();
+    expect('thinkingConfig' in callArgs.config).toBe(false);
+  });
+
+  it('passes an explicit thinking level through', async () => {
+    const { result } = renderSession({
+      liveModel: 'gemini-3.8-live-extended-thinking',
+      thinkingLevel: ThinkingLevel.HIGH,
+    });
+    await startSession(result);
+
+    expect(mockLiveConnect.mock.calls[0][0].config.thinkingConfig).toEqual({
+      thinkingLevel: 'HIGH',
+    });
   });
 });
 

@@ -34,7 +34,7 @@ export { auth, db, storage, functions } from './services/firebase';
 export * from './types';
 
 // Hooks
-export { useSession } from './hooks/useSession';
+export { useSession, DEFAULT_LIVE_MODEL } from './hooks/useSession';
 export type { UseSessionOptions, UseSessionReturn } from './hooks/useSession';
 export { useAuth } from './hooks/useAuth';
 export { useAudioMixer } from './hooks/useAudioMixer';

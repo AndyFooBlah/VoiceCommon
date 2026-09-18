@@ -60,7 +60,20 @@ import {
   syncTranscriptToFirestore,
 } from '../services/storage';
 
-const GEMINI_MODEL = 'gemini-3.1-flash-live-preview';
+/**
+ * Default Gemini Live model. Unchanged from 0.14.x so existing consumers keep
+ * their current behaviour; override per-app with `UseSessionOptions.liveModel`.
+ */
+export const DEFAULT_LIVE_MODEL = 'gemini-3.1-flash-live-preview';
+
+/**
+ * Default thinking level. `gemini-3.1-flash-live-preview` requires a thinking
+ * level; `gemini-3.8-live` rejects the field outright (WebSocket 1007
+ * "Thinking level is not supported for this model"), and
+ * `gemini-3.8-live-extended-thinking` requires one but rejects MINIMAL.
+ * Pass `thinkingLevel: 'none'` to omit the field entirely.
+ */
+const DEFAULT_THINKING_LEVEL: ThinkingLevel = ThinkingLevel.MINIMAL;
 
 /** Maximum seconds of audio lookahead before triggering a runaway-loop reset. */
 const MAX_AUDIO_LOOKAHEAD_S = 30;
@@ -187,6 +200,21 @@ export interface UseSessionOptions {
    */
   manualTurnControl?: boolean;
   /**
+   * Gemini Live model id. Defaults to {@link DEFAULT_LIVE_MODEL}.
+   * Pair with `thinkingLevel` — models disagree about the thinking field:
+   *   - `gemini-3.1-flash-live-preview` — requires one (MINIMAL is fine)
+   *   - `gemini-3.8-live`               — rejects the field; use 'none'
+   *   - `gemini-3.8-live-extended-thinking` — requires LOW/MEDIUM/HIGH
+   */
+  liveModel?: string;
+  /**
+   * Thinking level sent as `thinkingConfig.thinkingLevel`, or the string
+   * 'none' to omit `thinkingConfig` altogether. Defaults to MINIMAL, which
+   * matches pre-0.15 behaviour. Sending an unsupported value closes the
+   * WebSocket with code 1007 before the session starts.
+   */
+  thinkingLevel?: ThinkingLevel | 'none';
+  /**
    * Firestore collection path for session documents.
    * Default: 'sessions' (top-level flat collection).
    * For apps with nested/scoped sessions use a path like:
@@ -266,6 +294,13 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
   // Manual turn control (client-side VAD) opt-in.
   const manualTurnControlRef = useRef(options.manualTurnControl);
   manualTurnControlRef.current = options.manualTurnControl;
+
+  // Live model + thinking level refs — read at connect time so a change takes
+  // effect on the next (re)connect rather than mid-stream.
+  const liveModelRef = useRef(options.liveModel);
+  liveModelRef.current = options.liveModel;
+  const thinkingLevelRef = useRef(options.thinkingLevel);
+  thinkingLevelRef.current = options.thinkingLevel;
 
   // Internal bot-speaking flag (mirrors onBotSpeaking) used to gate barge-in
   // detection in manual turn control.
@@ -1058,16 +1093,22 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
       );
     }
 
+    const activeModel = liveModelRef.current ?? DEFAULT_LIVE_MODEL;
+    const activeThinking = thinkingLevelRef.current ?? DEFAULT_THINKING_LEVEL;
+
     const liveSession = await ai.live.connect({
-      model: GEMINI_MODEL,
+      model: activeModel,
       config: {
         systemInstruction: { parts: [{ text: instruction }] },
-        // Native audio models (gemini-3.1-flash-live-preview) ONLY support AUDIO modality.
+        // Native-audio Live models ONLY support the AUDIO modality.
         // Including TEXT causes the server to close the WebSocket immediately.
         responseModalities: [Modality.AUDIO],
         inputAudioTranscription: {},
         outputAudioTranscription: {},
-        thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL },
+        // Omitted entirely when 'none' — gemini-3.8-live rejects the field.
+        ...(activeThinking === 'none'
+          ? {}
+          : { thinkingConfig: { thinkingLevel: activeThinking } }),
         tools: [{ functionDeclarations: allTools }],
         // Turn detection. In manual mode we disable the server's automatic
         // VAD entirely and drive turn boundaries from the client (runClientVad),
