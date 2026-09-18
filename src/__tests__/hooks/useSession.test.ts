@@ -37,6 +37,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
 import { ConnectionStatus } from '../../types';
 import { useSession, DEFAULT_LIVE_MODEL } from '../../hooks/useSession';
+import type { UseSessionOptions } from '../../hooks/useSession';
 import { ThinkingLevel } from '@google/genai';
 
 // ---------------------------------------------------------------------------
@@ -216,19 +217,9 @@ const DEFAULT_OPTIONS = {
   autoGreetText: 'Hello! How can I help?',
 };
 
-function renderSession(overrides: Partial<typeof DEFAULT_OPTIONS & {
-  tools?: any[];
-  onToolCall?: (name: string, args: Record<string, unknown>) => Promise<string>;
-  onSessionEndRequest?: () => void;
-  onSessionEnd?: () => void;
-  onBotSpeaking?: (speaking: boolean) => void;
-  speechConfig?: any;
-  endOfSpeechSilenceMs?: number;
-  endOfSpeechSensitivity?: 'HIGH' | 'LOW';
-  manualTurnControl?: boolean;
-  sessionsCollection?: string;
-  archiveAudio?: (blob: Blob, userId: string, sessionId: string) => Promise<string>;
-}> = {}) {
+// Typed against UseSessionOptions itself rather than a hand-maintained copy,
+// so a new option cannot silently fall out of the test helper.
+function renderSession(overrides: Partial<UseSessionOptions> = {}) {
   return renderHook(() => useSession({ ...DEFAULT_OPTIONS, ...overrides }));
 }
 
