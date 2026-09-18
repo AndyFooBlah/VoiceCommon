@@ -253,22 +253,23 @@ carries provenance.
    nothing else can (no token exists to leak).
 
 If the very first tagged run failed with `ENEEDAUTH`/`E404` before this was
-configured, re-run it from the Actions tab after step 3 (or re-push the tag).
+configured, re-run that workflow run from the Actions tab after step 3.
 
 **Cutting a release:**
 
 ```bash
 # 1. bump "version" in package.json, add a CHANGELOG.md entry, commit + push
-# 2. tag and push the tag — the workflow tests, builds and publishes
-git tag -a v0.14.1 -m "v0.14.1"
-git push origin v0.14.1
+# 2. publish a GitHub Release; this creates the vX.Y.Z tag and is the ONLY
+#    thing that triggers the workflow (a bare `git push --tags` does not)
+gh release create vX.Y.Z --generate-notes
 # 3. confirm
 npm view @andyfooblah/voice-common version
 ```
 
-Every released version has a matching annotated `vX.Y.Z` tag (back-filled for
-0.5.0–0.14.0). Creating a GitHub Release for a tag also triggers the workflow
-(`release: published`); npm rejects a duplicate version, so re-runs are safe.
+The workflow refuses a release whose tag does not match `package.json`, and
+skips the publish step (green, not red) when that version is already on npm,
+so re-running a release is safe. Every released version has a matching
+annotated `vX.Y.Z` tag (back-filled for 0.5.0–0.14.0).
 
 ---
 

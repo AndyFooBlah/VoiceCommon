@@ -7,10 +7,10 @@ name: Publish to npm
 #   owner AndyFooBlah / repo VoiceCommon / workflow publish.yml.
 # See README.md → "Releasing" for the one-time npmjs.com setup.
 
+# One trigger only: publishing a GitHub Release whose tag is vX.Y.Z (the
+# release creates the tag). A bare `git push --tags` no longer publishes.
+# Re-running a release whose version is already on npm is a green no-op.
 on:
-  push:
-    tags:
-      - 'v*'
   release:
     types: [published]
 
@@ -52,16 +52,32 @@ jobs:
       - name: Build library
         run: npm run build:lib
 
-      - name: Verify tag matches package.json version
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Verify release tag matches package.json version
+        env:
+          TAG: ${{ github.event.release.tag_name }}
         run: |
           PKG_VERSION="$(node -p "require('./package.json').version")"
-          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          TAG_VERSION="${TAG#v}"
           if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
-            echo "::error::Tag $GITHUB_REF_NAME does not match package.json version $PKG_VERSION"
+            echo "::error::Release tag $TAG does not match package.json version $PKG_VERSION"
             exit 1
+          fi
+
+      # A re-run (or a release created after a manual publish) must not go
+      # red on "cannot publish over the previously published versions".
+      - name: Skip if this version is already on npm
+        id: registry
+        run: |
+          PKG_NAME="$(node -p "require('./package.json').name")"
+          PKG_VERSION="$(node -p "require('./package.json').version")"
+          if PUBLISHED="$(npm view "$PKG_NAME@$PKG_VERSION" version 2>/dev/null)" && [ -n "$PUBLISHED" ]; then
+            echo "::notice::$PKG_NAME@$PKG_VERSION is already on npm; nothing to publish"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
           fi
 
       # Intentionally no NODE_AUTH_TOKEN: authentication is the OIDC token.
       - name: Publish
+        if: steps.registry.outputs.publish == 'true'
         run: npm publish --provenance --access public
