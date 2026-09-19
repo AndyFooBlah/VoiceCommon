@@ -4,6 +4,43 @@ All notable changes to `@andyfooblah/voice-common`. Entries before 0.14.0 were
 reconstructed from git history; where interim work shipped without a version
 bump it is folded into the next released version.
 
+## 0.15.0 (2026-09-18)
+
+Adds two `UseSessionOptions` fields so each app can choose its own Gemini Live
+model. **Both default to the previous behaviour, so upgrading from 0.14.x
+changes nothing until you opt in.**
+
+- `liveModel?: string` — the Live model id. Defaults to the newly exported
+  `DEFAULT_LIVE_MODEL`, still `gemini-3.1-flash-live-preview`.
+- `thinkingLevel?: ThinkingLevel | 'none'` — sent as
+  `thinkingConfig.thinkingLevel`, or `'none'` to omit `thinkingConfig`
+  entirely. Defaults to `MINIMAL`.
+
+**Why both are needed together.** The Live models disagree about
+`thinkingConfig`, and a mismatch closes the WebSocket at setup with code
+`1007`, which presents as a connection failure rather than a config error.
+Measured against the live API on 2026-09-18:
+
+| Model | `thinkingConfig` |
+|---|---|
+| `gemini-3.1-flash-live-preview` | required; `MINIMAL` accepted |
+| `gemini-3.8-live` | **rejected** — `1007 Thinking level is not supported for this model` |
+| `gemini-3.8-live-extended-thinking` | **required**, but `MINIMAL` rejected; use `LOW`/`MEDIUM`/`HIGH` |
+
+So moving to `gemini-3.8-live` means passing `thinkingLevel: 'none'` as well as
+`liveModel`. Changing only the id will break every session.
+
+`gemini-3.8-live` (stable, released 2026-09-15) is priced identically to the
+3.1 preview. Measured latency from end-of-turn to first speech, three trials:
+3.1 preview with `MINIMAL` 0.75-0.78s; `gemini-3.8-live` 0.76-0.94s;
+`gemini-3.8-live-extended-thinking` with `HIGH` 0.95-1.13s. Manual turn control
+(`activityStart`/`activityEnd`), server `silenceDurationMs`, and function
+calling all behave the same on 3.8-live. Input transcription still arrives as a
+single event at end of turn, so nothing there improves.
+
+Consumers on 0.15.0: LegacyBot, CarBot, weatherbot-app — all now on
+`gemini-3.8-live` with `thinkingLevel: 'none'`.
+
 ## 0.14.1 (2026-09-10)
 
 Metadata/housekeeping release — no changes to the session pipeline or the
