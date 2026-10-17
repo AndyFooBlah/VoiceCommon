@@ -37,3 +37,22 @@ Never holds a Gemini API key — the consumer supplies a `tokenProvider`.
 ## Live journal
 
 - 2026-10-17T04:42Z [milestone] Journal established per the new global policy; backfilled above from git history + session records.
+
+## 2026-10-16: correction to this journal's own timestamps
+
+- 2026-10-16T22:05Z [incident] **Every `~`-marked timestamp above, from the 2026-02-16 initial commit
+  through the ~2026-09-10 0.14.1 entry, is seven hours early and is NOT UTC.** They were produced with
+  `git log --date=format:'%Y-%m-%dT%H:%MZ'`, which renders each commit in its own local zone (here
+  PDT, UTC-7) and then has a literal `Z` appended by the format string. The `Z` is a lie: the real
+  UTC time is seven hours later. For example the 0.14.1 release entry reads `~2026-09-10T22:09Z` but
+  the commit is actually `2026-09-11T05:09Z`. Add seven hours to any `~` entry above this line.
+  The un-`~` September 2026 entries were written from session chronology, not from that command, and
+  are correct as written.
+- 2026-10-16T22:05Z [learning] Correct incantation for a UTC backfill:
+  `TZ=UTC git log --date=format-local:'%Y-%m-%dT%H:%MZ'` — note `format-local`, not `format`. Or use
+  `--date=iso-strict` and convert, which at least shows the offset instead of hiding it. Appending a
+  literal `Z` to a local-time format string produces timestamps that look authoritative and are
+  silently wrong, which is worse than an obviously missing timezone. Found by a session backfilling
+  a sibling repo, which caught it by cross-checking two different checkouts.
+- 2026-10-16T22:05Z [decision] Corrected by appending this entry rather than rewriting the entries
+  above, per the append-only rule. The wrong timestamps stay visible, with the offset recorded here.
