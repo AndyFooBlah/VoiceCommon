@@ -56,3 +56,4 @@ Never holds a Gemini API key — the consumer supplies a `tokenProvider`.
   a sibling repo, which caught it by cross-checking two different checkouts.
 - 2026-10-16T22:05Z [decision] Corrected by appending this entry rather than rewriting the entries
   above, per the append-only rule. The wrong timestamps stay visible, with the offset recorded here.
+- 2026-11-08T17:29Z [step] Turned on Dependabot alerts and security updates, and added a standard `.github/dependabot.yml`: weekly grouped minor/patch updates with a 5-day cooldown (14 days for majors); security updates open immediately. Part of the cross-repo dependency security program (AndyFooBlah/andy-private-docs#57).
