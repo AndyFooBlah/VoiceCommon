@@ -69,7 +69,7 @@
     "@vitest/coverage-v8": "^5.0.1",
     "eslint": "^10.13.0",
     "eslint-plugin-react-hooks": "^7.0.1",
-    "firebase": "^12.9.0",
+    "firebase": "^13.1.0",
     "globals": "^17.4.0",
     "jsdom": "^28.1.0",
     "react": "^19.2.0",
