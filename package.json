@@ -46,7 +46,7 @@
   },
   "peerDependencies": {
     "@google/genai": "^2.0.0",
-    "firebase": "^12.0.0",
+    "firebase": "^12.0.0 || ^13.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
@@ -82,6 +82,9 @@
     "vitest": "^5.0.1"
   },
   "overrides": {
+    "@andyfooblah/knowledge-common": {
+      "firebase": "$firebase"
+    },
     "@typescript-eslint/eslint-plugin": {
       "typescript": "$typescript"
     },
