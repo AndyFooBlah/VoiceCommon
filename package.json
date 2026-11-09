@@ -105,6 +105,8 @@
     },
     "@typescript-eslint/tsconfig-utils": {
       "typescript": "$typescript"
-    }
+    },
+    "@grpc/grpc-js": "^1.14.7",
+    "minimatch": "^11.0.1"
   }
 }
