@@ -103,8 +103,24 @@ sessions/{userId}/{sessionId}.webm    # Mixed session audio (WebM/Opus 128kbps)
 2. A new Firestore session document is created with `status: 'active'`.
 3. `useAudioMixer.startMixer()` initializes the microphone stream and MediaRecorder.
 4. `AudioContext` is created for bot audio playback (24kHz).
-5. `GoogleGenAI.live.connect()` opens a WebSocket to the Gemini Live API with the session's system instruction and tool declarations.
-6. An `AudioWorkletNode` (pcm-processor.js) starts streaming 16kHz PCM chunks from the microphone to Gemini via `sendRealtimeInput`.
+5. `buildLiveConnectConfig()` (`src/services/liveConnectConfig.ts`, pure) builds and validates the Live setup config: system instruction, AUDIO modality, input/output transcription, `thinkingConfig` resolved for the model, tool declarations plus the injected `endSession`, turn detection, optional `speechConfig`, session resumption and context-window compression. A model the registry marks shut down, a thinking level the model is known to reject, or a `BLOCKING` tool on an async-only model throws a `LiveConfigError` here, before a token is minted or a socket opened.
+6. An ephemeral token is minted through `tokenProvider`, and `GoogleGenAI.live.connect()` opens a WebSocket to the Gemini Live API with that config on API version `LIVE_API_VERSION` (`v1alpha`; override with `liveApiVersion`). The SDK promise resolves only after the server's `setupComplete`; if the server instead closes the socket (a rejected setup), the start fails with the close code and reason rather than waiting forever.
+7. An `AudioWorkletNode` (pcm-processor.js) starts streaming 16kHz PCM chunks from the microphone to Gemini via `sendRealtimeInput`.
+
+#### Live model selection
+
+The model defaults to `DEFAULT_LIVE_MODEL` (`gemini-3.8-live`) and `thinkingLevel` to `'auto'`. `src/services/liveModels.ts` is a pure registry of the known Live models: lifecycle status, release and shutdown dates, the `thinkingConfig` contract and how tool calls execute. `resolveThinkingConfig(model, requested)` turns `'auto'` into the right setup field:
+
+| Model | Status | `thinkingConfig` contract | `'auto'` |
+|---|---|---|---|
+| `gemini-3.8-live` | current (default) | rejected for every level | omitted |
+| `gemini-3.8-live-extended-thinking` | current | required; MINIMAL rejected | LOW |
+| `gemini-3.1-flash-live-preview` | legacy | optional | MINIMAL |
+| unknown id | n/a | not known | omitted; an explicit level is passed through |
+
+The provider reports a violation of this contract by closing the WebSocket with code 1007 during setup, which reads as a connection fault. Validating in the builder turns it into an error that names the model, the value and the fix. Unknown ids are never blocked, so a model newer than the library stays usable.
+
+The registry is the single place a model id is recorded. `src/__tests__/noRetiredModels.test.ts` fails the build if a legacy or shut-down id appears anywhere else in shipping source, and the live suite re-measures the contract for every registry model (see [TESTING.md](TESTING.md)).
 
 ### 3.2 During
 
@@ -113,7 +129,7 @@ sessions/{userId}/{sessionId}.webm    # Mixed session audio (WebM/Opus 128kbps)
 - **Greeting echo mute:** when a session auto-greets, mic audio is *not* forwarded to Gemini until the opening greeting has finished playing (`micSendEnabledRef`, released in the bot-audio `onended` drain, with a `GREETING_MUTE_MAX_MS` safety cap). Speaker→mic echo of the greeting would otherwise trip the server VAD and make the native-audio model restart its greeting (the "double greeting"). The mute applies only on the initial greeting connect, not on resume. Archival recording is unaffected — the mixer captures the mic on a separate audio graph.
 - Gemini returns input transcription events. These arrive in many small chunks, which are **accumulated into a single user turn** — one live-updating message bubble (so the storyteller's words stream in as they speak) and, when the turn seals, one consolidated transcript entry. A user turn seals when the bot begins responding (its first audio or output-transcription chunk), on barge-in, or on stop. This mirrors the bot-turn accumulation (`appendBotChunk`/`sealBotTurn`) with `appendUserChunk`/`sealUserTurn`.
 - Turn-taking has two modes:
-  - **Server VAD (default):** Gemini's automatic activity detection (`realtimeInputConfig.automaticActivityDetection`). Start-of-speech sensitivity is HIGH (quick to yield when the user starts). `endOfSpeechSensitivity` is configurable (`'HIGH'` default, `'LOW'` = less eager to end the user's turn). `endOfSpeechSilenceMs` maps to `silenceDurationMs`. Note: the native-audio model (`gemini-3.1-flash-live-preview`) largely ignores large `silenceDurationMs` values, so server VAD cannot enforce a multi-second patient wait.
+  - **Server VAD (default):** Gemini's automatic activity detection (`realtimeInputConfig.automaticActivityDetection`). Start-of-speech sensitivity is HIGH (quick to yield when the user starts). `endOfSpeechSensitivity` is configurable (`'HIGH'` default, `'LOW'` = less eager to end the user's turn). `endOfSpeechSilenceMs` maps to `silenceDurationMs`. On clean audio the server honours it: the live suite streams two halves of a sentence around a silent gap and `gemini-3.8-live` waits out 2500 ms and 3000 ms settings, treating both halves as one turn. In a real room, intermittent noise can retrigger server VAD and restart its silence timer, which is why a multi-second patient wait is more dependable in manual mode.
   - **Manual turn control (`manualTurnControl: true`):** disables server VAD (`automaticActivityDetection.disabled`) and drives turn boundaries from a client-side energy VAD in the mic frame handler. It sends `activityStart` on sustained speech and holds `activityEnd` until `endOfSpeechSilenceMs` of continuous silence, so the bot waits patiently through pauses. An adaptive noise floor plus a re-trigger threshold (`VAD_RETRIGGER_MS`) keep transient background-noise blips from restarting the wait. Barge-in is preserved with a stricter threshold while the bot is speaking; the mic requests `echoCancellation`/`noiseSuppression`/`autoGainControl` so bot playback doesn't trip detection.
   - All of these options are held in refs so mid-session changes apply on the next (re)connect. The resolved config is logged at connect (`[Session] VAD: …`).
 
@@ -127,6 +143,7 @@ sessions/{userId}/{sessionId}.webm    # Mixed session audio (WebM/Opus 128kbps)
 - The `onToolCall` callback dispatches to the appropriate tool implementation.
 - The result is sent back via `sendToolResponse`.
 - The tool call is recorded in the transcript.
+- On `gemini-3.8-live`, function calls are asynchronous unless a declaration sets `behavior: BLOCKING`: the turn that issues the call ends at once (`turnComplete` arrives right after the `toolCall`), and the spoken reply to the tool result arrives as a further turn. The legacy 3.1 preview blocks instead and sends one `turnComplete` after the reply. `gemini-3.8-live-extended-thinking` runs tools asynchronously only and speaks a filler sentence first.
 
 **Session end tool:**
 - Gemini may call `endSession` when the user signals they want to stop.
@@ -215,6 +232,10 @@ initializeVoiceCommon({
 `tokenProvider` is required by `VoiceCommonConfig` and called once per Live session opening. `useSession` uses the returned ephemeral token as the `apiKey` passed to `GoogleGenAI`; the long-lived key never reaches the browser.
 
 The earlier `geminiApiKey?: string` field has been **removed** in 0.6.0 — even as a "local dev only" fallback it allowed key-bundling-by-accident, which is the exact incident pattern that triggered this redesign in the first place. Local dev that needs Gemini Live must implement a `tokenProvider`; the demo app in `src/index.tsx` ships a placeholder that throws an explanatory error so a missing broker fails loudly at session start instead of silently shipping a key.
+
+### Testing against the real Live API
+
+`@andyfooblah/voice-common/testing` is a separate, Node-only entry: a headless Live client (`LiveTestSession`), committed synthetic speech fixtures, named conformance checks and `runLiveConformance(profile, options)`. It builds its connect config with the same `buildLiveConnectConfig` the hook uses. Because it is Node test code, not browser code, it is the one place a long-lived key is accepted, always as a runtime argument from the test process environment; it never logs or stores the key and redacts it from every error. The build verifies that this entry imports only `@google/genai` and `node:` built-ins (`scripts/check-testing-entry.mjs`). See [TESTING.md](TESTING.md).
 
 ---
 

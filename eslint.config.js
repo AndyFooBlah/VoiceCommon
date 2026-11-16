@@ -78,6 +78,14 @@ export default [
     rules: { 'no-restricted-syntax': 'off' },
   },
   {
+    // The live conformance kit (`@andyfooblah/voice-common/testing`) and the
+    // tests are Node code: Buffer, process and node: built-ins are expected.
+    files: ['src/testing/**/*.ts', 'src/__tests__/**/*.{ts,tsx}'],
+    languageOptions: {
+      globals: { ...globals.browser, ...globals.node },
+    },
+  },
+  {
     // Relax rules in test and mock files
     files: ['src/__tests__/**/*.{ts,tsx}', 'src/__mocks__/**/*.{ts,tsx}'],
     rules: {

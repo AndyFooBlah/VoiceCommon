@@ -1,0 +1,77 @@
+{
+  "provenance": {
+    "generator": "scripts/gen-speech-fixtures.mjs",
+    "model": "gemini-3.8-flash-tts",
+    "generatedAt": "2026-11-16T01:04:46.532Z",
+    "synthetic": true,
+    "note": "All voices are synthetic (Gemini TTS prebuilt voices). No recording of a real person. Resampled from 24 kHz to 16 kHz; leading and trailing silence trimmed; otherwise unprocessed."
+  },
+  "format": {
+    "sampleRate": 16000,
+    "channels": 1,
+    "bitsPerSample": 16,
+    "container": "wav"
+  },
+  "fixtures": [
+    {
+      "id": "question-capital",
+      "file": "question-capital.wav",
+      "text": "What is the capital of France?",
+      "voice": "Kore",
+      "purpose": "A short factual question: audio turn, latency.",
+      "durationMs": 2290,
+      "bytes": 73324,
+      "sha256": "f6e834abcf1f45f516f2fc0f8494d502bbcc6c91f12270e0ffc7f2b78e1ef9f7"
+    },
+    {
+      "id": "story-part-1",
+      "file": "story-part-1.wav",
+      "text": "When I was a child, we lived in a small house near the river,",
+      "voice": "Charon",
+      "purpose": "First half of a sentence; the patience check inserts a silent gap after it.",
+      "durationMs": 3430,
+      "bytes": 109804,
+      "sha256": "b6570ba911e87b3d96e95bd31a8e2553e2f66577c98a70255e4cd460feba3a34"
+    },
+    {
+      "id": "story-part-2",
+      "file": "story-part-2.wav",
+      "text": "and every summer my grandmother baked apple pies for the whole street.",
+      "voice": "Charon",
+      "purpose": "Second half of the sentence started in story-part-1.",
+      "durationMs": 4120,
+      "bytes": 131884,
+      "sha256": "c95e86af389660feeb0edb93a42f73291cf349b1bb2e7a21c81c5c0bcf7d4fc2"
+    },
+    {
+      "id": "distinct-words",
+      "file": "distinct-words.wav",
+      "text": "The seven yellow apples are in the garden by the window.",
+      "voice": "Kore",
+      "purpose": "A sentence of distinct words for input-transcription accuracy. (A bare word list came back from TTS at over eight seconds, beyond the fixture size limit.)",
+      "durationMs": 3680,
+      "bytes": 117804,
+      "sha256": "240cd8bcb7adca81d355f5467c72c6dfdf5b5fe572cc723498269102e11bd153"
+    },
+    {
+      "id": "barge-in",
+      "file": "barge-in.wav",
+      "text": "Excuse me, sorry to interrupt, but please stop for a moment. I have a different question for you.",
+      "voice": "Kore",
+      "purpose": "Several seconds of continuous speech to interrupt the bot with.",
+      "durationMs": 5000,
+      "bytes": 160044,
+      "sha256": "6661f2f8549dedfc0ded1963fc51000dca298aa43b840e0e3a309b928cb0da5a"
+    },
+    {
+      "id": "goodbye",
+      "file": "goodbye.wav",
+      "text": "Okay, that's everything I needed today. Thank you, goodbye.",
+      "voice": "Charon",
+      "purpose": "A clear sign-off, for apps that test their end-of-session tool.",
+      "durationMs": 3360,
+      "bytes": 107564,
+      "sha256": "23a7af3baa1953bf1b861e83c214ef59a2075f5e61d5fe1749d8e1d15fe74c5d"
+    }
+  ]
+}

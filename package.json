@@ -1,6 +1,6 @@
 {
   "name": "@andyfooblah/voice-common",
-  "version": "0.15.0",
+  "version": "0.16.0",
   "description": "Reusable framework for building voice AI web applications powered by Google Gemini Live and Firebase.",
   "license": "Apache-2.0",
   "repository": {
@@ -23,10 +23,15 @@
     "./testing": {
       "import": "./dist/testing.js",
       "types": "./dist/testing/index.d.ts"
-    }
+    },
+    "./fixtures/*": "./fixtures/*",
+    "./package.json": "./package.json"
   },
   "files": [
-    "dist"
+    "dist",
+    "fixtures",
+    "TESTING.md",
+    "CHANGELOG.md"
   ],
   "publishConfig": {
     "registry": "https://registry.npmjs.org/",
@@ -35,12 +40,14 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build && node scripts/check-bundle-for-secrets.mjs",
-    "build:lib": "vite build --config vite.lib.config.ts && node scripts/check-bundle-for-secrets.mjs",
+    "build:lib": "vite build --config vite.lib.config.ts && node scripts/check-bundle-for-secrets.mjs && node scripts/check-testing-entry.mjs",
     "check:bundle": "node scripts/check-bundle-for-secrets.mjs",
+    "check:testing-entry": "node scripts/check-testing-entry.mjs",
     "preview": "vite preview",
-    "lint": "eslint src --ext .ts,.tsx",
+    "lint": "node --require ./scripts/eslint-ts6-shim.cjs node_modules/eslint/bin/eslint.js src --ext .ts,.tsx",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:live": "vitest run --config vitest.live.config.ts",
     "deploy": "vite build && firebase deploy",
     "deploy:preview": "vite build && firebase hosting:channel:deploy preview"
   },

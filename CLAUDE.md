@@ -25,6 +25,15 @@ initializeVoiceCommon({
 
 If either guard fires, **fix the leak**; do not weaken the rule.
 
+**The one place a long-lived key is accepted is the Node-only test kit**, `@andyfooblah/voice-common/testing` (`src/testing/`). It is test code that runs in a Node process, never in a browser, and it takes the key as a runtime argument from the caller's environment (`process.env.GEMINI_API_KEY`). It must never log or persist the key, and it redacts it from every error and trace (`src/testing/redact.ts`). Do not import `src/testing/` from the browser library, and do not import React, the DOM or Firebase into it: `scripts/check-testing-entry.mjs` (part of `build:lib`) fails the build if the testing entry pulls in anything but `@google/genai` and `node:` built-ins.
+
+## Live models
+
+- `src/services/liveModels.ts` is the only place a Gemini Live model id is recorded. `DEFAULT_LIVE_MODEL` lives there. Before changing it, verify the id against the provider docs (they now live at https://aistudio.google.com/docs/models and `/docs/deprecations`; every page is available as Markdown by appending `.md`) and run `npm run test:live`.
+- `src/services/liveConnectConfig.ts` (`buildLiveConnectConfig`) builds the config passed to `ai.live.connect`. `useSession` and the test kit both call it. Do not build a Live config anywhere else.
+- `src/__tests__/noRetiredModels.test.ts` fails if a legacy or shut-down id appears outside the registry.
+- A change to the registry, the builder or the hook's connect path is not done until `npm run test:live` passes against the real API (see TESTING.md for how to supply the key at run time).
+
 ## After any material change
 
 Before considering a task complete, ensure all of the following are done:
@@ -40,10 +49,12 @@ Before considering a task complete, ensure all of the following are done:
 ## Dev commands
 
 ```bash
-npm test -- --run          # run all tests once
+npm test -- --run          # run all offline tests once
 npm run test:watch         # watch mode
+npm run test:live          # LIVE suite against the real Gemini Live API; skips without GEMINI_API_KEY
 npx tsc --noEmit           # type-check only
-npx eslint src --ext .ts,.tsx   # lint
+npm run lint               # lint (runs ESLint against the TS 6 API; see scripts/eslint-ts6-shim.cjs)
+npm run build:lib          # library build + bundle secret scan + testing-entry check
 
 firebase deploy --only functions
 firebase deploy --only firestore:rules,storage

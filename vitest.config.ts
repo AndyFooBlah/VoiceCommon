@@ -28,5 +28,8 @@ export default defineConfig({
     globals: true,
     setupFiles: ['./src/__tests__/setup.ts'],
     include: ['src/__tests__/**/*.test.{ts,tsx}'],
+    // Live tests talk to the real Gemini Live API and cost money. They run
+    // only through `npm run test:live` (vitest.live.config.ts).
+    exclude: ['**/node_modules/**', '**/*.live.test.ts'],
   },
 });

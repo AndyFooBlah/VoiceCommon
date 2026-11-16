@@ -4,6 +4,125 @@ All notable changes to `@andyfooblah/voice-common`. Entries before 0.14.0 were
 reconstructed from git history; where interim work shipped without a version
 bump it is folded into the next released version.
 
+## 0.16.0 (2026-11-15)
+
+The default Live model is now `gemini-3.8-live`, the thinking level defaults to
+`'auto'`, and the package ships a real test kit for the Live API. Tracking
+issue: #64.
+
+### Migrating from 0.15.x
+
+- **If you pass `liveModel` and `thinkingLevel` explicitly** (every known app
+  does: `liveModel: 'gemini-3.8-live', thinkingLevel: 'none'`), nothing
+  changes. You may now delete both options and get the same session.
+- **If you relied on the defaults**, your sessions move from
+  `gemini-3.1-flash-live-preview` + `MINIMAL` to `gemini-3.8-live` with no
+  `thinkingConfig`. To stay on the legacy model, pass
+  `liveModel: 'gemini-3.1-flash-live-preview'` (`'auto'` sends MINIMAL to it,
+  as before). The provider labels that model legacy and names
+  `gemini-3.8-live` as its replacement.
+- **`DEFAULT_LIVE_MODEL` changed value.** Code that compares against the old
+  id, or greps a bundle for it, needs updating.
+- **A model/thinking mismatch now fails before connecting.** An explicit
+  `thinkingLevel` the registry knows the model rejects (for example `MINIMAL`
+  on `gemini-3.8-live`) used to open a socket that the server closed with
+  1007. It now fails the session start with a `LiveConfigError` naming the
+  model, the value and the fix. Model ids the registry does not know are
+  never blocked; an explicit level is passed through untouched.
+- **`VoiceSimulator` is removed** from `@andyfooblah/voice-common/testing`. It
+  was a stub whose `simulate()` returned mock data. The entry now exports the
+  live conformance kit described below.
+
+### Model registry and safe defaults
+
+- New `src/services/liveModels.ts` (pure; no React, DOM or Firebase):
+  `LIVE_MODELS`, `DEFAULT_LIVE_MODEL`, `getLiveModelInfo`,
+  `resolveThinkingConfig(model, requested)`, `assertLiveModelUsable`,
+  `LiveConfigError`. Each entry records status (current / legacy / shutdown),
+  release and shutdown dates, the thinking contract, and how the model runs
+  tool calls.
+- `thinkingLevel` accepts `'auto'` and defaults to it: omitted for
+  `gemini-3.8-live`, LOW for `gemini-3.8-live-extended-thinking`, MINIMAL for
+  the legacy 3.1 preview, omitted for unknown ids.
+- New `buildLiveConnectConfig(params)` in `src/services/liveConnectConfig.ts`
+  (pure). `useSession` calls it for every connect and reconnect, and the test
+  kit calls the same function, so tests exercise the setup message production
+  sends. It also rejects, before connecting, a model the registry marks shut
+  down and a `behavior: BLOCKING` tool on a model that only runs tools
+  asynchronously.
+- `useSession` no longer hangs when the server rejects a setup. The SDK's
+  `live.connect()` resolves only after `setupComplete`; on a rejected setup
+  the server closes the socket and that promise never settles, which left the
+  session stuck in CONNECTING and then trying to resume a session that never
+  existed. The start now fails with the server's close code and reason.
+- New `UseSessionOptions.liveApiVersion` (default `LIVE_API_VERSION`,
+  `'v1alpha'`). See "Ephemeral tokens and the API version" below.
+- A session on a legacy model logs one warning at connect naming the
+  replacement.
+
+### Provider contract, measured against the live API on 2026-11-15
+
+| Model | `thinkingConfig` | Tool calls |
+|---|---|---|
+| `gemini-3.8-live` | rejected for every level (1007 "Thinking level is not supported for this model.") | asynchronous by default; `behavior: BLOCKING` accepted |
+| `gemini-3.8-live-extended-thinking` | required (omitted: 1007 "Thinking level must be specified for this model."); MINIMAL rejected; LOW / MEDIUM / HIGH accepted | asynchronous only; a `BLOCKING` declaration is rejected at setup (1007) |
+| `gemini-3.1-flash-live-preview` (legacy) | optional: omitted and every level accepted | blocking |
+
+Two things differ from what 0.15.0 recorded:
+
+- The 3.1 preview does **not** require a thinking level; omitting it works.
+- On `gemini-3.8-live`, function calls are asynchronous unless a declaration
+  says otherwise. The turn that issues a call ends at once: `turnComplete`
+  arrives right after the `toolCall`, **before** the spoken reply to the tool
+  result, which then arrives as a further turn. On the 3.1 preview there is
+  one `turnComplete`, after the reply.
+
+### Ephemeral tokens and the API version
+
+Closes the September audit item about the `v1alpha` pin. Measured with
+`@google/genai` 2.11.0 and 2.32.0: a token minted by `authTokens.create` on
+`v1alpha` or on `v1beta` opens a Live session on either version; all four
+combinations pass. The provider's ephemeral-token guide now says "only with the
+`v1beta` version", while the SDK (2.11.0, 2.32.0 and 3.3.0 alike) logs
+"ephemeral token support is in v1alpha only" for anything else. The pin stays
+on `v1alpha`, the version the SDK asks for; `liveApiVersion` is the escape
+hatch, and the live suite checks all four combinations on every run so a
+change on either side is caught.
+
+### Live conformance kit: `@andyfooblah/voice-common/testing`
+
+A headless Node kit (`@google/genai` only; no React, DOM or Firebase) for
+testing an app's real Live configuration against the real API. See
+[TESTING.md](TESTING.md).
+
+- `LiveTestSession`: connects with an API key or an ephemeral token, records
+  a typed event trace, and offers `sendText`, `sendAudioPcm16k`,
+  `activityStart` / `activityEnd`, `respondToTool`, `waitFor`, `close`.
+- Six committed speech fixtures (synthetic voices, 16 kHz mono WAV, under
+  200 KB each) in `fixtures/speech/`, generated once by
+  `scripts/gen-speech-fixtures.mjs`.
+- Named checks, each returning `{ name, pass, status, detail, metrics }`:
+  setup, text turn, audio turn, tool declarations accepted, tool round trip,
+  manual turn control, patience, barge-in, session resumption, context
+  compression, model listed, ephemeral-token path, latency, and three
+  provider-contract canaries that report "contract changed" rather than a
+  plain failure.
+- `runLiveConformance(profile, { apiKey, checks })`, with
+  `formatLiveConformanceReport` and `assertLiveConformance`, so an app's live
+  test is about twenty lines.
+- Keys and tokens are never logged or stored, and are redacted from errors.
+
+### Tests
+
+- Offline (in `npm test`, no network, no key): table-driven registry and
+  builder tests, hook tests proving `useSession` sends the builder's output,
+  kit tests against a scripted fake SDK, fixture integrity, and a guard that
+  fails if a retired model id returns to shipping source.
+- Live (`npm run test:live`, self-skipping without `GEMINI_API_KEY`): the full
+  check list for the default model, the turn-taking presets, and the canaries.
+- `.github/workflows/live-contract.yml`: manual and weekly; skips cleanly
+  unless the `LIVE_TEST_GEMINI_API_KEY` secret exists. Off by default.
+
 ## 0.15.0 (2026-09-18)
 
 Adds two `UseSessionOptions` fields so each app can choose its own Gemini Live

@@ -18,6 +18,11 @@
  * Produces an ESM bundle in dist/ with type declarations alongside it.
  * React, Firebase, and Gemini are externalized as peer dependencies.
  *
+ * Two entries: `index` (the browser library) and `testing` (the Node-only
+ * live conformance kit). The testing entry must never import React, the DOM
+ * or Firebase; `scripts/check-testing-entry.mjs` (part of `build:lib`)
+ * verifies that by walking the built chunk graph and importing it under Node.
+ *
  * Run via: npm run build:lib
  */
 
@@ -59,6 +64,8 @@ export default defineConfig({
         'react-router-dom',
         /^firebase\//,
         '@google/genai',
+        // The Node-only testing entry (src/testing) reads fixtures from disk.
+        /^node:/,
       ],
       output: {
         globals: {

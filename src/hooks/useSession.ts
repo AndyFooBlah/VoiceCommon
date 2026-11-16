@@ -37,21 +37,19 @@
 import { useState, useRef, useCallback } from 'react';
 import { doc, updateDoc } from 'firebase/firestore';
 import { db } from '../services/firebase';
-import {
-  GoogleGenAI,
-  LiveServerMessage,
-  Modality,
-  Type,
-  FunctionDeclaration,
-  ThinkingLevel,
-  StartSensitivity,
-  EndSensitivity,
-  SpeechConfig,
-} from '@google/genai';
+import { GoogleGenAI } from '@google/genai';
+import type { LiveServerMessage, FunctionDeclaration, SpeechConfig } from '@google/genai';
 import { mintLiveToken, isDebugEnabled } from '../services/config';
 import { Timestamp } from 'firebase/firestore';
 import { Message, ConnectionStatus, TranscriptEntry } from '../types';
 import { useAudioMixer } from './useAudioMixer';
+import { DEFAULT_LIVE_MODEL, getLiveModelInfo } from '../services/liveModels';
+import type { ThinkingRequest } from '../services/liveModels';
+import {
+  LIVE_API_VERSION,
+  buildLiveConnectConfig,
+  resolveLiveModel,
+} from '../services/liveConnectConfig';
 import { encode } from '../services/audioUtils';
 import {
   createSession,
@@ -61,19 +59,11 @@ import {
 } from '../services/storage';
 
 /**
- * Default Gemini Live model. Unchanged from 0.14.x so existing consumers keep
- * their current behaviour; override per-app with `UseSessionOptions.liveModel`.
+ * Default Gemini Live model (`gemini-3.8-live` since 0.16.0). Defined in the
+ * model registry, `services/liveModels.ts`, and re-exported here for
+ * backwards compatibility. Override per app with `UseSessionOptions.liveModel`.
  */
-export const DEFAULT_LIVE_MODEL = 'gemini-3.1-flash-live-preview';
-
-/**
- * Default thinking level. `gemini-3.1-flash-live-preview` requires a thinking
- * level; `gemini-3.8-live` rejects the field outright (WebSocket 1007
- * "Thinking level is not supported for this model"), and
- * `gemini-3.8-live-extended-thinking` requires one but rejects MINIMAL.
- * Pass `thinkingLevel: 'none'` to omit the field entirely.
- */
-const DEFAULT_THINKING_LEVEL: ThinkingLevel = ThinkingLevel.MINIMAL;
+export { DEFAULT_LIVE_MODEL };
 
 /** Maximum seconds of audio lookahead before triggering a runaway-loop reset. */
 const MAX_AUDIO_LOOKAHEAD_S = 30;
@@ -192,28 +182,42 @@ export interface UseSessionOptions {
    * and instead decides turn boundaries on the client: it detects when the
    * user starts speaking (energy-based VAD) and only ends their turn after
    * `endOfSpeechSilenceMs` of continuous silence. Use this when the bot must
-   * wait patiently through long pauses — the native-audio model ignores large
-   * `silenceDurationMs` values, so server-side VAD cannot deliver it. Barge-in
+   * wait patiently through long pauses in a real room. The server does honour
+   * a large `silenceDurationMs` on clean audio (the live suite measures it),
+   * but intermittent room noise can retrigger server VAD and restart its
+   * silence timer, so the wait is more dependable on the client. Barge-in
    * is preserved with a stricter threshold while the bot is speaking. Requires
    * mic echo cancellation (enabled by the mixer) so the bot's own audio does
    * not trip detection.
    */
   manualTurnControl?: boolean;
   /**
-   * Gemini Live model id. Defaults to {@link DEFAULT_LIVE_MODEL}.
-   * Pair with `thinkingLevel` — models disagree about the thinking field:
-   *   - `gemini-3.1-flash-live-preview` — requires one (MINIMAL is fine)
-   *   - `gemini-3.8-live`               — rejects the field; use 'none'
-   *   - `gemini-3.8-live-extended-thinking` — requires LOW/MEDIUM/HIGH
+   * Gemini Live model id. Defaults to {@link DEFAULT_LIVE_MODEL}
+   * (`gemini-3.8-live`). Known models and their constraints are listed in the
+   * exported `LIVE_MODELS` registry. A model the registry marks shut down
+   * fails at start with a clear error instead of a dead socket.
    */
   liveModel?: string;
   /**
-   * Thinking level sent as `thinkingConfig.thinkingLevel`, or the string
-   * 'none' to omit `thinkingConfig` altogether. Defaults to MINIMAL, which
-   * matches pre-0.15 behaviour. Sending an unsupported value closes the
-   * WebSocket with code 1007 before the session starts.
+   * Thinking level. Defaults to `'auto'`, which derives the right
+   * `thinkingConfig` from the model: omitted for `gemini-3.8-live` (which
+   * rejects the field), LOW for `gemini-3.8-live-extended-thinking` (which
+   * requires one and rejects MINIMAL), omitted for model ids the registry
+   * does not know. `'none'` omits the field; an explicit `ThinkingLevel` is
+   * sent as `thinkingConfig.thinkingLevel`.
+   *
+   * An explicit value the registry knows the model rejects fails the session
+   * start with a `LiveConfigError` naming the model, the value and the fix,
+   * rather than letting the server close the WebSocket with an opaque 1007.
    */
-  thinkingLevel?: ThinkingLevel | 'none';
+  thinkingLevel?: ThinkingRequest;
+  /**
+   * API version used for the Live WebSocket. Defaults to `LIVE_API_VERSION`
+   * (`'v1alpha'`, the version the SDK wires ephemeral tokens to). Tokens
+   * minted on `v1alpha` or `v1beta` connect on either; override only if the
+   * provider retires the default.
+   */
+  liveApiVersion?: string;
   /**
    * Firestore collection path for session documents.
    * Default: 'sessions' (top-level flat collection).
@@ -301,6 +305,8 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
   liveModelRef.current = options.liveModel;
   const thinkingLevelRef = useRef(options.thinkingLevel);
   thinkingLevelRef.current = options.thinkingLevel;
+  const liveApiVersionRef = useRef(options.liveApiVersion);
+  liveApiVersionRef.current = options.liveApiVersion;
 
   // Internal bot-speaking flag (mirrors onBotSpeaking) used to gate barge-in
   // detection in manual turn control.
@@ -1024,6 +1030,33 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
     speechConfig: SpeechConfig | undefined,
     onConnected: () => void,
   ) => {
+    // Build (and validate) the Live config FIRST, before the greeting mute and
+    // before a token is minted: a model/thinking/tool combination the registry
+    // knows the server rejects throws a LiveConfigError here, with the fix in
+    // the message, instead of surfacing later as a WebSocket closed with 1007.
+    // buildLiveConnectConfig is the single code path shared with the live
+    // conformance kit (`@andyfooblah/voice-common/testing`).
+    const activeModel = resolveLiveModel(liveModelRef.current);
+    const liveConfig = buildLiveConnectConfig({
+      model: activeModel,
+      systemInstruction: instruction,
+      tools: toolsRef.current,
+      thinkingLevel: thinkingLevelRef.current ?? 'auto',
+      speechConfig,
+      manualTurnControl: manualTurnControlRef.current,
+      endOfSpeechSilenceMs: endOfSpeechSilenceMsRef.current,
+      endOfSpeechSensitivity: endOfSpeechSensitivityRef.current,
+      resumptionHandle: resumptionHandleRef.current,
+    });
+    const modelInfo = getLiveModelInfo(activeModel);
+    if (modelInfo?.status === 'legacy') {
+      console.warn(
+        `[Session] Live model '${modelInfo.id}' is a legacy model` +
+          (modelInfo.shutdown ? ` (shutdown announced for ${modelInfo.shutdown})` : '') +
+          (modelInfo.replacement ? `; the provider recommends '${modelInfo.replacement}'.` : '.'),
+      );
+    }
+
     // Greeting echo mute. If this connect auto-greets (initial start), hold mic
     // audio out of Gemini until the greeting has played, so speaker→mic echo
     // can't trip the VAD into a restarted greeting. On resume (no greetText),
@@ -1048,37 +1081,31 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
     // long-lived-key fallback: VoiceCommon never accepts a Gemini API key in
     // browser config.
     const { token } = await mintLiveToken();
-    // Ephemeral token + v1alpha — the SDK's auth-token support is wired
-    // only to the v1alpha endpoint; the default v1 returns a URL shape that
-    // rejects the token. See https://ai.google.dev/gemini-api/docs/ephemeral-tokens
-    const ai = new GoogleGenAI({ apiKey: token, httpOptions: { apiVersion: 'v1alpha' } });
-
-    const allTools: FunctionDeclaration[] = [
-      ...toolsRef.current,
-      {
-        name: 'endSession',
-        description: 'End the voice session. Call this only when the user explicitly signals they want to stop.',
-        parameters: { type: Type.OBJECT, properties: {}, required: [] },
-      } as FunctionDeclaration,
-    ];
+    // Ephemeral token + pinned API version. See LIVE_API_VERSION for what was
+    // measured and why the pin is v1alpha.
+    const ai = new GoogleGenAI({
+      apiKey: token,
+      httpOptions: { apiVersion: liveApiVersionRef.current ?? LIVE_API_VERSION },
+    });
 
     // Tool-registry visibility log at connect time — proves what was
     // ACTUALLY handed to Gemini Live, not what we hoped. Critical when
     // a session shows "model never called a tool"; without this log we
     // can't distinguish "model chose not to" from "model didn't have
     // any tools to call".
+    const declaredTools = liveConfig.tools?.flatMap(
+      (t) => ('functionDeclarations' in t ? t.functionDeclarations : undefined) ?? [],
+    ) ?? [];
     console.log(
-      `[Session] Connecting to Gemini with ${allTools.length} tool declaration(s):`,
-      allTools.map((t) => t.name).join(', '),
+      `[Session] Connecting to Gemini (${activeModel}, thinking=${
+        liveConfig.thinkingConfig?.thinkingLevel ?? 'omitted'
+      }) with ${declaredTools.length} tool declaration(s):`,
+      declaredTools.map((t) => t.name).join(', '),
     );
 
     // VAD visibility log — proves the end-of-speech silence value ACTUALLY
     // handed to Gemini, so we can distinguish "the configured wait never
     // propagated" from "the model ignored it". See endOfSpeechSilenceMs.
-    const endSensitivity =
-      endOfSpeechSensitivityRef.current === 'LOW'
-        ? EndSensitivity.END_SENSITIVITY_LOW
-        : EndSensitivity.END_SENSITIVITY_HIGH;
     if (manualTurnControlRef.current) {
       console.log(
         `[Session] VAD: manual turn control (client-side; end-of-turn after ${
@@ -1093,54 +1120,22 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
       );
     }
 
-    const activeModel = liveModelRef.current ?? DEFAULT_LIVE_MODEL;
-    const activeThinking = thinkingLevelRef.current ?? DEFAULT_THINKING_LEVEL;
+    // `ai.live.connect()` resolves only after the server sends setupComplete.
+    // When the server REJECTS the setup (an unsupported field, a tool schema
+    // it dislikes) it closes the socket instead and the SDK promise never
+    // settles, so awaiting it alone would hang the session in CONNECTING.
+    // Race it against the close event, which carries the code and reason.
+    let setupSettled = false;
+    let rejectSetup: (err: Error) => void = () => {};
+    const setupRejected = new Promise<never>((_, reject) => {
+      rejectSetup = reject;
+    });
+    // Abandoned when connect wins the race; must not become an unhandled rejection.
+    setupRejected.catch(() => undefined);
 
-    const liveSession = await ai.live.connect({
+    const connecting = ai.live.connect({
       model: activeModel,
-      config: {
-        systemInstruction: { parts: [{ text: instruction }] },
-        // Native-audio Live models ONLY support the AUDIO modality.
-        // Including TEXT causes the server to close the WebSocket immediately.
-        responseModalities: [Modality.AUDIO],
-        inputAudioTranscription: {},
-        outputAudioTranscription: {},
-        // Omitted entirely when 'none' — gemini-3.8-live rejects the field.
-        ...(activeThinking === 'none'
-          ? {}
-          : { thinkingConfig: { thinkingLevel: activeThinking } }),
-        tools: [{ functionDeclarations: allTools }],
-        // Turn detection. In manual mode we disable the server's automatic
-        // VAD entirely and drive turn boundaries from the client (runClientVad),
-        // because the native-audio model ignores large silenceDurationMs values.
-        // Otherwise: high start sensitivity keeps barge-in snappy; end-of-speech
-        // sensitivity/silence are configurable.
-        realtimeInputConfig: {
-          automaticActivityDetection: manualTurnControlRef.current
-            ? { disabled: true }
-            : {
-                startOfSpeechSensitivity: StartSensitivity.START_SENSITIVITY_HIGH,
-                endOfSpeechSensitivity: endSensitivity,
-                // How long a pause the user is allowed before the bot commits
-                // end-of-speech and takes its turn. Omit to use the API default.
-                ...(endOfSpeechSilenceMsRef.current != null
-                  ? { silenceDurationMs: endOfSpeechSilenceMsRef.current }
-                  : {}),
-              },
-        },
-        // Voice selection — only included when the caller provides a speech config
-        ...(speechConfig ? { speechConfig } : {}),
-        // Session resumption: the server issues resumption handles we store and
-        // pass back on reconnect, so a session survives the Live API's ~10-min
-        // connection resets and ~15-min session cap WITH full conversation
-        // context (no re-greeting). Passing a handle resumes; empty starts fresh.
-        sessionResumption: resumptionHandleRef.current
-          ? { handle: resumptionHandleRef.current }
-          : {},
-        // Context-window compression lets long interviews run past the 15-min
-        // audio session limit by summarising older turns.
-        contextWindowCompression: { slidingWindow: {} },
-      },
+      config: liveConfig,
       callbacks: {
         onmessage: (msg: LiveServerMessage) => {
           try {
@@ -1160,6 +1155,20 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
           const code = event?.code ?? 'unknown';
           const wasClean = event?.wasClean ?? false;
           console.log(`[Session] Gemini connection closed — code=${code} wasClean=${wasClean} stopping=${isStoppingRef.current}`);
+          if (!setupSettled && !isStoppingRef.current) {
+            // Closed before setupComplete: the server rejected this setup.
+            // Fail the connect with what the server said instead of treating
+            // it as a mid-session drop (which would try to resume a session
+            // that never existed).
+            setupSettled = true;
+            const reason = typeof event?.reason === 'string' && event.reason ? `: ${event.reason}` : '';
+            rejectSetup(
+              new Error(
+                `Gemini Live closed the connection during setup (code ${code}${reason}) for model '${activeModel}'.`,
+              ),
+            );
+            return;
+          }
           disconnectWorklet();
           liveSessionRef.current = null;
 
@@ -1182,6 +1191,10 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
         },
       },
     });
+
+    connecting.catch(() => undefined);
+    const liveSession = await Promise.race([connecting, setupRejected]);
+    setupSettled = true;
 
     liveSessionRef.current = liveSession;
     onConnected();

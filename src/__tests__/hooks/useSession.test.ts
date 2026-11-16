@@ -38,7 +38,9 @@ import { renderHook, act, waitFor } from '@testing-library/react';
 import { ConnectionStatus } from '../../types';
 import { useSession, DEFAULT_LIVE_MODEL } from '../../hooks/useSession';
 import type { UseSessionOptions } from '../../hooks/useSession';
-import { ThinkingLevel } from '@google/genai';
+import { GoogleGenAI, ThinkingLevel } from '@google/genai';
+import { LIVE_API_VERSION, buildLiveConnectConfig } from '../../services/liveConnectConfig';
+import { mintLiveToken } from '../../services/config';
 
 // ---------------------------------------------------------------------------
 // Hoisted mocks — must be defined before vi.mock() hoisting
@@ -1142,25 +1144,75 @@ describe('manualTurnControl', () => {
 
 // ---------------------------------------------------------------------------
 describe('liveModel / thinkingLevel', () => {
-  it('defaults to the legacy model and MINIMAL thinking (unchanged behaviour)', async () => {
+  it('defaults to gemini-3.8-live and omits thinkingConfig (auto)', async () => {
     const { result } = renderSession({});
     await startSession(result);
 
     const callArgs = mockLiveConnect.mock.calls[0][0];
     expect(callArgs.model).toBe(DEFAULT_LIVE_MODEL);
-    expect(callArgs.model).toBe('gemini-3.1-flash-live-preview');
-    expect(callArgs.config.thinkingConfig).toEqual({ thinkingLevel: 'MINIMAL' });
+    expect(callArgs.model).toBe('gemini-3.8-live');
+    // gemini-3.8-live closes the socket with 1007 if thinkingConfig is present.
+    expect('thinkingConfig' in callArgs.config).toBe(false);
+  });
+
+  it('passes exactly buildLiveConnectConfig output to live.connect for the default', async () => {
+    const { result } = renderSession({});
+    await startSession(result);
+
+    // One code path: what the hook sends is what the builder (and therefore
+    // the live conformance kit) produces for the same inputs.
+    expect(mockLiveConnect.mock.calls[0][0].config).toEqual(
+      buildLiveConnectConfig({ systemInstruction: DEFAULT_OPTIONS.systemInstruction }),
+    );
+  });
+
+  it('passes exactly buildLiveConnectConfig output for a fully customised session', async () => {
+    const tools = [{ name: 'getWeather', description: 'Weather', parameters: { type: 'object', properties: {} } }];
+    const speechConfig = { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } } };
+    const { result } = renderSession({
+      liveModel: 'gemini-3.8-live-extended-thinking',
+      thinkingLevel: ThinkingLevel.MEDIUM,
+      tools: tools as any,
+      speechConfig,
+      endOfSpeechSilenceMs: 2500,
+      endOfSpeechSensitivity: 'LOW',
+    });
+    await startSession(result);
+
+    const callArgs = mockLiveConnect.mock.calls[0][0];
+    expect(callArgs.model).toBe('gemini-3.8-live-extended-thinking');
+    expect(callArgs.config).toEqual(
+      buildLiveConnectConfig({
+        model: 'gemini-3.8-live-extended-thinking',
+        systemInstruction: DEFAULT_OPTIONS.systemInstruction,
+        thinkingLevel: ThinkingLevel.MEDIUM,
+        tools: tools as any,
+        speechConfig,
+        endOfSpeechSilenceMs: 2500,
+        endOfSpeechSensitivity: 'LOW',
+      }),
+    );
   });
 
   it('uses an overridden liveModel', async () => {
-    const { result } = renderSession({ liveModel: 'gemini-3.8-live' });
+    const { result } = renderSession({ liveModel: 'gemini-3.8-live-extended-thinking' });
     await startSession(result);
 
-    expect(mockLiveConnect.mock.calls[0][0].model).toBe('gemini-3.8-live');
+    const callArgs = mockLiveConnect.mock.calls[0][0];
+    expect(callArgs.model).toBe('gemini-3.8-live-extended-thinking');
+    // 'auto' picks a level the model accepts (it requires one, rejects MINIMAL).
+    expect(callArgs.config.thinkingConfig).toEqual({ thinkingLevel: 'LOW' });
   });
 
-  it("omits thinkingConfig entirely when thinkingLevel is 'none'", async () => {
-    // gemini-3.8-live closes the socket with 1007 if thinkingConfig is present.
+  it("auto sends MINIMAL to the legacy 3.1 preview (pre-0.16 behaviour for that model)", async () => {
+    const { result } = renderSession({ liveModel: 'gemini-3.1-flash-live-preview' });
+    await startSession(result);
+
+    expect(mockLiveConnect.mock.calls[0][0].config.thinkingConfig).toEqual({ thinkingLevel: 'MINIMAL' });
+  });
+
+  it("omits thinkingConfig entirely when thinkingLevel is 'none' (0.15 consumers, unchanged)", async () => {
+    // What every app on 0.15.0 passes: liveModel + thinkingLevel 'none'.
     const { result } = renderSession({
       liveModel: 'gemini-3.8-live',
       thinkingLevel: 'none',
@@ -1168,6 +1220,7 @@ describe('liveModel / thinkingLevel', () => {
     await startSession(result);
 
     const callArgs = mockLiveConnect.mock.calls[0][0];
+    expect(callArgs.model).toBe('gemini-3.8-live');
     expect(callArgs.config.thinkingConfig).toBeUndefined();
     expect('thinkingConfig' in callArgs.config).toBe(false);
   });
@@ -1181,6 +1234,142 @@ describe('liveModel / thinkingLevel', () => {
 
     expect(mockLiveConnect.mock.calls[0][0].config.thinkingConfig).toEqual({
       thinkingLevel: 'HIGH',
+    });
+  });
+
+  it('passes an explicit level through for a model id the registry does not know', async () => {
+    const { result } = renderSession({
+      liveModel: 'gemini-99-live-future',
+      thinkingLevel: ThinkingLevel.HIGH,
+    });
+    await startSession(result);
+
+    const callArgs = mockLiveConnect.mock.calls[0][0];
+    expect(callArgs.model).toBe('gemini-99-live-future');
+    expect(callArgs.config.thinkingConfig).toEqual({ thinkingLevel: 'HIGH' });
+  });
+
+  it('fails BEFORE connecting, with an actionable error, for a level the model rejects', async () => {
+    const { result } = renderSession({
+      liveModel: 'gemini-3.8-live',
+      thinkingLevel: ThinkingLevel.MINIMAL,
+    });
+    await act(async () => {
+      await result.current.startSession();
+    });
+
+    // No token minted, no socket opened: the mistake never reaches the server.
+    expect(mintLiveToken).not.toHaveBeenCalled();
+    expect(mockLiveConnect).not.toHaveBeenCalled();
+    expect(result.current.connectionStatus).toBe(ConnectionStatus.ERROR);
+    expect(result.current.error).toContain("'gemini-3.8-live'");
+    expect(result.current.error).toContain("'MINIMAL'");
+    expect(result.current.error).toContain("Fix: remove thinkingLevel, or pass 'auto' or 'none'");
+  });
+
+  it('fails before connecting for a model the registry marks shut down', async () => {
+    const { result } = renderSession({ liveModel: 'gemini-2.0-flash-live-001' });
+    await act(async () => {
+      await result.current.startSession();
+    });
+
+    expect(mockLiveConnect).not.toHaveBeenCalled();
+    expect(result.current.error).toContain('was shut down on 2025-12-09');
+  });
+});
+
+// ---------------------------------------------------------------------------
+describe('setup rejected by the server', () => {
+  // The SDK's live.connect() resolves only after setupComplete. When the
+  // server rejects the setup it closes the socket and that promise never
+  // settles, so the hook must fail the start from the close event.
+  function connectThatNeverSettles() {
+    mockLiveConnect.mockImplementationOnce(async (args: any) => {
+      capturedCallbacks.current = args.callbacks;
+      return new Promise(() => {});
+    });
+  }
+
+  it('fails the start with the close code and reason instead of hanging', async () => {
+    connectThatNeverSettles();
+    const { result } = renderSession({ liveModel: 'gemini-99-live-future', thinkingLevel: ThinkingLevel.LOW });
+
+    await act(async () => {
+      const starting = result.current.startSession();
+      await waitFor(() => expect(mockLiveConnect).toHaveBeenCalledTimes(1));
+      capturedCallbacks.current.onclose({
+        code: 1007,
+        reason: 'Thinking level is not supported for this model.',
+        wasClean: true,
+      });
+      await starting;
+    });
+
+    expect(result.current.connectionStatus).toBe(ConnectionStatus.ERROR);
+    expect(result.current.error).toContain('closed the connection during setup');
+    expect(result.current.error).toContain('code 1007');
+    expect(result.current.error).toContain('Thinking level is not supported for this model.');
+    expect(result.current.error).toContain("'gemini-99-live-future'");
+    expect(result.current.isRecording).toBe(false);
+  });
+
+  it('does not try to resume a session that never started', async () => {
+    connectThatNeverSettles();
+    const { result } = renderSession({});
+
+    await act(async () => {
+      const starting = result.current.startSession();
+      await waitFor(() => expect(mockLiveConnect).toHaveBeenCalledTimes(1));
+      capturedCallbacks.current.onclose({ code: 1007, reason: 'Request contains an invalid argument.' });
+      await starting;
+    });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+    });
+
+    expect(mockLiveConnect).toHaveBeenCalledTimes(1);
+    // The Firestore session created for the failed start is closed out.
+    expect(storageSpies.finalizeSession).toHaveBeenCalledWith(
+      'session-abc',
+      'interrupted',
+      0,
+      undefined,
+      'sessions',
+    );
+  });
+
+  it('still resumes when the socket closes AFTER setup completed', async () => {
+    const { result } = renderSession({});
+    await startSession(result);
+    expect(mockLiveConnect).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      capturedCallbacks.current.onclose({ code: 1011, reason: 'internal', wasClean: false });
+    });
+    await waitFor(() => expect(mockLiveConnect).toHaveBeenCalledTimes(2));
+  });
+});
+
+// ---------------------------------------------------------------------------
+describe('Live API version', () => {
+  it('opens the socket with the ephemeral token on the pinned API version', async () => {
+    const { result } = renderSession({});
+    await startSession(result);
+
+    expect(LIVE_API_VERSION).toBe('v1alpha');
+    expect(GoogleGenAI).toHaveBeenCalledWith({
+      apiKey: 'test-ephemeral-token',
+      httpOptions: { apiVersion: 'v1alpha' },
+    });
+  });
+
+  it('honours a liveApiVersion override', async () => {
+    const { result } = renderSession({ liveApiVersion: 'v1beta' });
+    await startSession(result);
+
+    expect(GoogleGenAI).toHaveBeenCalledWith({
+      apiKey: 'test-ephemeral-token',
+      httpOptions: { apiVersion: 'v1beta' },
     });
   });
 });

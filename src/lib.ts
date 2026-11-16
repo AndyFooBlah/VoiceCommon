@@ -34,8 +34,37 @@ export { auth, db, storage, functions } from './services/firebase';
 export * from './types';
 
 // Hooks
-export { useSession, DEFAULT_LIVE_MODEL } from './hooks/useSession';
+export { useSession } from './hooks/useSession';
 export type { UseSessionOptions, UseSessionReturn } from './hooks/useSession';
+
+// Live model registry and the pure connect-config builder. `useSession` uses
+// these internally; they are exported so an app's direct-connect paths and
+// its tests can share the same validated setup message. The Node-only live
+// conformance kit lives in '@andyfooblah/voice-common/testing'.
+export {
+  DEFAULT_LIVE_MODEL,
+  LIVE_MODELS,
+  LiveConfigError,
+  getLiveModelInfo,
+  currentLiveModelIds,
+  assertLiveModelUsable,
+  resolveThinkingConfig,
+} from './services/liveModels';
+export type {
+  LiveModelInfo,
+  LiveModelStatus,
+  LiveThinkingSupport,
+  LiveToolExecution,
+  ThinkingRequest,
+} from './services/liveModels';
+export {
+  LIVE_API_VERSION,
+  END_SESSION_TOOL_NAME,
+  endSessionTool,
+  resolveLiveModel,
+  buildLiveConnectConfig,
+} from './services/liveConnectConfig';
+export type { BuildLiveConnectConfigParams } from './services/liveConnectConfig';
 export { useAuth } from './hooks/useAuth';
 export { useAudioMixer } from './hooks/useAudioMixer';
 export type { AudioMixerHandle } from './hooks/useAudioMixer';

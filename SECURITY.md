@@ -34,4 +34,6 @@ Two automated guards enforce this:
 1. An ESLint `no-restricted-syntax` rule that fails the build on any read of secret-shaped `import.meta.env.VITE_*` variables inside `src/**`
 2. A post-build bundle scan (`scripts/check-bundle-for-secrets.mjs`) that greps the published `dist/` output for known secret shapes and fails on any match
 
-If you find a way a secret can leak into the published package or a consumer's bundle, that is in scope — please report it.
+The package also ships a Node-only test kit at `@andyfooblah/voice-common/testing`. It runs in a test process, never in a browser, and is the one place a long-lived key is used: it takes the key as a runtime argument from the caller's environment, never reads it from a file, never logs or stores it, and redacts it (and anything shaped like a Google API key or an ephemeral token) from every error, trace and report. The build fails if that entry imports anything other than `@google/genai` and Node built-ins. The live test workflow (`.github/workflows/live-contract.yml`) is disabled unless a repository secret is added, installs dependencies without lifecycle scripts before the key is in scope, and holds the key only in a job with read-only permissions.
+
+If you find a way a secret can leak into the published package or a consumer's bundle, or out of the test kit, that is in scope — please report it.
