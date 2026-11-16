@@ -1,0 +1,337 @@
+{
+ "meta": {
+  "scenario": "greeting",
+  "model": "gemini-3.1-flash-live-preview",
+  "capturedAt": "2026-11-16T02:02:00.397Z",
+  "sdk": "@google/genai 2.32.0",
+  "generator": "scripts/capture-live-traces.mjs",
+  "note": "Real provider event trace. Synthetic content; audio payloads reduced to byte counts; resumption handles masked; no credentials.",
+  "thinkingLevel": "MINIMAL",
+  "turnTaking": "server VAD, defaults"
+ },
+ "events": [
+  {
+   "t": 276,
+   "from": "server",
+   "message": {
+    "setupComplete": {}
+   }
+  },
+  {
+   "t": 277,
+   "kind": "sentText",
+   "from": "client"
+  },
+  {
+   "t": 608,
+   "from": "server",
+   "message": {
+    "serverContent": {}
+   }
+  },
+  {
+   "t": 821,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 2
+        }
+       }
+      ]
+     },
+     "outputTranscription": {
+      "text": "Hello there,"
+     }
+    }
+   }
+  },
+  {
+   "t": 835,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 5280
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "t": 969,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 9600
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "t": 1041,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 9600
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "t": 1076,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 3840
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "t": 1077,
+   "from": "server",
+   "message": {
+    "sessionResumptionUpdate": {
+     "newHandle": "HANDLE-MASKED",
+     "resumable": true
+    }
+   }
+  },
+  {
+   "t": 1101,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 13440
+        }
+       }
+      ]
+     },
+     "outputTranscription": {
+      "text": " how"
+     }
+    }
+   }
+  },
+  {
+   "t": 1103,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 1920
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "t": 1164,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 9600
+        }
+       }
+      ]
+     },
+     "outputTranscription": {
+      "text": " can I"
+     }
+    }
+   }
+  },
+  {
+   "t": 1228,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 11520
+        }
+       }
+      ]
+     },
+     "outputTranscription": {
+      "text": " help"
+     }
+    }
+   }
+  },
+  {
+   "t": 1286,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 9600
+        }
+       }
+      ]
+     },
+     "outputTranscription": {
+      "text": " you today?"
+     }
+    }
+   }
+  },
+  {
+   "t": 1295,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 7680
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "t": 1346,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 9600
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "t": 1409,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 11520
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "t": 1451,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "generationComplete": true
+    }
+   }
+  },
+  {
+   "t": 2983,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "turnComplete": true
+    },
+    "usageMetadata": {
+     "promptTokenCount": 265,
+     "responseTokenCount": 60,
+     "totalTokenCount": 325,
+     "promptTokensDetails": [
+      {
+       "modality": "TEXT",
+       "tokenCount": 200
+      }
+     ],
+     "responseTokensDetails": [
+      {
+       "modality": "AUDIO",
+       "tokenCount": 60
+      }
+     ]
+    }
+   }
+  },
+  {
+   "t": 3235,
+   "from": "server",
+   "message": {
+    "sessionResumptionUpdate": {
+     "newHandle": "HANDLE-MASKED",
+     "resumable": true
+    }
+   }
+  }
+ ]
+}

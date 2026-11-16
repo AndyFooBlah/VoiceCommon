@@ -162,6 +162,30 @@ describe('registry', () => {
     if (info.status === 'shutdown') {
       expect(info.shutdown).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     }
+    expect(['turnComplete', 'interactionStatus', 'unverified']).toContain(info.idleSignal);
+    expect([true, false, null]).toContain(info.toolCallEndsTurnEarly);
+    // Facts that were measured together: a model whose thinking contract is
+    // known also has its tool-call ordering and idle signal recorded.
+    if (support !== 'unverified') {
+      expect(info.idleSignal).not.toBe('unverified');
+      expect(info.toolCallEndsTurnEarly).not.toBeNull();
+      expect(info.toolExecution).not.toBe('unverified');
+    }
+  });
+
+  it('records the event order around a tool call for each measured model', () => {
+    // Measured against the live API (recorded traces in
+    // src/__tests__/fixtures/live-traces, replayed by useSession.replay.test.ts).
+    const facts = Object.fromEntries(
+      Object.values(LIVE_MODELS)
+        .filter((m) => m.thinking.support !== 'unverified')
+        .map((m) => [m.id, [m.toolExecution, m.toolCallEndsTurnEarly, m.idleSignal]]),
+    );
+    expect(facts).toEqual({
+      'gemini-3.8-live': ['non-blocking-default', true, 'turnComplete'],
+      'gemini-3.8-live-extended-thinking': ['non-blocking-only', false, 'interactionStatus'],
+      'gemini-3.1-flash-live-preview': ['blocking-only', false, 'turnComplete'],
+    });
   });
 
   it("'auto' never throws for any registry model", () => {

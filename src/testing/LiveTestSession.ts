@@ -136,6 +136,24 @@ export interface LiveTestSessionOptions {
   connectTimeoutMs?: number;
   /** Keep the bot's 24 kHz PCM so `outputAudioPcm()` can return it. Default false. */
   captureOutputAudio?: boolean;
+  /**
+   * Keep every raw server message, in arrival order, in `rawMessages`, with
+   * audio payloads replaced by their byte counts and resumption handles
+   * masked. Used to record replayable traces (see
+   * `scripts/capture-live-traces.mjs`). Default false.
+   */
+  captureRawMessages?: boolean;
+}
+
+/** One raw server message as recorded by `captureRawMessages`. */
+export interface LiveRawMessage {
+  /** Milliseconds since the session object was created. */
+  t: number;
+  /**
+   * The server message as received, except that every `inlineData.data`
+   * payload is replaced by `{ bytes }` and `newHandle` is masked.
+   */
+  message: Record<string, unknown>;
 }
 
 export interface WaitOptions {
@@ -183,12 +201,16 @@ export class LiveTestSession {
   private readonly listeners = new Set<() => void>();
   private readonly captureOutputAudio: boolean;
   private readonly outputAudio: Buffer[] = [];
+  private readonly captureRawMessages: boolean;
+  /** Raw server messages (needs `captureRawMessages: true`). */
+  readonly rawMessages: LiveRawMessage[] = [];
   private closeInfo: { code: number | undefined; reason: string } | null = null;
   private closing = false;
 
   private constructor(options: LiveTestSessionOptions) {
     this.model = options.model;
     this.captureOutputAudio = options.captureOutputAudio === true;
+    this.captureRawMessages = options.captureRawMessages === true;
     this.redact = makeRedactor([options.apiKey, options.ephemeralToken]);
   }
 
@@ -584,6 +606,9 @@ export class LiveTestSession {
   }
 
   private onMessage(message: LiveServerMessage): void {
+    if (this.captureRawMessages) {
+      this.rawMessages.push({ t: this.now(), message: sanitizeRawMessage(message) });
+    }
     if (message.setupComplete) this.push({ type: 'setupComplete' });
 
     const content = message.serverContent;
@@ -638,13 +663,43 @@ export class LiveTestSession {
         responseTokens: message.usageMetadata.responseTokenCount,
       });
     }
-    // Not in every SDK version's types; present on extended-thinking sessions.
-    const status = (message as { interactionStatus?: unknown }).interactionStatus;
+    // Not in the SDK's types. Extended-thinking sessions report it, either at
+    // the top level of the message or inside serverContent.
+    const status =
+      (message as { interactionStatus?: unknown }).interactionStatus ??
+      (content as { interactionStatus?: unknown } | undefined)?.interactionStatus;
     if (typeof status === 'string') this.push({ type: 'interactionStatus', status });
   }
 }
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
+
+/**
+ * JSON-safe copy of a server message for a recorded trace: audio payloads
+ * become `{ bytes }` (the audio itself is never kept) and resumption handles,
+ * which are session credentials, are masked.
+ */
+function sanitizeRawMessage(message: unknown): Record<string, unknown> {
+  const visit = (value: unknown, key: string): unknown => {
+    if (Array.isArray(value)) return value.map((v) => visit(v, key));
+    if (value && typeof value === 'object') {
+      const out: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+        if (v === undefined) continue;
+        if (k === 'data' && key === 'inlineData' && typeof v === 'string') {
+          out.bytes = Buffer.from(v, 'base64').byteLength;
+        } else if (k === 'newHandle' && typeof v === 'string') {
+          out.newHandle = 'HANDLE-MASKED';
+        } else {
+          out[k] = visit(v, k);
+        }
+      }
+      return out;
+    }
+    return value;
+  };
+  return visit(message, '') as Record<string, unknown>;
+}
 
 /**
  * Compact, human-readable rendering of a trace: one line per event, with runs

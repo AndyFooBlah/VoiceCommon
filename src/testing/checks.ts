@@ -30,7 +30,7 @@
  *                          Sessions may still work; the registry needs review.
  */
 
-import { GoogleGenAI, Modality, Type } from '@google/genai';
+import { FunctionResponseScheduling, GoogleGenAI, Modality, Type } from '@google/genai';
 import type { FunctionDeclaration, LiveConnectConfig } from '@google/genai';
 import { LIVE_API_VERSION } from '../services/liveConnectConfig';
 import { LIVE_MODELS, getLiveModelInfo, resolveThinkingConfig } from '../services/liveModels';
@@ -936,6 +936,167 @@ export function canaryToolBehaviorContract(
       };
     }
     return { status: 'pass', detail: `BLOCKING tool declaration ${got}, as the registry says`, metrics };
+  });
+}
+
+/** Minimal setup for a model-level canary: audio out, one probe tool. */
+function canaryToolConfig(model: string): LiveConnectConfig {
+  let thinkingConfig: LiveConnectConfig['thinkingConfig'];
+  try {
+    thinkingConfig = resolveThinkingConfig(model, 'auto');
+  } catch {
+    thinkingConfig = undefined;
+  }
+  return {
+    systemInstruction: {
+      parts: [{ text: 'You are a voice assistant in an automated test. Answer in one short sentence.' }],
+    },
+    responseModalities: [Modality.AUDIO],
+    outputAudioTranscription: {},
+    ...(thinkingConfig ? { thinkingConfig } : {}),
+    tools: [{ functionDeclarations: [BUILTIN_PROBE_TOOL] }],
+  };
+}
+
+/**
+ * Canary: the ORDER of events around a tool call still matches the registry.
+ *
+ * `useSession` keeps its transcript, its speaking state and its end-of-session
+ * handling correct under each model's ordering, and the offline replay tests
+ * prove that against recorded traces. This canary notices when the provider
+ * changes the ordering those recordings captured:
+ *   - whether a `turnComplete` arrives between the `toolCall` and the spoken
+ *     reply to the tool result (`toolCallEndsTurnEarly`);
+ *   - whether calls are asynchronous (ids start `call_`) or blocking (`fc_`);
+ *   - whether the model reports `interactionStatus` (`idleSignal`).
+ */
+export function canaryToolCallOrdering(
+  apiKey: string,
+  model: string,
+  options: { apiVersion?: string; timeoutMs?: number } = {},
+): Promise<LiveCheckResult> {
+  const timeoutMs = options.timeoutMs ?? 30_000;
+  return runCheck(`tool-call-ordering:${model}`, apiKey, async (open): Promise<Outcome> => {
+    const info = getLiveModelInfo(model);
+    if (!info || info.toolCallEndsTurnEarly === null) {
+      return { status: 'skipped', detail: `no tool-call ordering recorded for '${model}'` };
+    }
+    const session = await open({ model, config: canaryToolConfig(model), apiVersion: options.apiVersion });
+    const since = session.mark();
+    session.sendText(BUILTIN_PROBE.prompt);
+    const callEvent = await session.waitFor(
+      (e) => e.type === 'toolCall' && e.calls.some((c) => c.name === BUILTIN_PROBE.expectTool),
+      timeoutMs,
+      { since, description: 'the probe tool call' },
+    );
+    const callIndex = session.trace.indexOf(callEvent);
+    const call = (callEvent as { calls: LiveToolCall[] }).calls.find((c) => c.name === BUILTIN_PROBE.expectTool)!;
+    // A tool that takes a moment, as a real one does.
+    await new Promise((r) => setTimeout(r, 500));
+    const responded = session.mark();
+    session.respondToTool(call, BUILTIN_PROBE.result ?? 'ok');
+    const replyAudio = await session.waitFor((e) => e.type === 'audio', timeoutMs, {
+      since: responded,
+      description: 'the spoken reply to the tool result',
+    });
+    const replyIndex = session.trace.indexOf(replyAudio);
+    await session.waitForType('turnComplete', timeoutMs, { since: replyIndex });
+    // Give a trailing interactionStatus a moment to arrive.
+    await new Promise((r) => setTimeout(r, 300));
+
+    const earlyTurnComplete = session.trace
+      .slice(callIndex, replyIndex)
+      .some((e) => e.type === 'turnComplete');
+    const asyncCall = !call.id.startsWith('fc_');
+    const statuses = session.events('interactionStatus', since).map((e) => e.status);
+    const order = session.trace
+      .slice(since)
+      .filter((e) => ['audio', 'toolCall', 'sentToolResponse', 'generationComplete', 'turnComplete', 'interactionStatus'].includes(e.type))
+      .map((e) => (e.type === 'interactionStatus' ? `status:${e.status}` : e.type === 'sentToolResponse' ? '<toolResponse>' : e.type))
+      .filter((tag, i, all) => tag !== all[i - 1])
+      .join(' > ');
+    const metrics = {
+      turnCompleteBetweenCallAndReply: earlyTurnComplete,
+      asynchronousCall: asyncCall,
+      interactionStatus: statuses.join(',') || 'none',
+      spokeBeforeCall: session.trace.slice(since, callIndex).some((e) => e.type === 'audio'),
+      order,
+    };
+
+    const changed: string[] = [];
+    if (earlyTurnComplete !== info.toolCallEndsTurnEarly) {
+      changed.push(
+        `registry says a turnComplete ${info.toolCallEndsTurnEarly ? 'arrives' : 'does not arrive'} between the toolCall and the reply, but it ${earlyTurnComplete ? 'did' : 'did not'}`,
+      );
+    }
+    const expectAsync = info.toolExecution === 'non-blocking-default' || info.toolExecution === 'non-blocking-only';
+    if (info.toolExecution !== 'unverified' && asyncCall !== expectAsync) {
+      changed.push(`registry says calls are ${expectAsync ? 'asynchronous' : 'blocking'}, but the call id was '${call.id.split('_')[0]}_…'`);
+    }
+    const expectStatus = info.idleSignal === 'interactionStatus';
+    if (info.idleSignal !== 'unverified' && statuses.length > 0 !== expectStatus) {
+      changed.push(`registry says the model ${expectStatus ? 'reports' : 'does not report'} interactionStatus, but it ${statuses.length ? 'did' : 'did not'}`);
+    }
+    if (expectStatus && statuses.length > 0 && statuses[statuses.length - 1] !== 'IDLE') {
+      changed.push(`the last interactionStatus was '${statuses[statuses.length - 1]}', not IDLE, after the reply's turnComplete`);
+    }
+    if (changed.length) {
+      return {
+        status: 'contract-changed',
+        detail: `PROVIDER CONTRACT CHANGED for ${model} tool-call ordering. ${changed.join('; ')}. Observed: ${order}. Update src/services/liveModels.ts and re-record the replay traces (scripts/capture-live-traces.mjs).`,
+        metrics,
+      };
+    }
+    return { status: 'pass', detail: `tool-call ordering matches the registry: ${order}`, metrics };
+  });
+}
+
+/**
+ * Canary: on a model whose calls are asynchronous by default, a tool response
+ * sent with `scheduling: SILENT` is NOT followed by speech. `useSession`
+ * relies on this to stop the model adding "The session has ended." after its
+ * goodbye when it calls `endSession`.
+ */
+export function canarySilentToolResponse(
+  apiKey: string,
+  model: string,
+  options: { apiVersion?: string; quietMs?: number; timeoutMs?: number } = {},
+): Promise<LiveCheckResult> {
+  const quietMs = options.quietMs ?? 4_000;
+  return runCheck(`silent-tool-response:${model}`, apiKey, async (open): Promise<Outcome> => {
+    const info = getLiveModelInfo(model);
+    if (info?.toolExecution !== 'non-blocking-default') {
+      return { status: 'skipped', detail: `useSession only sends scheduling SILENT to models with asynchronous-by-default calls; '${model}' is not one` };
+    }
+    const session = await open({ model, config: canaryToolConfig(model), apiVersion: options.apiVersion });
+    const since = session.mark();
+    session.sendText(BUILTIN_PROBE.prompt);
+    const callEvent = await session.waitFor(
+      (e) => e.type === 'toolCall' && e.calls.some((c) => c.name === BUILTIN_PROBE.expectTool),
+      options.timeoutMs ?? 30_000,
+      { since, description: 'the probe tool call' },
+    );
+    const call = (callEvent as { calls: LiveToolCall[] }).calls.find((c) => c.name === BUILTIN_PROBE.expectTool)!;
+    const responded = session.mark();
+    session.respondToTool(call, BUILTIN_PROBE.result ?? 'ok', { scheduling: FunctionResponseScheduling.SILENT });
+    await new Promise((r) => setTimeout(r, quietMs));
+    if (session.closed) {
+      return {
+        status: 'contract-changed',
+        detail: `PROVIDER CONTRACT CHANGED for ${model}: a tool response with scheduling SILENT closed the session (${session.closed.code ?? 'no code'} "${session.closed.reason}"). useSession sends this when the bot calls endSession after saying goodbye.`,
+        metrics: { closeCode: session.closed.code ?? 'none' },
+      };
+    }
+    const audioAfter = session.audioBytes(responded);
+    const metrics = { quietMs, audioSecondsAfterResponse: Number((audioAfter / 48_000).toFixed(2)), said: clip(session.outputText(responded), 60) };
+    if (audioAfter > 0) {
+      return {
+        status: 'contract-changed',
+        detail: `PROVIDER CONTRACT CHANGED for ${model}: the model spoke ("${clip(session.outputText(responded), 60)}") after a tool response sent with scheduling SILENT. useSession relies on SILENT to keep the model quiet after its goodbye.`,
+        metrics,
+      };
+    }
+    return { status: 'pass', detail: `no speech in the ${quietMs} ms after a SILENT tool response`, metrics };
   });
 }
 

@@ -33,6 +33,8 @@ If either guard fires, **fix the leak**; do not weaken the rule.
 - `src/services/liveConnectConfig.ts` (`buildLiveConnectConfig`) builds the config passed to `ai.live.connect`. `useSession` and the test kit both call it. Do not build a Live config anywhere else.
 - `src/__tests__/noRetiredModels.test.ts` fails if a legacy or shut-down id appears outside the registry.
 - A change to the registry, the builder or the hook's connect path is not done until `npm run test:live` passes against the real API (see TESTING.md for how to supply the key at run time).
+- `useSession`'s message handling is tested by replaying REAL recorded traces (`src/__tests__/fixtures/live-traces/`, replayed by `src/__tests__/hooks/useSession.replay.test.ts`). Do not hand-edit a trace or write one by hand to make a test pass: re-record with `scripts/capture-live-traces.mjs`. If a fresh recording changes the ORDER of events, the provider changed; update the registry and the hook, not the assertion.
+- `turnComplete` does not mean "the bot has finished answering" (see `toolCallEndsTurnEarly` and `idleSignal` in the registry). Nothing in the hook may assume it does.
 
 ## After any material change
 

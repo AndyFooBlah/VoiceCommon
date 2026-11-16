@@ -1,0 +1,658 @@
+{
+ "meta": {
+  "scenario": "goodbye-end-session",
+  "model": "gemini-3.1-flash-live-preview",
+  "capturedAt": "2026-11-16T01:50:50.925Z",
+  "sdk": "@google/genai 2.32.0",
+  "generator": "scripts/capture-live-traces.mjs",
+  "note": "Real provider event trace. Synthetic content; audio payloads reduced to byte counts; resumption handles masked; no credentials.",
+  "thinkingLevel": "MINIMAL",
+  "turnTaking": "server VAD, defaults"
+ },
+ "events": [
+  {
+   "t": 272,
+   "from": "server",
+   "message": {
+    "setupComplete": {}
+   }
+  },
+  {
+   "t": 517,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "speechState": "SPEECH"
+    },
+    "voiceActivity": {
+     "type": "ACTIVITY_START",
+     "audioOffset": "0.200s"
+    }
+   }
+  },
+  {
+   "t": 3675,
+   "kind": "speechEnded",
+   "from": "client"
+  },
+  {
+   "t": 4778,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "inputTranscription": {
+      "text": "That's everything I needed today. Thank you. Goodbye."
+     }
+    }
+   }
+  },
+  {
+   "t": 4778,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "speechState": "NON_SPEECH"
+    },
+    "voiceActivity": {
+     "type": "ACTIVITY_END",
+     "audioOffset": "4.280s"
+    }
+   }
+  },
+  {
+   "t": 4778,
+   "from": "server",
+   "message": {
+    "serverContent": {}
+   }
+  },
+  {
+   "t": 5051,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 2
+        }
+       }
+      ]
+     },
+     "outputTranscription": {
+      "text": "You're welcome,"
+     }
+    }
+   }
+  },
+  {
+   "t": 5053,
+   "from": "server",
+   "message": {
+    "sessionResumptionUpdate": {
+     "newHandle": "HANDLE-MASKED",
+     "resumable": true
+    }
+   }
+  },
+  {
+   "t": 5103,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 11520
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "t": 5210,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 9600
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "t": 5219,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 7680
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "t": 5332,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 15360
+        }
+       }
+      ]
+     },
+     "outputTranscription": {
+      "text": " goodbye."
+     }
+    }
+   }
+  },
+  {
+   "t": 5340,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 7680
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "t": 5370,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 7680
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "t": 5409,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 7680
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "t": 5456,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 7680
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "t": 5519,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 9600
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "t": 5562,
+   "from": "server",
+   "message": {
+    "toolCall": {
+     "functionCalls": [
+      {
+       "name": "endSession",
+       "args": {},
+       "id": "fc_2347756589095932031"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "t": 5563,
+   "kind": "toolResponded",
+   "id": "fc_2347756589095932031",
+   "name": "endSession",
+   "result": "ok",
+   "from": "client"
+  },
+  {
+   "t": 5878,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "generationComplete": true
+    }
+   }
+  },
+  {
+   "t": 6098,
+   "from": "server",
+   "message": {
+    "sessionResumptionUpdate": {
+     "newHandle": "HANDLE-MASKED",
+     "resumable": true
+    }
+   }
+  },
+  {
+   "t": 6706,
+   "from": "server",
+   "message": {
+    "sessionResumptionUpdate": {
+     "newHandle": "HANDLE-MASKED",
+     "resumable": true
+    }
+   }
+  },
+  {
+   "t": 6842,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "turnComplete": true
+    },
+    "usageMetadata": {
+     "promptTokenCount": 423,
+     "responseTokenCount": 56,
+     "totalTokenCount": 479,
+     "promptTokensDetails": [
+      {
+       "modality": "TEXT",
+       "tokenCount": 257
+      },
+      {
+       "modality": "AUDIO",
+       "tokenCount": 99
+      }
+     ],
+     "responseTokensDetails": [
+      {
+       "modality": "AUDIO",
+       "tokenCount": 51
+      }
+     ]
+    }
+   }
+  },
+  {
+   "t": 7046,
+   "from": "server",
+   "message": {
+    "sessionResumptionUpdate": {
+     "newHandle": "HANDLE-MASKED",
+     "resumable": true
+    }
+   }
+  },
+  {
+   "t": 7331,
+   "from": "server",
+   "message": {
+    "sessionResumptionUpdate": {
+     "newHandle": "HANDLE-MASKED",
+     "resumable": true
+    }
+   }
+  },
+  {
+   "t": 7544,
+   "from": "server",
+   "message": {
+    "sessionResumptionUpdate": {
+     "newHandle": "HANDLE-MASKED",
+     "resumable": true
+    }
+   }
+  },
+  {
+   "t": 8110,
+   "from": "server",
+   "message": {
+    "sessionResumptionUpdate": {
+     "newHandle": "HANDLE-MASKED",
+     "resumable": true
+    }
+   }
+  },
+  {
+   "t": 8470,
+   "from": "server",
+   "message": {
+    "sessionResumptionUpdate": {
+     "newHandle": "HANDLE-MASKED",
+     "resumable": true
+    }
+   }
+  },
+  {
+   "t": 8875,
+   "from": "server",
+   "message": {
+    "sessionResumptionUpdate": {
+     "newHandle": "HANDLE-MASKED",
+     "resumable": true
+    }
+   }
+  },
+  {
+   "t": 9606,
+   "from": "server",
+   "message": {
+    "sessionResumptionUpdate": {
+     "newHandle": "HANDLE-MASKED",
+     "resumable": true
+    }
+   }
+  },
+  {
+   "t": 10009,
+   "from": "server",
+   "message": {
+    "sessionResumptionUpdate": {
+     "newHandle": "HANDLE-MASKED",
+     "resumable": true
+    }
+   }
+  },
+  {
+   "t": 10419,
+   "from": "server",
+   "message": {
+    "sessionResumptionUpdate": {
+     "newHandle": "HANDLE-MASKED",
+     "resumable": true
+    }
+   }
+  },
+  {
+   "t": 10852,
+   "from": "server",
+   "message": {
+    "sessionResumptionUpdate": {
+     "newHandle": "HANDLE-MASKED",
+     "resumable": true
+    }
+   }
+  },
+  {
+   "t": 11125,
+   "from": "server",
+   "message": {
+    "sessionResumptionUpdate": {
+     "newHandle": "HANDLE-MASKED",
+     "resumable": true
+    }
+   }
+  },
+  {
+   "t": 11716,
+   "from": "server",
+   "message": {
+    "sessionResumptionUpdate": {
+     "newHandle": "HANDLE-MASKED",
+     "resumable": true
+    }
+   }
+  },
+  {
+   "t": 12334,
+   "from": "server",
+   "message": {
+    "sessionResumptionUpdate": {
+     "newHandle": "HANDLE-MASKED",
+     "resumable": true
+    }
+   }
+  },
+  {
+   "t": 12769,
+   "from": "server",
+   "message": {
+    "sessionResumptionUpdate": {
+     "newHandle": "HANDLE-MASKED",
+     "resumable": true
+    }
+   }
+  },
+  {
+   "t": 13206,
+   "from": "server",
+   "message": {
+    "sessionResumptionUpdate": {
+     "newHandle": "HANDLE-MASKED",
+     "resumable": true
+    }
+   }
+  },
+  {
+   "t": 13560,
+   "from": "server",
+   "message": {
+    "sessionResumptionUpdate": {
+     "newHandle": "HANDLE-MASKED",
+     "resumable": true
+    }
+   }
+  },
+  {
+   "t": 14685,
+   "from": "server",
+   "message": {
+    "sessionResumptionUpdate": {
+     "newHandle": "HANDLE-MASKED",
+     "resumable": true
+    }
+   }
+  },
+  {
+   "t": 15137,
+   "from": "server",
+   "message": {
+    "sessionResumptionUpdate": {
+     "newHandle": "HANDLE-MASKED",
+     "resumable": true
+    }
+   }
+  },
+  {
+   "t": 15404,
+   "from": "server",
+   "message": {
+    "sessionResumptionUpdate": {
+     "newHandle": "HANDLE-MASKED",
+     "resumable": true
+    }
+   }
+  },
+  {
+   "t": 15792,
+   "from": "server",
+   "message": {
+    "sessionResumptionUpdate": {
+     "newHandle": "HANDLE-MASKED",
+     "resumable": true
+    }
+   }
+  },
+  {
+   "t": 16069,
+   "from": "server",
+   "message": {
+    "sessionResumptionUpdate": {
+     "newHandle": "HANDLE-MASKED",
+     "resumable": true
+    }
+   }
+  },
+  {
+   "t": 16777,
+   "from": "server",
+   "message": {
+    "sessionResumptionUpdate": {
+     "newHandle": "HANDLE-MASKED",
+     "resumable": true
+    }
+   }
+  },
+  {
+   "t": 17035,
+   "from": "server",
+   "message": {
+    "sessionResumptionUpdate": {
+     "newHandle": "HANDLE-MASKED",
+     "resumable": true
+    }
+   }
+  },
+  {
+   "t": 17817,
+   "from": "server",
+   "message": {
+    "sessionResumptionUpdate": {
+     "newHandle": "HANDLE-MASKED",
+     "resumable": true
+    }
+   }
+  },
+  {
+   "t": 18197,
+   "from": "server",
+   "message": {
+    "sessionResumptionUpdate": {
+     "newHandle": "HANDLE-MASKED",
+     "resumable": true
+    }
+   }
+  },
+  {
+   "t": 18786,
+   "from": "server",
+   "message": {
+    "sessionResumptionUpdate": {
+     "newHandle": "HANDLE-MASKED",
+     "resumable": true
+    }
+   }
+  },
+  {
+   "t": 19090,
+   "from": "server",
+   "message": {
+    "sessionResumptionUpdate": {
+     "newHandle": "HANDLE-MASKED",
+     "resumable": true
+    }
+   }
+  },
+  {
+   "t": 19750,
+   "from": "server",
+   "message": {
+    "sessionResumptionUpdate": {
+     "newHandle": "HANDLE-MASKED",
+     "resumable": true
+    }
+   }
+  },
+  {
+   "t": 20028,
+   "from": "server",
+   "message": {
+    "sessionResumptionUpdate": {
+     "newHandle": "HANDLE-MASKED",
+     "resumable": true
+    }
+   }
+  },
+  {
+   "t": 20316,
+   "from": "server",
+   "message": {
+    "sessionResumptionUpdate": {
+     "newHandle": "HANDLE-MASKED",
+     "resumable": true
+    }
+   }
+  },
+  {
+   "t": 21060,
+   "from": "server",
+   "message": {
+    "sessionResumptionUpdate": {
+     "newHandle": "HANDLE-MASKED",
+     "resumable": true
+    }
+   }
+  }
+ ]
+}

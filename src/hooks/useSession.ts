@@ -38,7 +38,12 @@ import { useState, useRef, useCallback } from 'react';
 import { doc, updateDoc } from 'firebase/firestore';
 import { db } from '../services/firebase';
 import { GoogleGenAI } from '@google/genai';
-import type { LiveServerMessage, FunctionDeclaration, SpeechConfig } from '@google/genai';
+import type {
+  LiveServerMessage,
+  FunctionDeclaration,
+  FunctionResponseScheduling,
+  SpeechConfig,
+} from '@google/genai';
 import { mintLiveToken, isDebugEnabled } from '../services/config';
 import { Timestamp } from 'firebase/firestore';
 import { Message, ConnectionStatus, TranscriptEntry } from '../types';
@@ -77,6 +82,27 @@ const MAX_RESUME_FAILURES = 3;
  * echo mute in connectGemini / startSession.
  */
 const GREETING_MUTE_MAX_MS = 15_000;
+
+/**
+ * Ending a session on the bot's `endSession` call. The app is asked to end
+ * the session (`onSessionEndRequest`) only once the bot's closing words have
+ * finished PLAYING, so an app that stops the session straight away does not
+ * cut the goodbye off in the room or in the recording.
+ */
+/** Bot audio must have been finished for this long before the session is ended. */
+const END_SESSION_SETTLE_MS = 300;
+/** How long to wait for a closing reply that has not started arriving yet. */
+const END_SESSION_REPLY_GRACE_MS = 4_000;
+/** Upper bound on the whole wait, whatever the bot does. */
+const END_SESSION_MAX_WAIT_MS = 12_000;
+
+/**
+ * If playback has drained and the provider has neither sent more audio nor
+ * said the reply is complete for this long, treat the reply as over. A safety
+ * net for a lost completion signal; in every recorded trace the signal
+ * arrives, and gaps between chunks of one reply are far shorter than this.
+ */
+const GENERATION_STALL_MS = 1_500;
 
 /** Word overlap ratio above which a bot turn is considered a repetition (0–1). */
 const REPETITION_THRESHOLD = 0.85;
@@ -135,7 +161,13 @@ export interface UseSessionOptions {
    * tool result. Return a string describing the result.
    */
   onToolCall?: (name: string, args: Record<string, unknown>) => Promise<string>;
-  /** Called when the bot requests to end the session via the 'endSession' tool. */
+  /**
+   * Called when the bot has ended the session with the 'endSession' tool AND
+   * its closing words have finished playing (bounded by a 12 s cap). It is
+   * safe to call `stopSession()` straight from this callback: the goodbye has
+   * already been heard and recorded in full. Not called if the session was
+   * stopped some other way in the meantime.
+   */
   onSessionEndRequest?: () => void;
   /**
    * Called after the session is fully finalized (audio uploaded, Firestore
@@ -144,6 +176,15 @@ export interface UseSessionOptions {
   onSessionEnd?: () => void;
   /** Called when bot audio starts or stops playing (for UI feedback). */
   onBotSpeaking?: (speaking: boolean) => void;
+  /**
+   * Called when the model reports a change of `interactionStatus`. Only
+   * `gemini-3.8-live-extended-thinking` reports it today: `'IN_PROGRESS'`
+   * while it is still reasoning or waiting on a tool (it may have spoken a
+   * filler sentence and sent `turnComplete` already), `'IDLE'` when the whole
+   * exchange is finished. Use it for a "thinking" indicator. Never called for
+   * models that do not report a status.
+   */
+  onInteractionStatus?: (status: string) => void;
   /**
    * Text sent via sendRealtimeInput immediately after connecting so the bot
    * takes the first turn. Use bracket notation to signal it is a system cue,
@@ -334,6 +375,8 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
   onSessionEndRef.current = options.onSessionEnd;
   const onBotSpeakingRef = useRef(options.onBotSpeaking);
   onBotSpeakingRef.current = options.onBotSpeaking;
+  const onInteractionStatusRef = useRef(options.onInteractionStatus);
+  onInteractionStatusRef.current = options.onInteractionStatus;
 
   // Current instruction and tools stored in refs so reconnect uses latest values
   const systemInstructionRef = useRef(systemInstruction);
@@ -391,6 +434,27 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
   // Turn tracking for tool-call cancellation on interrupt
   const currentTurnIdRef = useRef(0);
   const cancelledTurnsRef = useRef<Set<number>>(new Set());
+  // Tool calls the SERVER cancelled (toolCallCancellation). Authoritative: a
+  // result sent for one of these makes the model speak about a question the
+  // user has already moved on from.
+  const cancelledToolCallIdsRef = useRef<Set<string>>(new Set());
+
+  // The model the current connection is using (set at connect).
+  const activeModelRef = useRef<string>(DEFAULT_LIVE_MODEL);
+  // True from the first audio chunk of a spoken reply until the provider says
+  // that reply is fully generated (generationComplete / turnComplete /
+  // interrupted). While true, an empty playback queue is a gap between
+  // chunks, not the end of speech.
+  const generatingRef = useRef(false);
+  // Whether the bot has produced audio in the provider turn now in progress.
+  const spokeThisTurnRef = useRef(false);
+  // Count of bot audio messages received this session (to tell whether more
+  // audio has arrived since some earlier moment).
+  const botAudioMessagesRef = useRef(0);
+  // Latest interactionStatus the model reported, if it reports one at all.
+  const interactionStatusRef = useRef<string | null>(null);
+  // True while an endSession call is waiting for the goodbye to finish.
+  const endSessionPendingRef = useRef(false);
 
   // Per-turn timing instrumentation.
   //
@@ -579,9 +643,47 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
     }
     activeSourcesRef.current.clear();
     scheduleTimeRef.current = audioContextRef.current?.currentTime ?? 0;
+    // Whatever was being generated has been discarded.
+    generatingRef.current = false;
     botSpeakingRef.current = false;
     onBotSpeakingRef.current?.(false);
   }, []);
+
+  /**
+   * Declare the bot silent, and release the greeting mute, if it really has
+   * finished speaking: nothing is playing or queued AND the provider has
+   * finished generating the reply. The second condition matters because the
+   * provider usually opens a reply with a one-sample audio chunk that "ends"
+   * the instant it is scheduled, tens of milliseconds before the next chunk
+   * arrives; without it the bot would be reported silent (and the greeting
+   * mute lifted) at the very start of every such reply.
+   */
+  function markBotSilentIfFinished(): void {
+    const ctx = audioContextRef.current;
+    if (!ctx) return;
+    if (activeSourcesRef.current.size > 0) return;
+    if (scheduleTimeRef.current > ctx.currentTime + 0.05) return;
+    if (generatingRef.current) return;
+    if (botSpeakingRef.current) {
+      botSpeakingRef.current = false;
+      onBotSpeakingRef.current?.(false);
+    }
+    // The bot has finished speaking. If we were holding mic input for the
+    // opening greeting, release it now — the greeting has fully played, so
+    // its echo can no longer trigger a restart. A model that reports
+    // interactionStatus is not finished until it says IDLE.
+    // Only once some greeting audio has actually arrived: a turnComplete that
+    // precedes it (a tool call made before greeting) is not the greeting ending.
+    if (
+      greetingMuteActiveRef.current &&
+      botAudioMessagesRef.current > 0 &&
+      interactionStatusRef.current !== 'IN_PROGRESS'
+    ) {
+      greetingMuteActiveRef.current = false;
+      micSendEnabledRef.current = true;
+      console.log('[Session] Opening greeting finished — mic input to Gemini enabled');
+    }
+  }
 
   function playAudioChunk(pcm24k: ArrayBuffer): void {
     const ctx = audioContextRef.current;
@@ -613,18 +715,24 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
     activeSourcesRef.current.add(source);
     source.onended = () => {
       activeSourcesRef.current.delete(source);
-      // If no more scheduled audio, notify speaking stopped
-      if (scheduleTimeRef.current <= ctx.currentTime + 0.05) {
-        botSpeakingRef.current = false;
-        onBotSpeakingRef.current?.(false);
-        // The bot just finished speaking. If we were holding mic input for the
-        // opening greeting, release it now — the greeting has fully played, so
-        // its echo can no longer trigger a restart.
-        if (greetingMuteActiveRef.current) {
-          greetingMuteActiveRef.current = false;
-          micSendEnabledRef.current = true;
-          console.log('[Session] Opening greeting finished — mic input to Gemini enabled');
-        }
+      // If no more audio is queued AND the reply is fully generated, the bot
+      // has stopped speaking.
+      markBotSilentIfFinished();
+      // Drained, but the provider has not said the reply is complete. Usually
+      // the next chunk is milliseconds away. If nothing at all arrives for a
+      // while, stop waiting for a completion signal that is not coming.
+      if (generatingRef.current && activeSourcesRef.current.size === 0) {
+        const audioMessagesSeen = botAudioMessagesRef.current;
+        setTimeout(() => {
+          if (
+            generatingRef.current &&
+            botAudioMessagesRef.current === audioMessagesSeen &&
+            activeSourcesRef.current.size === 0
+          ) {
+            generatingRef.current = false;
+            markBotSilentIfFinished();
+          }
+        }, GENERATION_STALL_MS);
       }
     };
 
@@ -665,7 +773,7 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
    * detection, reset accumulator. Safe to call zero or many times per turn —
    * does nothing if the accumulator is empty or already sealed.
    */
-  function sealBotTurn(reason: 'turnComplete' | 'interrupted'): void {
+  function sealBotTurn(reason: 'turnComplete' | 'interrupted' | 'toolCall' | 'sessionEnd'): void {
     if (botTurnSealedRef.current) return;
     const text = currentBotTurnRef.current.trim();
     currentBotTurnRef.current = '';
@@ -835,8 +943,17 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
       resetTurnTiming('interrupted');
       cancelledTurnsRef.current.add(currentTurnIdRef.current);
       currentTurnIdRef.current += 1;
+      spokeThisTurnRef.current = false;
       stopActiveAudio();
       sealBotTurn('interrupted');
+    }
+
+    // Tool calls the server has cancelled (it does this when the user
+    // interrupts the turn that issued them). Remember the ids: a result must
+    // not be sent for them.
+    if (msg.toolCallCancellation?.ids?.length) {
+      for (const id of msg.toolCallCancellation.ids) cancelledToolCallIdsRef.current.add(id);
+      console.log(`[Session] Server cancelled ${msg.toolCallCancellation.ids.length} tool call(s)`);
     }
 
     // Audio output — play chunks and record them to the archive via mixedDest
@@ -855,6 +972,9 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
         }
       }
       if (audioChunkCount > 0) {
+        generatingRef.current = true;
+        spokeThisTurnRef.current = true;
+        botAudioMessagesRef.current += 1;
         // Bot audio has started — seal the user turn (covers audio-only turns
         // where no output transcription chunk precedes the audio).
         sealUserTurn();
@@ -892,12 +1012,43 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
       }
     }
 
-    // Turn complete — flush to transcript and run repetition detection
+    // The reply is fully generated (its audio may still be playing). From
+    // here an empty playback queue means the bot has finished speaking.
+    if (msg.serverContent?.generationComplete) {
+      generatingRef.current = false;
+      markBotSilentIfFinished();
+    }
+
+    // Turn complete — flush to transcript and run repetition detection.
+    //
+    // NOTE: this does not always mean "the bot has finished answering". With
+    // asynchronous function calling (the gemini-3.8-live default) the turn
+    // that issues a tool call completes at once, and the spoken reply to the
+    // tool result arrives afterwards as a further turn. So nothing here may
+    // assume the exchange is over: it only closes the transcript entry for
+    // what has been said so far.
     if (msg.serverContent?.turnComplete) {
       logTurnEvent('turn-complete');
       resetTurnTiming('turnComplete');
       currentTurnIdRef.current += 1;
+      spokeThisTurnRef.current = false;
+      generatingRef.current = false;
       sealBotTurn('turnComplete');
+      markBotSilentIfFinished();
+    }
+
+    // interactionStatus (gemini-3.8-live-extended-thinking): IN_PROGRESS while
+    // the model is still reasoning or waiting on a tool, even after a
+    // turnComplete; IDLE when the whole exchange is done. It arrives inside
+    // serverContent today; the provider docs also show it at the top level.
+    const interactionStatus =
+      (msg as { interactionStatus?: unknown }).interactionStatus ??
+      (msg.serverContent as { interactionStatus?: unknown } | undefined)?.interactionStatus;
+    if (typeof interactionStatus === 'string' && interactionStatus !== interactionStatusRef.current) {
+      interactionStatusRef.current = interactionStatus;
+      console.log(`[Session] interactionStatus → ${interactionStatus}`);
+      onInteractionStatusRef.current?.(interactionStatus);
+      if (interactionStatus !== 'IN_PROGRESS') markBotSilentIfFinished();
     }
 
     // User speech (input transcription). Accumulate chunks into one growing
@@ -919,12 +1070,109 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
         logTurnEvent('tool-call-received',
           `name=${c.name} args=${JSON.stringify(c.args ?? {}).slice(0, 80)}`);
       }
+      // Has the bot already said something in this turn (or is it audibly
+      // still saying it)? Decides how an endSession call is answered.
+      const spokeBeforeCall =
+        spokeThisTurnRef.current || generatingRef.current || activeSourcesRef.current.size > 0;
+      // Whatever the bot said before calling the tool is a complete utterance
+      // of its own. Persist it NOW, so the record reads in the order things
+      // happened: what was said, then the tool, then the answer. Left to the
+      // next turnComplete it would land after the tool entry, and on a model
+      // with blocking calls it would be glued to the answer in one entry.
+      sealBotTurn('toolCall');
       // Handle tool calls asynchronously but don't let errors propagate into the handler
-      void handleToolCalls(msg.toolCall.functionCalls);
+      void handleToolCalls(msg.toolCall.functionCalls, spokeBeforeCall);
     }
   }
 
-  async function handleToolCalls(calls: Array<{ id?: string; name?: string; args?: unknown }>): Promise<void> {
+  /**
+   * Resolve once the bot's closing words have finished playing (see the
+   * END_SESSION_* constants), or at once if the session is being stopped
+   * some other way.
+   */
+  function waitForGoodbyeToFinish(expectReply: boolean, sessionAtCall: string | null): Promise<void> {
+    const startedAt = Date.now();
+    const audioMessagesAtCall = botAudioMessagesRef.current;
+    let quietSince: number | null = null;
+    return new Promise<void>((resolve) => {
+      const tick = () => {
+        if (isStoppingRef.current || sessionRef.current !== sessionAtCall) return resolve();
+        const now = Date.now();
+        const elapsed = now - startedAt;
+        const ctx = audioContextRef.current;
+        const audible =
+          activeSourcesRef.current.size > 0 ||
+          generatingRef.current ||
+          (ctx ? scheduleTimeRef.current > ctx.currentTime + 0.05 : false);
+        const replyStarted = botAudioMessagesRef.current > audioMessagesAtCall;
+        const busy = interactionStatusRef.current === 'IN_PROGRESS';
+        // A closing reply is still to come: either we know one follows the
+        // tool response, or the model says it is still working.
+        const awaitingReply = (expectReply || busy) && !replyStarted && elapsed < END_SESSION_REPLY_GRACE_MS;
+        // The reply has started and the model has not yet said it is done.
+        const replyUnderWay = busy && replyStarted;
+        if (audible || awaitingReply || replyUnderWay) quietSince = null;
+        else if (quietSince === null) quietSince = now;
+        const settled = quietSince !== null && now - quietSince >= END_SESSION_SETTLE_MS;
+        if (settled || elapsed >= END_SESSION_MAX_WAIT_MS) return resolve();
+        setTimeout(tick, 50);
+      };
+      tick();
+    });
+  }
+
+  /**
+   * The bot called `endSession`. Acknowledge the call, let its goodbye play
+   * out, then ask the app to end the session.
+   */
+  async function endSessionAfterGoodbye(
+    call: { id?: string; name?: string },
+    spokeBeforeCall: boolean,
+  ): Promise<void> {
+    const name = call.name ?? 'endSession';
+    const toolExecution = getLiveModelInfo(activeModelRef.current)?.toolExecution;
+    // On a model with asynchronous function calling, answering a tool call
+    // makes the model speak again about the result ("The session has ended.").
+    // If it has already said goodbye, ask it to take the result silently.
+    // Only models that default to asynchronous calls accept `scheduling`.
+    const silent = spokeBeforeCall && toolExecution === 'non-blocking-default';
+    try {
+      liveSessionRef.current?.sendToolResponse({
+        functionResponses: [
+          {
+            id: call.id,
+            name,
+            response: { result: 'ok' },
+            ...(silent ? { scheduling: 'SILENT' as FunctionResponseScheduling } : {}),
+          },
+        ],
+      });
+    } catch (err) {
+      console.error('[Session] sendToolResponse for endSession failed:', err);
+    }
+    if (endSessionPendingRef.current) return; // a second call while already ending
+    endSessionPendingRef.current = true;
+    const sessionAtCall = sessionRef.current;
+    // A spoken reply follows the acknowledgement when the bot has not said
+    // goodbye yet, and always on a model that only runs tools asynchronously.
+    const expectReply = !silent && (!spokeBeforeCall || toolExecution === 'non-blocking-only');
+    try {
+      await waitForGoodbyeToFinish(expectReply, sessionAtCall);
+    } finally {
+      endSessionPendingRef.current = false;
+    }
+    // Stopped some other way while we waited (stop button, halt): nothing to request.
+    if (isStoppingRef.current || sessionRef.current !== sessionAtCall) return;
+    // Flush whatever closing words arrived after the call.
+    sealBotTurn('sessionEnd');
+    console.log('[Session] Goodbye finished — requesting session end');
+    onSessionEndRequestRef.current?.();
+  }
+
+  async function handleToolCalls(
+    calls: Array<{ id?: string; name?: string; args?: unknown }>,
+    spokeBeforeCall = false,
+  ): Promise<void> {
     for (const call of calls) {
       const name = call.name ?? '';
       const args = (call.args ?? {}) as Record<string, unknown>;
@@ -938,23 +1186,11 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
 
       if (name === 'endSession') {
         console.log('[Session] endSession tool called');
-        // Send acknowledgement before triggering stop so Gemini can deliver closing audio
-        try {
-          liveSessionRef.current?.sendToolResponse({
-            functionResponses: [{ id: call.id, name, response: { result: 'ok' } }],
-          });
-        } catch (err) {
-          console.error('[Session] sendToolResponse for endSession failed:', err);
-        }
-        // Flush the in-progress bot turn (the goodbye) before tearing the
-        // session down. Gemini delivers transcription chunks via
-        // appendBotChunk into currentBotTurnRef.current; sealBotTurn is
-        // normally called only on `turnComplete`, but for tool-initiated
-        // endSession that turnComplete often arrives after the consumer
-        // has already closed the WebSocket — so without this seal, the
-        // bot's last reply never lands in Firestore.
-        sealBotTurn('turnComplete');
-        onSessionEndRequestRef.current?.();
+        // The goodbye said before the call was already persisted when the
+        // tool call arrived (sealBotTurn('toolCall')). Acknowledge the call,
+        // wait for the closing audio to finish playing, then ask the app to
+        // end the session. Not awaited: nothing else is dispatched after it.
+        void endSessionAfterGoodbye(call, spokeBeforeCall);
         return;
       }
 
@@ -994,9 +1230,15 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
         toolResultBytes: result.length,
       });
 
-      if (cancelledTurnsRef.current.has(turnAtDispatch)) {
-        console.log(`[Session] Skipping sendToolResponse for ${name} — turn was cancelled`);
-        logTurnEvent('tool-response-skipped', `name=${name} (turn cancelled)`);
+      // Do not answer a call that is no longer wanted: the server cancelled
+      // it (authoritative, by id), or the user interrupted the turn that
+      // issued it. A call the server did NOT cancel is still answered, even
+      // if the user has spoken since: with asynchronous function calling the
+      // model keeps such a call open and delivers the result when it arrives.
+      const cancelledByServer = !!call.id && cancelledToolCallIdsRef.current.has(call.id);
+      if (cancelledByServer || cancelledTurnsRef.current.has(turnAtDispatch)) {
+        console.log(`[Session] Skipping sendToolResponse for ${name} — ${cancelledByServer ? 'cancelled by the server' : 'turn was cancelled'}`);
+        logTurnEvent('tool-response-skipped', `name=${name} (${cancelledByServer ? 'server cancelled' : 'turn cancelled'})`);
       } else {
         try {
           liveSessionRef.current?.sendToolResponse({
@@ -1048,6 +1290,11 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
       endOfSpeechSensitivity: endOfSpeechSensitivityRef.current,
       resumptionHandle: resumptionHandleRef.current,
     });
+    activeModelRef.current = activeModel;
+    // A new connection starts with nothing being generated and no status.
+    generatingRef.current = false;
+    spokeThisTurnRef.current = false;
+    interactionStatusRef.current = null;
     const modelInfo = getLiveModelInfo(activeModel);
     if (modelInfo?.status === 'legacy') {
       console.warn(
@@ -1384,6 +1631,9 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
     errorCountRef.current = 0;
     currentTurnIdRef.current = 0;
     cancelledTurnsRef.current.clear();
+    cancelledToolCallIdsRef.current.clear();
+    endSessionPendingRef.current = false;
+    botAudioMessagesRef.current = 0;
 
     const instructionToUse = overrideInstruction ?? systemInstructionRef.current;
     const greetToUse = overrideAutoGreetText !== undefined ? overrideAutoGreetText : autoGreetTextRef.current;

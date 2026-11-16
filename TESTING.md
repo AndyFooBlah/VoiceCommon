@@ -22,10 +22,54 @@ No network and no key. They run on every push and pull request.
 |---|---|
 | `src/__tests__/services/liveModels.test.ts` | Table-driven: every known Live model x every thinking request (`auto`, `none`, MINIMAL, LOW, MEDIUM, HIGH) gives an exact `thinkingConfig` or an exact, actionable `LiveConfigError`. Unknown ids pass through. Registry invariants. |
 | `src/__tests__/services/liveConnectConfig.test.ts` | `buildLiveConnectConfig`: the exact default config, server VAD vs manual turn control, silence, sensitivity, `speechConfig`, resumption handle present and absent, tools including the injected `endSession`, and the errors it raises before connecting. |
-| `src/__tests__/hooks/useSession.test.ts` | The hook passes exactly the builder's output to `live.connect` for the default and for a customised session; the default model and `'auto'` thinking; a rejected combination fails before a token is minted; a setup the server rejects fails the start instead of hanging; the API-version pin. |
+| `src/__tests__/hooks/useSession.test.ts` | The hook passes exactly the builder's output to `live.connect` for the default and for a customised session; the default model and `'auto'` thinking; a rejected combination fails before a token is minted; a setup the server rejects fails the start instead of hanging; the API-version pin; tool dispatch, cancellation, the greeting mute, ending a session. |
+| `src/__tests__/hooks/useSession.replay.test.ts` | **Replay tests.** Real event traces recorded from the Live API are fed through the hook's message handler on a virtual clock. See [Replay tests](#replay-tests-real-traces-offline). |
 | `src/__tests__/testing/liveKit.test.ts` | `LiveTestSession`, the checks and `runLiveConformance` against a scripted fake SDK: trace recording, rejected setup, timeouts, redaction, the "contract changed" verdict. |
 | `src/__tests__/testing/kitPure.test.ts` | Redaction, fuzzy text matching, PCM/WAV helpers, and the integrity of every committed speech fixture (checksum, format, size). |
 | `src/__tests__/noRetiredModels.test.ts` | Guard: scans shipping source for model ids. A legacy or shut-down id outside the registry, or an id nobody has verified, fails the build with file and line. |
+
+### Replay tests: real traces, offline
+
+The Live models order their events differently around tool calls, and the
+hook has to keep a correct transcript, speaking state and recording under each
+of them. Hand-written event sequences encode what someone believes the
+provider does. These tests use what it did.
+
+- `scripts/capture-live-traces.mjs` opens real sessions with the config
+  `useSession` sends, drives short scripted exchanges, and writes every raw
+  server message with its arrival time to
+  `src/__tests__/fixtures/live-traces/<scenario>.<model>.json`. Content is
+  synthetic (scripted prompts, the committed speech fixtures, canned tool
+  results). Audio payloads are reduced to byte counts, resumption handles are
+  masked, and no credential is written.
+- `src/__tests__/hooks/replayHarness.ts` replays a trace into the real hook at
+  its recorded timing. A fake playback `AudioContext` runs on the same virtual
+  clock, so "has the goodbye finished playing?" has a real answer. The harness
+  reports what the hook persisted, rendered, sent, played, recorded, and when
+  it asked the app to end the session.
+
+| Scenario | Models | What it pins down |
+|---|---|---|
+| `tool-reply` | 3.8-live, 3.1 preview, extended-thinking | Tool entry, then ONE bot entry holding the whole reply; the early `turnComplete` on 3.8-live adds nothing and disturbs nothing |
+| `filler-tool-reply`, `filler-fast-tool-reply` | 3.8-live, 3.1 preview | What was said before the call, the tool, the answer: three entries in that order, whether the tool is slow or instant |
+| `goodbye-end-session`, `goodbye-end-session-silent` | 3.8-live, 3.1 preview, extended-thinking | The app is asked to end the session only after the goodbye has finished playing; nothing is cut off even if it stops at once; `SILENT` on 3.8-live; `IDLE` on extended-thinking |
+| `barge-in-during-tool`, `barge-in-over-filler-during-tool` (and `-late-response` recordings, kept as evidence of what a stale result causes) | 3.8-live, 3.1 preview | A result is not sent for a call the server cancelled, and is sent for a call it kept open |
+| `greeting` | all three | The greeting echo mute holds the microphone until the greeting has finished playing |
+
+Every replay also checks the invariants: transcript indices and timestamps in
+order, no empty or doubled entry, rendered messages equal to persisted
+entries, every audio chunk routed to both speakers and recorder, the recorder
+never stopped or flushed by an event, and `onBotSpeaking` true exactly while
+audio is sounding.
+
+**Rules.** Never edit a trace by hand, and never write one by hand to make a
+test pass. Re-record (`npm run build:lib`, then
+`GEMINI_API_KEY=... node scripts/capture-live-traces.mjs [scenario]`; about
+one US cent for the full set). Model wording varies between recordings and the
+tests assert on structure. If a fresh recording changes the **order** of
+events, the provider changed: the live suite's `tool-call-ordering` canary
+reports the same thing as "contract changed". Update the registry and the
+hook, not the assertion.
 
 `npm run build:lib` adds two build-time guards: `scripts/check-bundle-for-secrets.mjs`
 (no key-shaped string in `dist/`) and `scripts/check-testing-entry.mjs`
@@ -111,8 +155,10 @@ taking `{ apiKey, model, config }`.
 | `thinking-contract` | `canaryThinkingContract` | Canary. For each of `none`, MINIMAL, LOW, MEDIUM, HIGH the server accepts or rejects setup exactly as the registry predicts. |
 | `tool-behavior-contract` | `canaryToolBehaviorContract` | Canary. A `behavior: BLOCKING` tool declaration is accepted or rejected as the registry predicts. |
 | `registry-freshness` | `canaryRegistryFreshness` | Canary. No dialogue Live model is listed that the registry does not know (a `warn` usually means a newer model shipped). |
+| `tool-call-ordering` | `canaryToolCallOrdering` | Canary. The order of events around a tool call matches the registry: whether a `turnComplete` arrives between the `toolCall` and the spoken reply, whether calls are asynchronous, whether the model reports `interactionStatus` and ends on `IDLE`. This is the ordering the replay tests' recordings captured. |
+| `silent-tool-response` | `canarySilentToolResponse` | Canary. On a model with asynchronous-by-default calls, a tool response sent with `scheduling: SILENT` is not followed by speech. `useSession` relies on it when the bot calls `endSession` after saying goodbye. Skipped for other models. |
 
-`DEFAULT_LIVE_CHECKS` is everything above the three canaries. The canaries are
+`DEFAULT_LIVE_CHECKS` is everything above the five canaries. The canaries are
 model-level rather than app-level, so they run only when named; this repo's
 live suite runs them.
 
@@ -213,7 +259,7 @@ excluded from `npm test`.
 |---|---|
 | `defaultModel.live.test.ts` | Checks 1 to 13 for `DEFAULT_LIVE_MODEL` with the config `useSession` builds by default. |
 | `turnTakingMatrix.live.test.ts` | Spoken turn, patience, barge-in and latency for three presets: server VAD with defaults (CarBot, weatherbot-app), LOW end sensitivity with a 2500 ms silence (LegacyBot), and manual turn control. |
-| `contractCanaries.live.test.ts` | The thinking and tool-behaviour canaries for every measured model in the registry; the registry-freshness canary; proof that `thinkingLevel: 'auto'` gives a working session with a tool round trip on `gemini-3.8-live-extended-thinking` and on the legacy 3.1 preview; the four mint/connect API-version combinations for ephemeral tokens. |
+| `contractCanaries.live.test.ts` | The thinking, tool-behaviour, tool-call-ordering and silent-response canaries for every measured model in the registry; the registry-freshness canary; proof that `thinkingLevel: 'auto'` gives a working session with a tool round trip on `gemini-3.8-live-extended-thinking` and on the legacy 3.1 preview; the four mint/connect API-version combinations for ephemeral tokens. |
 
 ### What the provider does today
 
@@ -232,6 +278,23 @@ change is noticed, not guarantees.
   after the reply. `gemini-3.8-live-extended-thinking` speaks a filler
   sentence before the tool call and rejects a `behavior: BLOCKING`
   declaration at setup.
+- **A `SILENT` tool response is taken without speech on `gemini-3.8-live`.**
+  An ordinary answer to `endSession` made the model add "The session has
+  ended." after its goodbye; with `scheduling: SILENT` it said nothing more.
+- **Cancellation of pending calls.** When the user interrupts bot speech
+  while a call is pending, both generations send `toolCallCancellation` with
+  the call id. A result sent for a cancelled call on `gemini-3.8-live` was
+  still spoken, seconds after the user had moved on. When the user speaks
+  while the bot is silent, `gemini-3.8-live` neither interrupts nor cancels:
+  the call stays open and its result is spoken when it arrives.
+- **Extended thinking and `interactionStatus`.** The model speaks a filler
+  sentence and sends `turnComplete` with `interactionStatus: IN_PROGRESS`
+  (inside `serverContent`), issues the tool call about three seconds later,
+  and ends with `turnComplete` and `IDLE`. After `endSession` it said a
+  second goodbye.
+- **Most replies open with a one-sample audio chunk** (2 bytes), tens of
+  milliseconds before the next chunk, on every model. The server also sends
+  empty messages (`{}` and `{"serverContent":{}}`) between chunks.
 - **Server VAD honours `silenceDurationMs` on clean audio.** With 2500 ms and
   3000 ms the bot stayed silent through a pause of 60% of that length, treated
   both halves as one turn, and answered about 400 to 1000 ms after the silence
@@ -315,8 +378,8 @@ them.
 
 ## Costs
 
-A full run of this repo's live suite (42 tests) opens about 60 short sessions
-and takes about four minutes: roughly two minutes of audio in and two to three
+A full run of this repo's live suite (48 tests) opens about 65 short sessions
+and takes about four and a half minutes: roughly two minutes of audio in and two to three
 minutes of audio out. At the `gemini-3.8-live` prices checked on 2026-11-15 ($0.005 per minute
 of audio in, $0.018 per minute of audio out) that is **well under $0.25 per
 run**; a weekly canary is a few dollars a year. An app's default

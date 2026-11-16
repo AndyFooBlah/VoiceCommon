@@ -72,6 +72,21 @@ export type LiveToolExecution =
   | 'non-blocking-only'
   | 'unverified';
 
+/**
+ * How a Live model tells the client that it has finished answering.
+ *   - `turnComplete`      — `turnComplete` ends the model's answer, with one
+ *                           exception shared by every model that calls tools
+ *                           asynchronously: the turn that ISSUES a tool call
+ *                           completes at once, and the spoken reply to the
+ *                           tool result is a further turn.
+ *   - `interactionStatus` — `turnComplete` only ends an utterance (often a
+ *                           filler sentence). The model reports
+ *                           `interactionStatus: IN_PROGRESS` until the whole
+ *                           exchange is done, then `IDLE`.
+ *   - `unverified`        — not measured.
+ */
+export type LiveIdleSignal = 'turnComplete' | 'interactionStatus' | 'unverified';
+
 export interface LiveModelInfo {
   /** Model id as passed to `ai.live.connect({ model })`. */
   id: string;
@@ -90,6 +105,15 @@ export interface LiveModelInfo {
     autoLevel?: `${ThinkingLevel}`;
   };
   toolExecution: LiveToolExecution;
+  /**
+   * Event order around a tool call. True: the turn that issues a call
+   * completes at once, so a `turnComplete` arrives between the `toolCall` and
+   * the spoken reply to the tool result (which is then a further turn).
+   * False: no `turnComplete` arrives between the two. Null: not measured.
+   */
+  toolCallEndsTurnEarly: boolean | null;
+  /** How the model signals that it has finished answering. */
+  idleSignal: LiveIdleSignal;
   /** Date (ISO) these facts were last checked against docs and the live API. */
   verified: string;
   notes: readonly string[];
@@ -111,12 +135,16 @@ export const LIVE_MODELS: Readonly<Record<string, LiveModelInfo>> = Object.freez
     shutdown: null,
     thinking: { support: 'rejected', disallowedLevels: [] },
     toolExecution: 'non-blocking-default',
+    toolCallEndsTurnEarly: true,
+    idleSignal: 'turnComplete',
     verified: VERIFIED,
     notes: [
       'Interleaved reasoning is built in. Any thinkingLevel closes the socket: 1007 "Thinking level is not supported for this model."',
       'Proactive audio is permanently on (proactiveAudio: false is an error); affective dialog is removed.',
       'Audio is the only response modality; use outputAudioTranscription for text.',
       'Default turn coverage is TURN_INCLUDES_AUDIO_ACTIVITY_AND_ALL_VIDEO.',
+      'Function calls are asynchronous by default: toolCall, then generationComplete and turnComplete at once, then (after the tool response) the spoken reply as a further turn. A tool response with scheduling SILENT is taken without a spoken reply.',
+      'When the user interrupts bot speech while a call is pending, the server sends toolCallCancellation; a result sent for a cancelled call is still spoken. When the bot is silent and the user speaks, the call stays open and its result is spoken when it arrives.',
     ],
   },
   'gemini-3.8-live-extended-thinking': {
@@ -126,11 +154,13 @@ export const LIVE_MODELS: Readonly<Record<string, LiveModelInfo>> = Object.freez
     shutdown: null,
     thinking: { support: 'required', disallowedLevels: ['MINIMAL'], autoLevel: 'LOW' },
     toolExecution: 'non-blocking-only',
+    toolCallEndsTurnEarly: false,
+    idleSignal: 'interactionStatus',
     verified: VERIFIED,
     notes: [
       'A thinkingLevel is mandatory: omitting it closes the socket with 1007 "Thinking level must be specified for this model."',
       'MINIMAL is rejected (1007 "... Please retry with other thinking level."); LOW, MEDIUM and HIGH are accepted.',
-      'Speaks conversational fillers while tools run; turnComplete does not mean idle (see interactionStatus in the provider docs).',
+      'Speaks a filler sentence and sends turnComplete BEFORE it issues a tool call; turnComplete does not mean idle. serverContent.interactionStatus is IN_PROGRESS until the whole exchange is done, then IDLE.',
       'Roughly 300 ms slower to first audio than gemini-3.8-live.',
     ],
   },
@@ -142,11 +172,14 @@ export const LIVE_MODELS: Readonly<Record<string, LiveModelInfo>> = Object.freez
     replacement: 'gemini-3.8-live',
     thinking: { support: 'optional', disallowedLevels: [], autoLevel: 'MINIMAL' },
     toolExecution: 'blocking-only',
+    toolCallEndsTurnEarly: false,
+    idleSignal: 'turnComplete',
     verified: VERIFIED,
     notes: [
       'Labelled "Legacy Live API preview model" by the provider; replacement gemini-3.8-live. No shutdown date announced as of the verified date.',
       'thinkingLevel is optional: omitted, MINIMAL, LOW, MEDIUM and HIGH are all accepted. The server default is MINIMAL.',
       'Was the VoiceCommon default through 0.15.x.',
+      'Function calls block: toolCall, then (after the tool response) the spoken reply, then one turnComplete. An interruption while a call is pending sends toolCallCancellation.',
     ],
   },
   'gemini-2.5-flash-native-audio-preview-12-2025': {
@@ -157,6 +190,8 @@ export const LIVE_MODELS: Readonly<Record<string, LiveModelInfo>> = Object.freez
     replacement: 'gemini-3.8-live',
     thinking: { support: 'unverified', disallowedLevels: [] },
     toolExecution: 'unverified',
+    toolCallEndsTurnEarly: null,
+    idleSignal: 'unverified',
     verified: VERIFIED,
     notes: [
       'Configures thinking with thinkingBudget rather than thinkingLevel; VoiceCommon has never been tested against it.',
@@ -170,6 +205,8 @@ export const LIVE_MODELS: Readonly<Record<string, LiveModelInfo>> = Object.freez
     replacement: 'gemini-3.8-live',
     thinking: { support: 'unverified', disallowedLevels: [] },
     toolExecution: 'unverified',
+    toolCallEndsTurnEarly: null,
+    idleSignal: 'unverified',
     verified: VERIFIED,
     notes: [],
   },
@@ -181,6 +218,8 @@ export const LIVE_MODELS: Readonly<Record<string, LiveModelInfo>> = Object.freez
     replacement: 'gemini-3.8-live',
     thinking: { support: 'unverified', disallowedLevels: [] },
     toolExecution: 'unverified',
+    toolCallEndsTurnEarly: null,
+    idleSignal: 'unverified',
     verified: VERIFIED,
     notes: [],
   },

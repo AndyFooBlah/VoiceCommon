@@ -46,6 +46,10 @@ jobs:
       - name: Type check
         run: npx tsc --noEmit
 
+      # Publishing is gated on the OFFLINE suite: a failure here stops the job
+      # before the Publish step. It is deliberately NOT gated on the live suite
+      # (`npm run test:live`), which needs a paid API key and is run by hand or
+      # by live-contract.yml; a provider outage must not block a release.
       - name: Run tests
         run: npm test -- --run
 

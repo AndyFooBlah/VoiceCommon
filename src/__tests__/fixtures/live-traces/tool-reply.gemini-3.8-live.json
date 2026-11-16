@@ -1,0 +1,444 @@
+{
+ "meta": {
+  "scenario": "tool-reply",
+  "model": "gemini-3.8-live",
+  "capturedAt": "2026-11-16T01:48:21.815Z",
+  "sdk": "@google/genai 2.32.0",
+  "generator": "scripts/capture-live-traces.mjs",
+  "note": "Real provider event trace. Synthetic content; audio payloads reduced to byte counts; resumption handles masked; no credentials.",
+  "thinkingLevel": null,
+  "turnTaking": "server VAD, defaults"
+ },
+ "events": [
+  {
+   "t": 450,
+   "from": "server",
+   "message": {
+    "setupComplete": {}
+   }
+  },
+  {
+   "t": 451,
+   "from": "server",
+   "message": {
+    "sessionResumptionUpdate": {
+     "newHandle": "HANDLE-MASKED",
+     "resumable": true
+    }
+   }
+  },
+  {
+   "t": 451,
+   "kind": "sentText",
+   "from": "client"
+  },
+  {
+   "t": 820,
+   "from": "server",
+   "message": {}
+  },
+  {
+   "t": 821,
+   "from": "server",
+   "message": {
+    "serverContent": {}
+   }
+  },
+  {
+   "t": 836,
+   "from": "server",
+   "message": {}
+  },
+  {
+   "t": 836,
+   "from": "server",
+   "message": {
+    "toolCall": {
+     "functionCalls": [
+      {
+       "name": "getWeather",
+       "args": {
+        "city": "Paris"
+       },
+       "id": "call_817193407125333811"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "t": 837,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "generationComplete": true
+    }
+   }
+  },
+  {
+   "t": 837,
+   "kind": "toolDispatched",
+   "id": "call_817193407125333811",
+   "name": "getWeather",
+   "from": "client"
+  },
+  {
+   "t": 853,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "turnComplete": true
+    },
+    "usageMetadata": {
+     "promptTokenCount": 687,
+     "responseTokenCount": 11,
+     "totalTokenCount": 698,
+     "promptTokensDetails": [
+      {
+       "modality": "TEXT",
+       "tokenCount": 398
+      },
+      {
+       "modality": "AUDIO",
+       "tokenCount": 222
+      }
+     ],
+     "thoughtsTokenCount": 53
+    }
+   }
+  },
+  {
+   "t": 1240,
+   "kind": "toolResponded",
+   "id": "call_817193407125333811",
+   "name": "getWeather",
+   "result": "It is 18 degrees Celsius and sunny in Paris.",
+   "from": "client"
+  },
+  {
+   "t": 1627,
+   "from": "server",
+   "message": {}
+  },
+  {
+   "t": 1628,
+   "from": "server",
+   "message": {
+    "serverContent": {}
+   }
+  },
+  {
+   "t": 1825,
+   "from": "server",
+   "message": {}
+  },
+  {
+   "t": 1825,
+   "from": "server",
+   "message": {}
+  },
+  {
+   "t": 1853,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 18240
+        }
+       }
+      ],
+      "role": "model"
+     },
+     "outputTranscription": {
+      "text": "It is currently "
+     }
+    }
+   }
+  },
+  {
+   "t": 1871,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 11520
+        }
+       }
+      ],
+      "role": "model"
+     }
+    }
+   }
+  },
+  {
+   "t": 1871,
+   "from": "server",
+   "message": {}
+  },
+  {
+   "t": 1883,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 7680
+        }
+       }
+      ],
+      "role": "model"
+     }
+    }
+   }
+  },
+  {
+   "t": 1883,
+   "from": "server",
+   "message": {}
+  },
+  {
+   "t": 1893,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 9600
+        }
+       }
+      ],
+      "role": "model"
+     }
+    }
+   }
+  },
+  {
+   "t": 1958,
+   "from": "server",
+   "message": {}
+  },
+  {
+   "t": 1975,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 21120
+        }
+       }
+      ],
+      "role": "model"
+     },
+     "outputTranscription": {
+      "text": "18 degrees Celsius"
+     }
+    }
+   }
+  },
+  {
+   "t": 1975,
+   "from": "server",
+   "message": {}
+  },
+  {
+   "t": 1983,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 17280
+        }
+       }
+      ],
+      "role": "model"
+     }
+    }
+   }
+  },
+  {
+   "t": 2067,
+   "from": "server",
+   "message": {}
+  },
+  {
+   "t": 2088,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 28800
+        }
+       }
+      ],
+      "role": "model"
+     },
+     "outputTranscription": {
+      "text": " and sunny in Paris."
+     }
+    }
+   }
+  },
+  {
+   "t": 2099,
+   "from": "server",
+   "message": {}
+  },
+  {
+   "t": 2115,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 15360
+        }
+       }
+      ],
+      "role": "model"
+     }
+    }
+   }
+  },
+  {
+   "t": 2149,
+   "from": "server",
+   "message": {}
+  },
+  {
+   "t": 2161,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 17280
+        }
+       }
+      ],
+      "role": "model"
+     }
+    }
+   }
+  },
+  {
+   "t": 2215,
+   "from": "server",
+   "message": {}
+  },
+  {
+   "t": 2228,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 21120
+        }
+       }
+      ],
+      "role": "model"
+     }
+    }
+   }
+  },
+  {
+   "t": 2249,
+   "from": "server",
+   "message": {}
+  },
+  {
+   "t": 2258,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 13440
+        }
+       }
+      ],
+      "role": "model"
+     }
+    }
+   }
+  },
+  {
+   "t": 2266,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "generationComplete": true
+    }
+   }
+  },
+  {
+   "t": 5627,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "turnComplete": true
+    },
+    "usageMetadata": {
+     "promptTokenCount": 724,
+     "responseTokenCount": 95,
+     "totalTokenCount": 819,
+     "promptTokensDetails": [
+      {
+       "modality": "TEXT",
+       "tokenCount": 417
+      },
+      {
+       "modality": "AUDIO",
+       "tokenCount": 222
+      }
+     ],
+     "responseTokensDetails": [
+      {
+       "modality": "AUDIO",
+       "tokenCount": 95
+      }
+     ],
+     "thoughtsTokenCount": 62
+    }
+   }
+  }
+ ]
+}

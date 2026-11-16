@@ -1,0 +1,382 @@
+{
+ "meta": {
+  "scenario": "greeting",
+  "model": "gemini-3.8-live",
+  "capturedAt": "2026-11-16T02:01:55.598Z",
+  "sdk": "@google/genai 2.32.0",
+  "generator": "scripts/capture-live-traces.mjs",
+  "note": "Real provider event trace. Synthetic content; audio payloads reduced to byte counts; resumption handles masked; no credentials.",
+  "thinkingLevel": null,
+  "turnTaking": "server VAD, defaults"
+ },
+ "events": [
+  {
+   "t": 462,
+   "from": "server",
+   "message": {
+    "setupComplete": {}
+   }
+  },
+  {
+   "t": 462,
+   "from": "server",
+   "message": {
+    "sessionResumptionUpdate": {
+     "newHandle": "HANDLE-MASKED",
+     "resumable": true
+    }
+   }
+  },
+  {
+   "t": 462,
+   "kind": "sentText",
+   "from": "client"
+  },
+  {
+   "t": 800,
+   "from": "server",
+   "message": {}
+  },
+  {
+   "t": 800,
+   "from": "server",
+   "message": {
+    "serverContent": {}
+   }
+  },
+  {
+   "t": 948,
+   "from": "server",
+   "message": {}
+  },
+  {
+   "t": 951,
+   "from": "server",
+   "message": {}
+  },
+  {
+   "t": 951,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 2
+        }
+       }
+      ],
+      "role": "model"
+     },
+     "outputTranscription": {
+      "text": "Hello, I'm here to "
+     }
+    }
+   }
+  },
+  {
+   "t": 969,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 11520
+        }
+       }
+      ],
+      "role": "model"
+     }
+    }
+   }
+  },
+  {
+   "t": 977,
+   "from": "server",
+   "message": {}
+  },
+  {
+   "t": 990,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 7680
+        }
+       }
+      ],
+      "role": "model"
+     }
+    }
+   }
+  },
+  {
+   "t": 995,
+   "from": "server",
+   "message": {}
+  },
+  {
+   "t": 1004,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 7680
+        }
+       }
+      ],
+      "role": "model"
+     }
+    }
+   }
+  },
+  {
+   "t": 1025,
+   "from": "server",
+   "message": {}
+  },
+  {
+   "t": 1038,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 9600
+        }
+       }
+      ],
+      "role": "model"
+     }
+    }
+   }
+  },
+  {
+   "t": 1041,
+   "from": "server",
+   "message": {}
+  },
+  {
+   "t": 1051,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 7680
+        }
+       }
+      ],
+      "role": "model"
+     }
+    }
+   }
+  },
+  {
+   "t": 1090,
+   "from": "server",
+   "message": {}
+  },
+  {
+   "t": 1090,
+   "from": "server",
+   "message": {}
+  },
+  {
+   "t": 1099,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 7680
+        }
+       }
+      ],
+      "role": "model"
+     },
+     "outputTranscription": {
+      "text": "help you test!"
+     }
+    }
+   }
+  },
+  {
+   "t": 1106,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 7680
+        }
+       }
+      ],
+      "role": "model"
+     }
+    }
+   }
+  },
+  {
+   "t": 1124,
+   "from": "server",
+   "message": {}
+  },
+  {
+   "t": 1139,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 11520
+        }
+       }
+      ],
+      "role": "model"
+     }
+    }
+   }
+  },
+  {
+   "t": 1160,
+   "from": "server",
+   "message": {}
+  },
+  {
+   "t": 1171,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 13440
+        }
+       }
+      ],
+      "role": "model"
+     }
+    }
+   }
+  },
+  {
+   "t": 1229,
+   "from": "server",
+   "message": {}
+  },
+  {
+   "t": 1245,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 23040
+        }
+       }
+      ],
+      "role": "model"
+     }
+    }
+   }
+  },
+  {
+   "t": 1257,
+   "from": "server",
+   "message": {}
+  },
+  {
+   "t": 1269,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 9600
+        }
+       }
+      ],
+      "role": "model"
+     }
+    }
+   }
+  },
+  {
+   "t": 1275,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "generationComplete": true
+    }
+   }
+  },
+  {
+   "t": 3409,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "turnComplete": true
+    },
+    "usageMetadata": {
+     "promptTokenCount": 668,
+     "responseTokenCount": 67,
+     "totalTokenCount": 735,
+     "promptTokensDetails": [
+      {
+       "modality": "TEXT",
+       "tokenCount": 379
+      },
+      {
+       "modality": "AUDIO",
+       "tokenCount": 222
+      }
+     ],
+     "responseTokensDetails": [
+      {
+       "modality": "AUDIO",
+       "tokenCount": 67
+      }
+     ],
+     "thoughtsTokenCount": 36
+    }
+   }
+  }
+ ]
+}

@@ -887,6 +887,92 @@ describe('tool call dispatch', () => {
     expect(toolMsg?.toolResult).toBe('ok');
   });
 
+  // Shared by the three tests below: a tool that the test resolves by hand.
+  async function startWithSlowTool() {
+    let resolveTool: (res: string) => void = () => {};
+    const onToolCall = vi.fn().mockReturnValue(new Promise<string>((resolve) => { resolveTool = resolve; }));
+    const rendered = renderSession({ onToolCall });
+    await startSession(rendered.result);
+    act(() => {
+      capturedCallbacks.current.onmessage?.({
+        toolCall: { functionCalls: [{ id: 'call-async-1', name: 'slowTool', args: {} }] },
+      });
+    });
+    const finishTool = async () => {
+      await act(async () => {
+        resolveTool('late result');
+        await new Promise((res) => setTimeout(res, 10));
+      });
+    };
+    return { ...rendered, finishTool };
+  }
+
+  it('still answers the call after the early turnComplete of an asynchronous tool call', async () => {
+    // gemini-3.8-live: the turn that issues a call completes at once, before
+    // the tool has run. That must not make the hook drop the result.
+    const { finishTool } = await startWithSlowTool();
+    await act(async () => {
+      capturedCallbacks.current.onmessage?.({ serverContent: { generationComplete: true } });
+      capturedCallbacks.current.onmessage?.({ serverContent: { turnComplete: true } });
+    });
+    await finishTool();
+    expect(mockLiveSession.sendToolResponse).toHaveBeenCalledTimes(1);
+    expect(mockLiveSession.sendToolResponse).toHaveBeenCalledWith({
+      functionResponses: [{ id: 'call-async-1', name: 'slowTool', response: { result: 'late result' } }],
+    });
+  });
+
+  it('does not answer a call the server cancelled by id, even after the early turnComplete', async () => {
+    // The turn id has moved on (early turnComplete), so only the server's
+    // toolCallCancellation identifies this call as no longer wanted.
+    const { result, finishTool } = await startWithSlowTool();
+    await act(async () => {
+      capturedCallbacks.current.onmessage?.({ serverContent: { turnComplete: true } });
+      capturedCallbacks.current.onmessage?.({ toolCallCancellation: { ids: ['call-async-1'] } });
+    });
+    await finishTool();
+    expect(mockLiveSession.sendToolResponse).not.toHaveBeenCalled();
+    // The tool did run, so it is still in the record.
+    expect(result.current.messages.find((m) => m.role === 'tool')?.toolName).toBe('slowTool');
+  });
+
+  it('answers a call when the server cancelled a different one', async () => {
+    const { finishTool } = await startWithSlowTool();
+    await act(async () => {
+      capturedCallbacks.current.onmessage?.({ toolCallCancellation: { ids: ['some-other-call'] } });
+    });
+    await finishTool();
+    expect(mockLiveSession.sendToolResponse).toHaveBeenCalledTimes(1);
+  });
+
+  it('persists what the bot said before a tool call as its own entry, ahead of the tool entry', async () => {
+    const onToolCall = vi.fn().mockResolvedValue('sunny');
+    const { result } = renderSession({ onToolCall, liveModel: 'gemini-3.1-flash-live-preview' });
+    await startSession(result);
+
+    await act(async () => {
+      capturedCallbacks.current.onmessage?.({ serverContent: { outputTranscription: { text: 'One moment.' } } });
+      capturedCallbacks.current.onmessage?.({
+        toolCall: { functionCalls: [{ id: 'fc-1', name: 'getWeather', args: {} }] },
+      });
+      await new Promise((res) => setTimeout(res, 10));
+      capturedCallbacks.current.onmessage?.({ serverContent: { outputTranscription: { text: 'It is sunny.' } } });
+      capturedCallbacks.current.onmessage?.({ serverContent: { turnComplete: true } });
+    });
+
+    const lastSync = storageSpies.syncTranscriptToFirestore.mock.calls.at(-1)![1] as Array<{ role: string; text: string }>;
+    expect(lastSync.map((e) => `${e.role}:${e.text}`)).toEqual([
+      'bot:One moment.',
+      'tool:[getWeather]',
+      'bot:It is sunny.',
+    ]);
+    expect(result.current.messages.map((m) => `${m.role}:${m.text}`)).toEqual([
+      'bot:One moment.',
+      'tool:[getWeather]',
+      'bot:It is sunny.',
+    ]);
+  });
+
   it('does not send sendToolResponse if user interrupts before tool call finishes', async () => {
     let resolveTool: (res: string) => void = () => {};
     const toolPromise = new Promise<string>((resolve) => {
@@ -957,21 +1043,84 @@ describe('endSession tool', () => {
     });
   });
 
-  it('calls onSessionEndRequest after sending tool response', async () => {
+  it('calls onSessionEndRequest after sending the tool response, once the bot has had time to reply', async () => {
+    // The bot called endSession without having said anything, so a spoken
+    // goodbye may still follow the acknowledgement. The hook gives it a grace
+    // period before asking the app to end the session. (Real traces, with
+    // audio on a virtual clock, are replayed in useSession.replay.test.ts.)
     const onSessionEndRequest = vi.fn();
     const { result } = renderSession({ onSessionEndRequest });
     await startSession(result);
 
-    await act(async () => {
-      capturedCallbacks.current.onmessage?.({
-        toolCall: {
-          functionCalls: [{ id: 'end-call-2', name: 'endSession', args: {} }],
-        },
+    vi.useFakeTimers();
+    try {
+      await act(async () => {
+        capturedCallbacks.current.onmessage?.({
+          toolCall: {
+            functionCalls: [{ id: 'end-call-2', name: 'endSession', args: {} }],
+          },
+        });
+        await vi.advanceTimersByTimeAsync(10);
       });
-      await new Promise((res) => setTimeout(res, 10));
-    });
+      // Acknowledged at once, but the app is not asked to stop yet.
+      expect(mockLiveSession.sendToolResponse).toHaveBeenCalledTimes(1);
+      expect(onSessionEndRequest).not.toHaveBeenCalled();
 
-    expect(onSessionEndRequest).toHaveBeenCalledTimes(1);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5_000);
+      });
+      expect(onSessionEndRequest).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not ask the app to end a session that was stopped while the goodbye was playing', async () => {
+    const onSessionEndRequest = vi.fn();
+    const { result } = renderSession({ onSessionEndRequest });
+    await startSession(result);
+
+    vi.useFakeTimers();
+    try {
+      await act(async () => {
+        capturedCallbacks.current.onmessage?.({
+          toolCall: { functionCalls: [{ id: 'end-call-3', name: 'endSession', args: {} }] },
+        });
+        await vi.advanceTimersByTimeAsync(10);
+      });
+      // The user presses Stop before the wait is over.
+      await act(async () => {
+        await result.current.stopSession();
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(15_000);
+      });
+      expect(onSessionEndRequest).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('acknowledges a repeated endSession call without starting a second wait', async () => {
+    const onSessionEndRequest = vi.fn();
+    const { result } = renderSession({ onSessionEndRequest });
+    await startSession(result);
+
+    vi.useFakeTimers();
+    try {
+      await act(async () => {
+        for (const id of ['end-a', 'end-b']) {
+          capturedCallbacks.current.onmessage?.({
+            toolCall: { functionCalls: [{ id, name: 'endSession', args: {} }] },
+          });
+        }
+        await vi.advanceTimersByTimeAsync(6_000);
+      });
+      expect(mockLiveSession.sendToolResponse).toHaveBeenCalledTimes(2);
+      expect(onSessionEndRequest).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('does not call onToolCall for the endSession tool', async () => {
@@ -1495,8 +1644,14 @@ describe('onBotSpeaking callback', () => {
 
     // scheduleTimeRef is now 0.1 (startAt=0 + buffer.duration=0.1).
     // Advance currentTime past the scheduled end so the check passes:
-    //   scheduleTimeRef (0.1) <= currentTime (1.0) + 0.05 → true → fires false
+    //   scheduleTimeRef (0.1) <= currentTime (1.0) + 0.05 → true
     mockPlaybackContext.currentTime = 1.0;
+
+    // The provider says the reply is fully generated; only then does an
+    // empty playback queue mean the bot has stopped speaking.
+    await act(async () => {
+      capturedCallbacks.current.onmessage?.({ serverContent: { generationComplete: true } });
+    });
 
     // Trigger the onended handler
     await act(async () => {
@@ -1504,6 +1659,189 @@ describe('onBotSpeaking callback', () => {
     });
 
     expect(onBotSpeaking).toHaveBeenCalledWith(false);
+    mockPlaybackContext.currentTime = 0;
+  });
+
+  it('does not report the bot silent in a gap between audio chunks of one reply', async () => {
+    // The provider usually opens a reply with a one-sample chunk that ends
+    // the instant it is scheduled, before the next chunk arrives.
+    const onBotSpeaking = vi.fn();
+    let capturedOnEnded: (() => void) | null = null;
+    mockPlaybackContext.createBufferSource.mockReturnValue({
+      buffer: null,
+      connect: vi.fn(),
+      start: vi.fn(),
+      stop: vi.fn(),
+      set onended(fn: (() => void) | null) { capturedOnEnded = fn; },
+      get onended() { return capturedOnEnded; },
+      addEventListener: vi.fn(),
+    });
+    const { result } = renderSession({ onBotSpeaking });
+    await startSession(result);
+
+    await act(async () => {
+      capturedCallbacks.current.onmessage?.({
+        serverContent: {
+          modelTurn: { parts: [{ inlineData: { mimeType: 'audio/pcm;rate=24000', data: btoa('\x00\x00') } }] },
+        },
+      });
+    });
+    mockPlaybackContext.currentTime = 1.0;
+    await act(async () => {
+      capturedOnEnded?.(); // the tiny chunk has "finished"; more audio is coming
+    });
+    expect(onBotSpeaking).toHaveBeenCalledWith(true);
+    expect(onBotSpeaking).not.toHaveBeenCalledWith(false);
+
+    // turnComplete with nothing queued: now the bot really is silent.
+    await act(async () => {
+      capturedCallbacks.current.onmessage?.({ serverContent: { turnComplete: true } });
+    });
+    expect(onBotSpeaking).toHaveBeenLastCalledWith(false);
+    mockPlaybackContext.currentTime = 0;
+  });
+
+  it('gives up waiting for a completion signal that never comes', async () => {
+    // Safety net: playback drained, no more audio, and neither
+    // generationComplete nor turnComplete ever arrives.
+    const onBotSpeaking = vi.fn();
+    let capturedOnEnded: (() => void) | null = null;
+    mockPlaybackContext.createBufferSource.mockReturnValue({
+      buffer: null,
+      connect: vi.fn(),
+      start: vi.fn(),
+      stop: vi.fn(),
+      set onended(fn: (() => void) | null) { capturedOnEnded = fn; },
+      get onended() { return capturedOnEnded; },
+      addEventListener: vi.fn(),
+    });
+    const { result } = renderSession({ onBotSpeaking });
+    await startSession(result);
+
+    vi.useFakeTimers();
+    try {
+      await act(async () => {
+        capturedCallbacks.current.onmessage?.({
+          serverContent: {
+            modelTurn: { parts: [{ inlineData: { mimeType: 'audio/pcm;rate=24000', data: btoa('\x00\x00') } }] },
+          },
+        });
+      });
+      mockPlaybackContext.currentTime = 1.0;
+      await act(async () => {
+        capturedOnEnded?.();
+        await vi.advanceTimersByTimeAsync(1_000);
+      });
+      expect(onBotSpeaking).not.toHaveBeenCalledWith(false);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(600);
+      });
+      expect(onBotSpeaking).toHaveBeenLastCalledWith(false);
+    } finally {
+      vi.useRealTimers();
+      mockPlaybackContext.currentTime = 0;
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+describe('greeting echo mute', () => {
+  const micAudioSends = () =>
+    mockLiveSession.sendRealtimeInput.mock.calls.filter((c: any[]) => c[0]?.audio).length;
+  const micFrame = () =>
+    act(() => {
+      mockWorkletNode.port.onmessage?.({ data: { channelData: new Float32Array(320) } } as MessageEvent);
+    });
+
+  function captureOnEnded() {
+    const box: { fire: (() => void) | null } = { fire: null };
+    mockPlaybackContext.createBufferSource.mockReturnValue({
+      buffer: null,
+      connect: vi.fn(),
+      start: vi.fn(),
+      stop: vi.fn(),
+      set onended(fn: (() => void) | null) { box.fire = fn; },
+      get onended() { return box.fire; },
+      addEventListener: vi.fn(),
+    });
+    return box;
+  }
+
+  const audioMessage = {
+    serverContent: {
+      modelTurn: { parts: [{ inlineData: { mimeType: 'audio/pcm;rate=24000', data: btoa('\x00\x00\x00\x00') } }] },
+    },
+  };
+
+  it('forwards no microphone audio while the greeting is playing, then opens when it has finished', async () => {
+    const ended = captureOnEnded();
+    const { result } = renderSession({});
+    await startSession(result);
+
+    micFrame();
+    expect(micAudioSends()).toBe(0);
+
+    // First chunk of the greeting plays out before the next arrives.
+    await act(async () => { capturedCallbacks.current.onmessage?.(audioMessage); });
+    mockPlaybackContext.currentTime = 1.0;
+    await act(async () => { ended.fire?.(); });
+    micFrame();
+    expect(micAudioSends()).toBe(0); // still generating: a gap, not the end
+
+    // The greeting is fully generated and its audio has drained.
+    await act(async () => {
+      capturedCallbacks.current.onmessage?.({ serverContent: { generationComplete: true } });
+    });
+    micFrame();
+    expect(micAudioSends()).toBe(1);
+    mockPlaybackContext.currentTime = 0;
+  });
+
+  it('a tool call and its early turnComplete before any greeting audio do not open the microphone', async () => {
+    // gemini-3.8-live: a bot that looks something up before greeting sends
+    // toolCall, generationComplete and turnComplete with no audio at all.
+    const onToolCall = vi.fn().mockResolvedValue('context');
+    const { result } = renderSession({ onToolCall });
+    await startSession(result);
+
+    await act(async () => {
+      capturedCallbacks.current.onmessage?.({
+        toolCall: { functionCalls: [{ id: 'call_g1', name: 'loadContext', args: {} }] },
+      });
+      capturedCallbacks.current.onmessage?.({ serverContent: { generationComplete: true } });
+      capturedCallbacks.current.onmessage?.({ serverContent: { turnComplete: true } });
+      await new Promise((res) => setTimeout(res, 10));
+    });
+    micFrame();
+    expect(micAudioSends()).toBe(0);
+  });
+
+  it('on a model that reports interactionStatus, stays muted while the status is IN_PROGRESS', async () => {
+    const ended = captureOnEnded();
+    const onInteractionStatus = vi.fn();
+    const { result } = renderSession({ liveModel: 'gemini-3.8-live-extended-thinking', onInteractionStatus });
+    await startSession(result);
+
+    // A filler sentence, fully played, with turnComplete — but still IN_PROGRESS.
+    await act(async () => {
+      capturedCallbacks.current.onmessage?.(audioMessage);
+      capturedCallbacks.current.onmessage?.({ serverContent: { generationComplete: true } });
+      capturedCallbacks.current.onmessage?.({ serverContent: { turnComplete: true, interactionStatus: 'IN_PROGRESS' } });
+    });
+    mockPlaybackContext.currentTime = 1.0;
+    await act(async () => { ended.fire?.(); });
+    micFrame();
+    expect(micAudioSends()).toBe(0);
+    expect(onInteractionStatus).toHaveBeenLastCalledWith('IN_PROGRESS');
+
+    // The real greeting follows and the model reports IDLE.
+    await act(async () => {
+      capturedCallbacks.current.onmessage?.({ serverContent: { turnComplete: true, interactionStatus: 'IDLE' } });
+    });
+    micFrame();
+    expect(micAudioSends()).toBe(1);
+    expect(onInteractionStatus.mock.calls.map((c) => c[0])).toEqual(['IN_PROGRESS', 'IDLE']);
+    mockPlaybackContext.currentTime = 0;
   });
 });
 

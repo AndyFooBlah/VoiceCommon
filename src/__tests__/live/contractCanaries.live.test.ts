@@ -29,8 +29,10 @@ import { LIVE_API_VERSION } from '../../services/liveConnectConfig';
 import { DEFAULT_LIVE_MODEL, LIVE_MODELS } from '../../services/liveModels';
 import {
   canaryRegistryFreshness,
+  canarySilentToolResponse,
   canaryThinkingContract,
   canaryToolBehaviorContract,
+  canaryToolCallOrdering,
   checkEphemeralToken,
   checkModelListed,
   checkSetupAccepted,
@@ -54,6 +56,18 @@ describeLive('live: provider-contract canaries', () => {
 
   it.each(MEASURED)('BLOCKING tool declaration contract matches the registry: %s', async (model) => {
     expectCheck(await canaryToolBehaviorContract(LIVE_API_KEY, model), model);
+  });
+
+  // useSession's transcript, speaking state and end-of-session handling are
+  // verified offline against recorded traces of each model's event order
+  // (useSession.replay.test.ts). These notice when the provider changes it.
+  it.each(MEASURED)('tool-call event ordering matches the registry: %s', async (model) => {
+    expectCheck(await canaryToolCallOrdering(LIVE_API_KEY, model), model);
+  });
+
+  it.each(MEASURED)('a SILENT tool response is not followed by speech: %s', async (model) => {
+    // Skips itself for models useSession never sends SILENT to.
+    expectCheck(await canarySilentToolResponse(LIVE_API_KEY, model), model);
   });
 
   it('no dialogue Live model is listed that the registry does not know', async () => {

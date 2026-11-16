@@ -37,8 +37,12 @@ const KNOWN_OTHER_MODELS: Record<string, string> = {
   'gemini-3.8-flash-tts': 'TTS model used once by scripts/gen-speech-fixtures.mjs (current per docs, 2026-11-15)',
 };
 
-/** Files allowed to name legacy and shut-down ids: the registry is where they are recorded. */
-const REGISTRY_FILES = new Set(['src/services/liveModels.ts']);
+/**
+ * Files allowed to name legacy and shut-down ids: the registry, where they
+ * are recorded, and the trace recorder, which records the legacy model's
+ * event order on purpose, for contrast with the current one.
+ */
+const REGISTRY_FILES = new Set(['src/services/liveModels.ts', 'scripts/capture-live-traces.mjs']);
 
 const HISTORY_MARKER = 'model-history:';
 

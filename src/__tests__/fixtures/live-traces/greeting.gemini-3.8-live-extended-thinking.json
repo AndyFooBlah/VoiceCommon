@@ -1,0 +1,286 @@
+{
+ "meta": {
+  "scenario": "greeting",
+  "model": "gemini-3.8-live-extended-thinking",
+  "capturedAt": "2026-11-16T02:02:04.747Z",
+  "sdk": "@google/genai 2.32.0",
+  "generator": "scripts/capture-live-traces.mjs",
+  "note": "Real provider event trace. Synthetic content; audio payloads reduced to byte counts; resumption handles masked; no credentials.",
+  "thinkingLevel": "LOW",
+  "turnTaking": "server VAD, defaults"
+ },
+ "events": [
+  {
+   "t": 328,
+   "from": "server",
+   "message": {
+    "setupComplete": {}
+   }
+  },
+  {
+   "t": 328,
+   "from": "server",
+   "message": {
+    "sessionResumptionUpdate": {
+     "newHandle": "HANDLE-MASKED",
+     "resumable": true
+    }
+   }
+  },
+  {
+   "t": 328,
+   "kind": "sentText",
+   "from": "client"
+  },
+  {
+   "t": 710,
+   "from": "server",
+   "message": {}
+  },
+  {
+   "t": 710,
+   "from": "server",
+   "message": {
+    "serverContent": {}
+   }
+  },
+  {
+   "t": 931,
+   "from": "server",
+   "message": {}
+  },
+  {
+   "t": 974,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 20640
+        }
+       }
+      ],
+      "role": "model"
+     },
+     "outputTranscription": {
+      "text": "Hello, how can I "
+     }
+    }
+   }
+  },
+  {
+   "t": 1260,
+   "from": "server",
+   "message": {}
+  },
+  {
+   "t": 1268,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 7680
+        }
+       }
+      ],
+      "role": "model"
+     }
+    }
+   }
+  },
+  {
+   "t": 1420,
+   "from": "server",
+   "message": {}
+  },
+  {
+   "t": 1428,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 7680
+        }
+       }
+      ],
+      "role": "model"
+     }
+    }
+   }
+  },
+  {
+   "t": 1581,
+   "from": "server",
+   "message": {}
+  },
+  {
+   "t": 1591,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 7680
+        }
+       }
+      ],
+      "role": "model"
+     }
+    }
+   }
+  },
+  {
+   "t": 1740,
+   "from": "server",
+   "message": {}
+  },
+  {
+   "t": 1758,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 17280
+        }
+       }
+      ],
+      "role": "model"
+     },
+     "outputTranscription": {
+      "text": "help you today?"
+     }
+    }
+   }
+  },
+  {
+   "t": 2100,
+   "from": "server",
+   "message": {}
+  },
+  {
+   "t": 2113,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 9600
+        }
+       }
+      ],
+      "role": "model"
+     }
+    }
+   }
+  },
+  {
+   "t": 2300,
+   "from": "server",
+   "message": {}
+  },
+  {
+   "t": 2318,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 11520
+        }
+       }
+      ],
+      "role": "model"
+     }
+    }
+   }
+  },
+  {
+   "t": 2540,
+   "from": "server",
+   "message": {}
+  },
+  {
+   "t": 2555,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 11520
+        }
+       }
+      ],
+      "role": "model"
+     }
+    }
+   }
+  },
+  {
+   "t": 2781,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "generationComplete": true
+    }
+   }
+  },
+  {
+   "t": 2784,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "turnComplete": true,
+     "interactionStatus": "IDLE"
+    },
+    "usageMetadata": {
+     "promptTokenCount": 3218,
+     "responseTokenCount": 50,
+     "totalTokenCount": 3268,
+     "promptTokensDetails": [
+      {
+       "modality": "TEXT",
+       "tokenCount": 2885
+      },
+      {
+       "modality": "AUDIO",
+       "tokenCount": 222
+      }
+     ],
+     "responseTokensDetails": [
+      {
+       "modality": "AUDIO",
+       "tokenCount": 50
+      }
+     ]
+    }
+   }
+  }
+ ]
+}

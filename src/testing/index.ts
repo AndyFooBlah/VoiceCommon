@@ -39,6 +39,7 @@ export type {
   LiveModelStatus,
   LiveThinkingSupport,
   LiveToolExecution,
+  LiveIdleSignal,
   ThinkingRequest,
 } from '../services/liveModels';
 export {
@@ -53,6 +54,7 @@ export type { BuildLiveConnectConfigParams } from '../services/liveConnectConfig
 export { LiveTestSession, LiveSetupError, LiveWaitError, formatLiveTrace } from './LiveTestSession';
 export type {
   LiveTestSessionOptions,
+  LiveRawMessage,
   LiveTraceEvent,
   LiveTraceEventType,
   LiveTraceEventOf,
@@ -105,6 +107,8 @@ export {
   canaryThinkingContract,
   canaryToolBehaviorContract,
   canaryRegistryFreshness,
+  canaryToolCallOrdering,
+  canarySilentToolResponse,
   checkModelListed,
   checkEphemeralToken,
   checkLatency,

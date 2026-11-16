@@ -1,0 +1,433 @@
+{
+ "meta": {
+  "scenario": "tool-reply",
+  "model": "gemini-3.1-flash-live-preview",
+  "capturedAt": "2026-11-16T01:48:28.339Z",
+  "sdk": "@google/genai 2.32.0",
+  "generator": "scripts/capture-live-traces.mjs",
+  "note": "Real provider event trace. Synthetic content; audio payloads reduced to byte counts; resumption handles masked; no credentials.",
+  "thinkingLevel": "MINIMAL",
+  "turnTaking": "server VAD, defaults"
+ },
+ "events": [
+  {
+   "t": 336,
+   "from": "server",
+   "message": {
+    "setupComplete": {}
+   }
+  },
+  {
+   "t": 336,
+   "kind": "sentText",
+   "from": "client"
+  },
+  {
+   "t": 654,
+   "from": "server",
+   "message": {
+    "serverContent": {}
+   }
+  },
+  {
+   "t": 656,
+   "from": "server",
+   "message": {
+    "toolCall": {
+     "functionCalls": [
+      {
+       "name": "getWeather",
+       "args": {
+        "city": "Paris"
+       },
+       "id": "fc_7734510292080073379"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "t": 656,
+   "kind": "toolDispatched",
+   "id": "fc_7734510292080073379",
+   "name": "getWeather",
+   "from": "client"
+  },
+  {
+   "t": 1058,
+   "kind": "toolResponded",
+   "id": "fc_7734510292080073379",
+   "name": "getWeather",
+   "result": "It is 18 degrees Celsius and sunny in Paris.",
+   "from": "client"
+  },
+  {
+   "t": 1196,
+   "from": "server",
+   "message": {
+    "sessionResumptionUpdate": {
+     "newHandle": "HANDLE-MASKED",
+     "resumable": true
+    }
+   }
+  },
+  {
+   "t": 1366,
+   "from": "server",
+   "message": {
+    "serverContent": {}
+   }
+  },
+  {
+   "t": 1636,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 2
+        }
+       }
+      ]
+     },
+     "outputTranscription": {
+      "text": "It is"
+     }
+    }
+   }
+  },
+  {
+   "t": 1645,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 7680
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "t": 1704,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 9600
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "t": 1960,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 9600
+        }
+       }
+      ]
+     },
+     "outputTranscription": {
+      "text": " 18"
+     }
+    }
+   }
+  },
+  {
+   "t": 1968,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 7680
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "t": 1971,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 1920
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "t": 1988,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 9600
+        }
+       }
+      ]
+     },
+     "outputTranscription": {
+      "text": " degrees"
+     }
+    }
+   }
+  },
+  {
+   "t": 2005,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 7680
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "t": 2014,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 7680
+        }
+       }
+      ]
+     },
+     "outputTranscription": {
+      "text": " Celsius"
+     }
+    }
+   }
+  },
+  {
+   "t": 2021,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 7680
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "t": 2040,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 7680
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "t": 2049,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 1920
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "t": 2216,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 11520
+        }
+       }
+      ]
+     },
+     "outputTranscription": {
+      "text": " and sunny"
+     }
+    }
+   }
+  },
+  {
+   "t": 2220,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 9600
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "t": 2453,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 23040
+        }
+       }
+      ]
+     },
+     "outputTranscription": {
+      "text": " in Paris."
+     }
+    }
+   }
+  },
+  {
+   "t": 2464,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 21120
+        }
+       }
+      ]
+     }
+    }
+   }
+  },
+  {
+   "t": 2483,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "generationComplete": true
+    }
+   }
+  },
+  {
+   "t": 4637,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "turnComplete": true
+    },
+    "usageMetadata": {
+     "promptTokenCount": 605,
+     "responseTokenCount": 93,
+     "totalTokenCount": 698,
+     "promptTokensDetails": [
+      {
+       "modality": "TEXT",
+       "tokenCount": 457
+      }
+     ],
+     "responseTokensDetails": [
+      {
+       "modality": "AUDIO",
+       "tokenCount": 82
+      }
+     ]
+    }
+   }
+  },
+  {
+   "t": 4963,
+   "from": "server",
+   "message": {
+    "sessionResumptionUpdate": {
+     "newHandle": "HANDLE-MASKED",
+     "resumable": true
+    }
+   }
+  }
+ ]
+}

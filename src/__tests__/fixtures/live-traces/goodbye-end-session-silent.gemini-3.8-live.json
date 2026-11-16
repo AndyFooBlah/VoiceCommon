@@ -1,0 +1,346 @@
+{
+ "meta": {
+  "scenario": "goodbye-end-session-silent",
+  "model": "gemini-3.8-live",
+  "capturedAt": "2026-11-16T01:55:07.067Z",
+  "sdk": "@google/genai 2.32.0",
+  "generator": "scripts/capture-live-traces.mjs",
+  "note": "Real provider event trace. Synthetic content; audio payloads reduced to byte counts; resumption handles masked; no credentials.",
+  "thinkingLevel": null,
+  "turnTaking": "server VAD, defaults"
+ },
+ "events": [
+  {
+   "t": 459,
+   "from": "server",
+   "message": {
+    "setupComplete": {}
+   }
+  },
+  {
+   "t": 460,
+   "from": "server",
+   "message": {
+    "sessionResumptionUpdate": {
+     "newHandle": "HANDLE-MASKED",
+     "resumable": true
+    }
+   }
+  },
+  {
+   "t": 678,
+   "from": "server",
+   "message": {
+    "voiceActivity": {
+     "type": "ACTIVITY_START",
+     "audioOffset": "0.200s"
+    }
+   }
+  },
+  {
+   "t": 3862,
+   "kind": "speechEnded",
+   "from": "client"
+  },
+  {
+   "t": 4872,
+   "from": "server",
+   "message": {}
+  },
+  {
+   "t": 4872,
+   "from": "server",
+   "message": {}
+  },
+  {
+   "t": 4872,
+   "from": "server",
+   "message": {}
+  },
+  {
+   "t": 4872,
+   "from": "server",
+   "message": {}
+  },
+  {
+   "t": 4872,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "inputTranscription": {
+      "text": "Okay, that's everything I needed today. Thank you. Goodbye."
+     }
+    }
+   }
+  },
+  {
+   "t": 4872,
+   "from": "server",
+   "message": {
+    "voiceActivity": {
+     "type": "ACTIVITY_END",
+     "audioOffset": "4.320s"
+    }
+   }
+  },
+  {
+   "t": 4872,
+   "from": "server",
+   "message": {}
+  },
+  {
+   "t": 4872,
+   "from": "server",
+   "message": {}
+  },
+  {
+   "t": 4872,
+   "from": "server",
+   "message": {}
+  },
+  {
+   "t": 4872,
+   "from": "server",
+   "message": {
+    "serverContent": {}
+   }
+  },
+  {
+   "t": 4872,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 2
+        }
+       }
+      ],
+      "role": "model"
+     },
+     "outputTranscription": {
+      "text": "You're welcome, have "
+     }
+    }
+   }
+  },
+  {
+   "t": 4888,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 6720
+        }
+       }
+      ],
+      "role": "model"
+     }
+    }
+   }
+  },
+  {
+   "t": 4922,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 15360
+        }
+       }
+      ],
+      "role": "model"
+     }
+    }
+   }
+  },
+  {
+   "t": 4933,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 9600
+        }
+       }
+      ],
+      "role": "model"
+     }
+    }
+   }
+  },
+  {
+   "t": 4939,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 7680
+        }
+       }
+      ],
+      "role": "model"
+     }
+    }
+   }
+  },
+  {
+   "t": 4975,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 21120
+        }
+       }
+      ],
+      "role": "model"
+     },
+     "outputTranscription": {
+      "text": "a great day!"
+     }
+    }
+   }
+  },
+  {
+   "t": 4977,
+   "from": "server",
+   "message": {}
+  },
+  {
+   "t": 4986,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 19200
+        }
+       }
+      ],
+      "role": "model"
+     }
+    }
+   }
+  },
+  {
+   "t": 4986,
+   "from": "server",
+   "message": {}
+  },
+  {
+   "t": 4992,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 11520
+        }
+       }
+      ],
+      "role": "model"
+     }
+    }
+   }
+  },
+  {
+   "t": 5018,
+   "from": "server",
+   "message": {}
+  },
+  {
+   "t": 5019,
+   "from": "server",
+   "message": {
+    "toolCall": {
+     "functionCalls": [
+      {
+       "name": "endSession",
+       "args": {},
+       "id": "call_5510721476984805191"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "t": 5019,
+   "kind": "toolResponded",
+   "id": "call_5510721476984805191",
+   "name": "endSession",
+   "result": "ok",
+   "scheduling": "SILENT",
+   "from": "client"
+  },
+  {
+   "t": 5020,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "generationComplete": true
+    }
+   }
+  },
+  {
+   "t": 6792,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "turnComplete": true
+    },
+    "usageMetadata": {
+     "promptTokenCount": 814,
+     "responseTokenCount": 57,
+     "totalTokenCount": 871,
+     "promptTokensDetails": [
+      {
+       "modality": "TEXT",
+       "tokenCount": 438
+      },
+      {
+       "modality": "AUDIO",
+       "tokenCount": 307
+      }
+     ],
+     "responseTokensDetails": [
+      {
+       "modality": "AUDIO",
+       "tokenCount": 52
+      }
+     ],
+     "thoughtsTokenCount": 67
+    }
+   }
+  }
+ ]
+}

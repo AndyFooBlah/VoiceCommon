@@ -4,6 +4,94 @@ All notable changes to `@andyfooblah/voice-common`. Entries before 0.14.0 were
 reconstructed from git history; where interim work shipped without a version
 bump it is folded into the next released version.
 
+## 0.16.1 (2026-11-15)
+
+A patch for how `useSession` keeps its record and its state around tool calls
+and at the end of a session. No export, option or signature from 0.16.0 is
+changed or removed; apps on `^0.16.0` pick this up with no code change.
+Tracking issue: #65.
+
+The fixes were found, and are now guarded, by replaying real event traces
+recorded from the Live API through the hook offline (see TESTING.md, "Replay
+tests").
+
+### Fixed
+
+- **The goodbye is no longer cut off when the bot ends the session.**
+  `onSessionEndRequest` used to fire the moment the `endSession` tool call
+  arrived, while the closing words were still queued for playback. An app
+  that calls `stopSession()` from that callback (CarBot and weatherbot-app
+  do) lost 1.3 to 1.8 s of a 1.8 s goodbye, on the speakers and in the
+  recording, on `gemini-3.8-live` and on the 3.1 preview alike. The hook now
+  acknowledges the call at once and calls `onSessionEndRequest` only when the
+  closing audio has finished playing (300 ms after the queue empties, capped
+  at 12 s). An app that already waits by itself (LegacyBot polls
+  `isBotSpeaking`) is unaffected.
+- **No extra sentence after the goodbye on `gemini-3.8-live`.** Function
+  calls on that model are asynchronous, so answering `endSession` made the
+  model speak again ("The session has ended."). When the bot has already
+  said goodbye the hook now answers with `scheduling: SILENT`, which the
+  model takes without speaking.
+- **The greeting echo mute is no longer released at the start of the
+  greeting.** The provider opens most replies with a one-sample audio chunk.
+  The hook treated that chunk finishing as the bot having stopped speaking:
+  it reported `onBotSpeaking(false)` and re-enabled microphone input about
+  20 ms into the greeting, which is what the mute exists to prevent. The bot
+  now counts as silent only when playback has drained AND the provider has
+  said the reply is fully generated (`generationComplete`, `turnComplete` or
+  `interrupted`). `onBotSpeaking` no longer flickers at the start of a reply
+  or in a gap between chunks. If no such signal and no further audio arrives
+  for 1.5 s after playback drains, the reply is treated as over.
+- **Transcript order around a tool call.** What the bot says before calling
+  a tool ("One moment, let me check.") is now persisted as its own entry
+  when the call is issued. Before, on the 3.1 preview it was glued to the
+  answer in one entry written after the tool entry ("One moment, let me
+  check.It is 18 degrees…"), and on `gemini-3.8-live` a fast tool's entry was
+  written ahead of the sentence that preceded it. The record now reads in
+  the order things happened: bot, tool, bot.
+- **Tool results are not sent for calls the server cancelled.** The hook now
+  honours `toolCallCancellation` by call id. It previously inferred
+  cancellation only from its own turn counter, which the early
+  `turnComplete` of an asynchronous call advances.
+
+### Verified unchanged (now covered by tests)
+
+- The early `turnComplete` that `gemini-3.8-live` sends right after a
+  `toolCall` adds no transcript entry, does not touch `onBotSpeaking`, the
+  microphone or the recorder, and does not stop the tool result being sent.
+- One bot entry holds the whole spoken reply to a tool result; nothing is
+  dropped or duplicated; rendered messages match persisted entries.
+- When the user speaks while a tool is pending and the bot is silent,
+  `gemini-3.8-live` keeps the call open and the hook sends the result.
+
+### Added
+
+- `UseSessionOptions.onInteractionStatus(status)`. On
+  `gemini-3.8-live-extended-thinking`, `turnComplete` does not mean idle: the
+  model speaks a filler sentence, sends `turnComplete`, and only then calls
+  the tool. It reports `interactionStatus` (`IN_PROGRESS`, then `IDLE`)
+  instead. The hook now tracks it: the callback reports each change, the
+  greeting mute and the end-of-session wait both hold until `IDLE`, and the
+  filler and the answer are separate transcript entries.
+- Registry: `LiveModelInfo.idleSignal` (`'turnComplete'` or
+  `'interactionStatus'`) and `LiveModelInfo.toolCallEndsTurnEarly`.
+- Testing kit: `canaryToolCallOrdering` and `canarySilentToolResponse` (check
+  names `tool-call-ordering` and `silent-tool-response`), and
+  `LiveTestSessionOptions.captureRawMessages` / `session.rawMessages` for
+  recording replayable traces. `LiveTestSession` now also reads
+  `interactionStatus` from inside `serverContent`, where the provider sends it.
+- `scripts/capture-live-traces.mjs` and 19 recorded traces under
+  `src/__tests__/fixtures/live-traces/` (synthetic content, audio reduced to
+  byte counts, no credentials).
+
+### Tests and CI
+
+- Offline: 297 to 393 tests. 68 of them replay the recorded traces through
+  the hook on a virtual clock; 13 of those fail against the 0.16.0 hook.
+- Live: 42 to 48 tests (the two new canaries, per model).
+- CI now runs `npm run lint`. Publishing remains gated on the offline suite
+  only, never on the live suite.
+
 ## 0.16.0 (2026-11-15)
 
 The default Live model is now `gemini-3.8-live`, the thinking level defaults to

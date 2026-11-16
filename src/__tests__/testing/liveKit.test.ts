@@ -28,8 +28,10 @@ import {
   assertLiveConformance,
   buildLiveConnectConfig,
   buildProfileConnectConfig,
+  canarySilentToolResponse,
   canaryThinkingContract,
   canaryToolBehaviorContract,
+  canaryToolCallOrdering,
   checkSetupAccepted,
   checkTextTurn,
   checkToolRoundTrip,
@@ -490,6 +492,158 @@ describe('provider-contract canaries', () => {
     const flipped = await canaryToolBehaviorContract(KEY, 'gemini-3.8-live-extended-thinking');
     expect(flipped.status).toBe('contract-changed');
   });
+});
+
+describe('tool-call ordering canary', () => {
+  /**
+   * A scripted server that calls the probe tool and then replies, in the
+   * event order of the given style.
+   */
+  function toolServer(style: 'async-early-turn-complete' | 'blocking' | 'extended-thinking', idPrefix = style === 'blocking' ? 'fc_' : 'call_') {
+    return (server: any) => {
+      server.accept();
+      const reply = (extra: Record<string, unknown> = {}) => {
+        server.emit(audioPart(4800));
+        server.emit({ serverContent: { outputTranscription: { text: 'The code word is marigold.' } } });
+        server.emit({ serverContent: { generationComplete: true } });
+        server.emit({ serverContent: { turnComplete: true, ...extra } });
+      };
+      server.onToolResponse = () => setTimeout(() => reply(style === 'extended-thinking' ? { interactionStatus: 'IDLE' } : {}), 5);
+      setTimeout(() => {
+        if (style === 'extended-thinking') {
+          // Filler speech, then turnComplete while still IN_PROGRESS, then the call.
+          server.emit(audioPart(2400));
+          server.emit({ serverContent: { generationComplete: true } });
+          server.emit({ serverContent: { turnComplete: true, interactionStatus: 'IN_PROGRESS' } });
+        }
+        server.emit({ toolCall: { functionCalls: [{ id: `${idPrefix}1`, name: 'lookupConformanceCodeWord', args: {} }] } });
+        if (style === 'async-early-turn-complete') {
+          server.emit({ serverContent: { generationComplete: true } });
+          server.emit({ serverContent: { turnComplete: true } });
+        }
+      }, 5);
+    };
+  }
+
+  it.each([
+    ['gemini-3.8-live', 'async-early-turn-complete'],
+    ['gemini-3.1-flash-live-preview', 'blocking'],
+    ['gemini-3.8-live-extended-thinking', 'extended-thinking'],
+  ] as const)('passes when %s orders events as the registry says', async (model, style) => {
+    fake.onConnect = toolServer(style);
+    const result = await canaryToolCallOrdering(KEY, model);
+    expect(result.detail).toContain('matches the registry');
+    expect(result).toMatchObject({ status: 'pass', pass: true, name: `tool-call-ordering:${model}` });
+  });
+
+  it('records the observed order in the metrics', async () => {
+    fake.onConnect = toolServer('async-early-turn-complete');
+    const result = await canaryToolCallOrdering(KEY, 'gemini-3.8-live');
+    expect(result.metrics).toMatchObject({
+      turnCompleteBetweenCallAndReply: true,
+      asynchronousCall: true,
+      interactionStatus: 'none',
+      order: 'toolCall > generationComplete > turnComplete > <toolResponse> > audio > generationComplete > turnComplete',
+    });
+  });
+
+  it('reports CONTRACT CHANGED when gemini-3.8-live stops completing the calling turn early', async () => {
+    fake.onConnect = toolServer('blocking', 'call_');
+    const result = await canaryToolCallOrdering(KEY, 'gemini-3.8-live');
+    expect(result.status).toBe('contract-changed');
+    expect(result.detail).toContain('PROVIDER CONTRACT CHANGED');
+    expect(result.detail).toContain('registry says a turnComplete arrives between the toolCall and the reply, but it did not');
+    expect(result.detail).toContain('scripts/capture-live-traces.mjs');
+  });
+
+  it('reports CONTRACT CHANGED when the 3.1 preview starts completing the calling turn early', async () => {
+    fake.onConnect = toolServer('async-early-turn-complete', 'fc_');
+    const result = await canaryToolCallOrdering(KEY, 'gemini-3.1-flash-live-preview');
+    expect(result.status).toBe('contract-changed');
+    expect(result.detail).toContain('does not arrive between the toolCall and the reply, but it did');
+  });
+
+  it('reports CONTRACT CHANGED when extended-thinking stops reporting interactionStatus', async () => {
+    fake.onConnect = toolServer('blocking', 'call_');
+    const result = await canaryToolCallOrdering(KEY, 'gemini-3.8-live-extended-thinking');
+    expect(result.status).toBe('contract-changed');
+    expect(result.detail).toContain('registry says the model reports interactionStatus, but it did not');
+  });
+
+  it('reports CONTRACT CHANGED when a blocking model starts issuing asynchronous call ids', async () => {
+    fake.onConnect = toolServer('blocking', 'call_');
+    const result = await canaryToolCallOrdering(KEY, 'gemini-3.1-flash-live-preview');
+    expect(result.status).toBe('contract-changed');
+    expect(result.detail).toContain('registry says calls are blocking');
+  });
+
+  it('fails (inconclusive), not contract-changed, when the tool is never called', async () => {
+    fake.onConnect = (server) => server.accept();
+    const result = await canaryToolCallOrdering(KEY, 'gemini-3.8-live', { timeoutMs: 40 });
+    expect(result.status).toBe('fail');
+  });
+
+  it('skips a model with no ordering recorded', async () => {
+    expect((await canaryToolCallOrdering(KEY, 'gemini-99-live-future')).status).toBe('skipped');
+    expect(fake.servers).toHaveLength(0);
+  });
+});
+
+describe('silent tool response canary', () => {
+  function serverThatSpeaksAfterResponse(speaks: boolean) {
+    return (server: any) => {
+      server.accept();
+      server.onToolResponse = (payload: any) => {
+        server.lastResponse = payload;
+        if (speaks) {
+          setTimeout(() => {
+            server.emit(audioPart(4800));
+            server.emit({ serverContent: { outputTranscription: { text: 'The session has ended.' } } });
+          }, 5);
+        }
+      };
+      setTimeout(
+        () => server.emit({ toolCall: { functionCalls: [{ id: 'call_1', name: 'lookupConformanceCodeWord', args: {} }] } }),
+        5,
+      );
+    };
+  }
+
+  it('passes when nothing is spoken after a SILENT response, and really sends SILENT', async () => {
+    fake.onConnect = serverThatSpeaksAfterResponse(false);
+    const result = await canarySilentToolResponse(KEY, 'gemini-3.8-live', { quietMs: 60 });
+    expect(result).toMatchObject({ status: 'pass', pass: true });
+    expect(lastServer().sent.find(([kind]) => kind === 'toolResponse')![1].functionResponses[0].scheduling).toBe('SILENT');
+  });
+
+  it('reports CONTRACT CHANGED when the model speaks anyway', async () => {
+    fake.onConnect = serverThatSpeaksAfterResponse(true);
+    const result = await canarySilentToolResponse(KEY, 'gemini-3.8-live', { quietMs: 60 });
+    expect(result.status).toBe('contract-changed');
+    expect(result.detail).toContain('The session has ended.');
+  });
+
+  it('reports CONTRACT CHANGED when SILENT closes the session', async () => {
+    fake.onConnect = (server) => {
+      serverThatSpeaksAfterResponse(false)(server);
+      const inner = server.onToolResponse;
+      server.onToolResponse = (p: any) => {
+        inner(p);
+        server.close(1007, 'Function response scheduling is not supported for this model.');
+      };
+    };
+    const result = await canarySilentToolResponse(KEY, 'gemini-3.8-live', { quietMs: 60 });
+    expect(result.status).toBe('contract-changed');
+    expect(result.detail).toContain('closed the session');
+  });
+
+  it.each(['gemini-3.1-flash-live-preview', 'gemini-3.8-live-extended-thinking', 'gemini-99-live-future'])(
+    'skips %s, which useSession never sends SILENT to',
+    async (model) => {
+      expect((await canarySilentToolResponse(KEY, model)).status).toBe('skipped');
+      expect(fake.servers).toHaveLength(0);
+    },
+  );
 });
 
 // ---------------------------------------------------------------------------

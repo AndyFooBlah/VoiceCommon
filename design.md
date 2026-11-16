@@ -145,9 +145,18 @@ The registry is the single place a model id is recorded. `src/__tests__/noRetire
 - The tool call is recorded in the transcript.
 - On `gemini-3.8-live`, function calls are asynchronous unless a declaration sets `behavior: BLOCKING`: the turn that issues the call ends at once (`turnComplete` arrives right after the `toolCall`), and the spoken reply to the tool result arrives as a further turn. The legacy 3.1 preview blocks instead and sends one `turnComplete` after the reply. `gemini-3.8-live-extended-thinking` runs tools asynchronously only and speaks a filler sentence first.
 
+- Before dispatching a tool call the hook seals whatever the bot has said so far as its own transcript entry, so the record reads bot, tool, bot in the order things happened. The early `turnComplete` of an asynchronous call therefore has nothing left to seal and changes nothing.
+- A result is not sent for a call the server cancelled (`toolCallCancellation`, by id) or whose turn the user interrupted. The server cancels pending calls when bot speech is interrupted. If the user speaks while the bot is silent, `gemini-3.8-live` keeps the call open, and the result is sent and spoken when it arrives.
+
+**Bot speaking state:**
+- The bot counts as speaking from its first audio chunk until playback has drained **and** the provider has said the reply is fully generated (`generationComplete`, `turnComplete` or `interrupted`). An empty playback queue alone is not enough: most replies open with a one-sample chunk that finishes tens of milliseconds before the next arrives. `onBotSpeaking`, the greeting echo mute and manual-mode barge-in gating all use this state.
+- On a model that reports `interactionStatus` (extended thinking), the greeting mute also waits for `IDLE`.
+
 **Session end tool:**
 - Gemini may call `endSession` when the user signals they want to stop.
-- This triggers `onSessionEndRequest`, which calls `stopSession()`.
+- The hook acknowledges the call at once. If the bot has already said goodbye and the model's calls are asynchronous by default (`gemini-3.8-live`), the acknowledgement carries `scheduling: SILENT`, so the model does not speak again about the tool result.
+- It then waits for the closing audio to finish playing: the playback queue must be empty for 300 ms; a closing reply that has not started yet is given 4 s to start; a model that reports `interactionStatus` must reach `IDLE`; the whole wait is capped at 12 s.
+- Only then does it call `onSessionEndRequest`, which typically calls `stopSession()`. Stopping the session some other way during the wait cancels the request.
 
 ### 3.3 Stop
 

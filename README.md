@@ -176,6 +176,20 @@ The Live models disagree about `thinkingConfig`, and the provider reports a mism
 
 `LIVE_MODELS` is the registry behind this table (`src/services/liveModels.ts`). An explicit `thinkingLevel` the registry knows the model rejects fails the session start with a `LiveConfigError` that names the model, the value and the fix, before any connection is made. A model id the registry does not know is never blocked: `'auto'` omits the field and an explicit level is passed through.
 
+#### What the models do differently around tool calls
+
+The hook keeps one behaviour for your app across these; the differences matter only if you read raw Live events yourself.
+
+| | `gemini-3.8-live` | `gemini-3.8-live-extended-thinking` | `gemini-3.1-flash-live-preview` |
+|---|---|---|---|
+| Tool calls | asynchronous by default | asynchronous only | blocking |
+| `turnComplete` after a `toolCall` | arrives at once, **before** the spoken reply; the reply is a further turn | not between call and reply (a filler sentence and its `turnComplete` come before the call) | once, after the reply |
+| "Finished answering" signal | `turnComplete` | `interactionStatus: IDLE` | `turnComplete` |
+
+**What you get in the transcript.** One entry per thing that happened, in order: what the bot said before a tool call (if anything), the tool entry (written when the tool finishes, with its duration), then one bot entry holding the whole spoken answer. A filler sentence and the answer are deliberately two entries with the tool between them, not merged: that is the order they were spoken in. A tool entry is still written for a tool whose result was not sent because the user interrupted.
+
+**Extended thinking.** `gemini-3.8-live-extended-thinking` is supported for: session setup with `'auto'` thinking, transcripts (the filler and the answer are separate entries), tool calls (a `behavior: BLOCKING` declaration is refused before connecting), ending the session and the greeting mute (both wait for `IDLE`), and `onInteractionStatus`. The hook has no "thinking" state of its own beyond that callback, and no app in this family runs on this model yet; its behaviour is checked by the live suite and by replayed recordings, not by production use.
+
 If your app has a code path that calls `ai.live.connect` directly, build its config with `buildLiveConnectConfig(params)` (exported from the main entry and from `/testing`) so it gets the same validation and stays covered by your live test.
 
 ### Testing your app against the real Live API
@@ -271,9 +285,10 @@ import { useSession } from '@andyfooblah/voice-common';
 | `systemInstruction` | `string` | Yes | Full system instruction string for Gemini |
 | `tools` | `FunctionDeclaration[]` | No | Tool declarations to register with Gemini |
 | `onToolCall` | `(name, args) => Promise<string>` | No | Called when Gemini invokes a tool; return value is sent as the tool result |
-| `onSessionEndRequest` | `() => void` | No | Called when the bot invokes the built-in `endSession` tool |
+| `onSessionEndRequest` | `() => void` | No | Called when the bot has invoked the built-in `endSession` tool **and its goodbye has finished playing** (since 0.16.1; capped at 12 s). It is safe to call `stopSession()` straight from it |
 | `onSessionEnd` | `() => void` | No | Called after the session is fully finalized (audio uploaded, Firestore updated). Use for post-session analysis or state cleanup |
-| `onBotSpeaking` | `(speaking: boolean) => void` | No | Called when bot audio starts or stops (for UI feedback) |
+| `onBotSpeaking` | `(speaking: boolean) => void` | No | Called when bot audio starts or stops (for UI feedback). `false` means playback has drained and the reply is fully generated, so it does not flicker between audio chunks |
+| `onInteractionStatus` | `(status: string) => void` | No | Called when the model reports `interactionStatus` (`'IN_PROGRESS'` / `'IDLE'`). Only `gemini-3.8-live-extended-thinking` does. Use it for a "thinking" indicator |
 | `autoGreetText` | `string` | No | Text sent via `sendRealtimeInput` immediately after connecting so the bot takes the first turn. Use bracket notation for system cues, e.g. `"[Session started. Please greet the family.]"` |
 | `speechConfig` | `SpeechConfig` | No | Voice configuration for the Gemini model (e.g. prebuilt voice name). Passed directly to the Gemini Live `speechConfig` field |
 | `endOfSpeechSilenceMs` | `number` | No | How long a pause the user may take before their turn ends. In server-VAD mode maps to `automaticActivityDetection.silenceDurationMs`; in manual mode it's the client-side end-of-turn silence. |

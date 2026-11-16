@@ -36,6 +36,14 @@ jobs:
       - name: TypeScript type check
         run: npx tsc --noEmit
 
+      # ESLint runs against the TS 6 API (scripts/eslint-ts6-shim.cjs) because
+      # typescript-eslint does not load under TypeScript 7 yet. Errors fail
+      # the build; warnings do not.
+      - name: Lint
+        run: npm run lint
+
+      # Offline suite only. The live suite (`npm run test:live`) talks to the
+      # paid Gemini Live API and runs from live-contract.yml, never here.
       - name: Run tests
         run: npm test -- --run
 

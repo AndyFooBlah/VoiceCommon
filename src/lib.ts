@@ -55,6 +55,7 @@ export type {
   LiveModelStatus,
   LiveThinkingSupport,
   LiveToolExecution,
+  LiveIdleSignal,
   ThinkingRequest,
 } from './services/liveModels';
 export {

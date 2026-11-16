@@ -1,0 +1,630 @@
+{
+ "meta": {
+  "scenario": "goodbye-end-session",
+  "model": "gemini-3.8-live-extended-thinking",
+  "capturedAt": "2026-11-16T01:51:06.279Z",
+  "sdk": "@google/genai 2.32.0",
+  "generator": "scripts/capture-live-traces.mjs",
+  "note": "Real provider event trace. Synthetic content; audio payloads reduced to byte counts; resumption handles masked; no credentials.",
+  "thinkingLevel": "LOW",
+  "turnTaking": "server VAD, defaults"
+ },
+ "events": [
+  {
+   "t": 333,
+   "from": "server",
+   "message": {
+    "setupComplete": {}
+   }
+  },
+  {
+   "t": 334,
+   "from": "server",
+   "message": {
+    "sessionResumptionUpdate": {
+     "newHandle": "HANDLE-MASKED",
+     "resumable": true
+    }
+   }
+  },
+  {
+   "t": 549,
+   "from": "server",
+   "message": {
+    "voiceActivity": {
+     "type": "ACTIVITY_START",
+     "audioOffset": "0.200s"
+    }
+   }
+  },
+  {
+   "t": 3734,
+   "kind": "speechEnded",
+   "from": "client"
+  },
+  {
+   "t": 4740,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "inputTranscription": {
+      "text": "Okay, that's everything I needed today. Thank you. Goodbye."
+     }
+    }
+   }
+  },
+  {
+   "t": 4740,
+   "from": "server",
+   "message": {
+    "voiceActivity": {
+     "type": "ACTIVITY_END",
+     "audioOffset": "4.320s"
+    }
+   }
+  },
+  {
+   "t": 4742,
+   "from": "server",
+   "message": {}
+  },
+  {
+   "t": 4742,
+   "from": "server",
+   "message": {}
+  },
+  {
+   "t": 4742,
+   "from": "server",
+   "message": {}
+  },
+  {
+   "t": 4750,
+   "from": "server",
+   "message": {
+    "serverContent": {}
+   }
+  },
+  {
+   "t": 4750,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 2
+        }
+       }
+      ],
+      "role": "model"
+     },
+     "outputTranscription": {
+      "text": "Goodbye, have a "
+     }
+    }
+   }
+  },
+  {
+   "t": 4754,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 5760
+        }
+       }
+      ],
+      "role": "model"
+     }
+    }
+   }
+  },
+  {
+   "t": 4759,
+   "from": "server",
+   "message": {}
+  },
+  {
+   "t": 4780,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 7680
+        }
+       }
+      ],
+      "role": "model"
+     }
+    }
+   }
+  },
+  {
+   "t": 4922,
+   "from": "server",
+   "message": {}
+  },
+  {
+   "t": 4929,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 7680
+        }
+       }
+      ],
+      "role": "model"
+     }
+    }
+   }
+  },
+  {
+   "t": 5079,
+   "from": "server",
+   "message": {}
+  },
+  {
+   "t": 5086,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 7680
+        }
+       }
+      ],
+      "role": "model"
+     }
+    }
+   }
+  },
+  {
+   "t": 5238,
+   "from": "server",
+   "message": {}
+  },
+  {
+   "t": 5247,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 7680
+        }
+       }
+      ],
+      "role": "model"
+     }
+    }
+   }
+  },
+  {
+   "t": 5401,
+   "from": "server",
+   "message": {}
+  },
+  {
+   "t": 5409,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 7680
+        }
+       }
+      ],
+      "role": "model"
+     }
+    }
+   }
+  },
+  {
+   "t": 5560,
+   "from": "server",
+   "message": {}
+  },
+  {
+   "t": 5574,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 17280
+        }
+       }
+      ],
+      "role": "model"
+     },
+     "outputTranscription": {
+      "text": "great day."
+     }
+    }
+   }
+  },
+  {
+   "t": 5919,
+   "from": "server",
+   "message": {}
+  },
+  {
+   "t": 5938,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 23040
+        }
+       }
+      ],
+      "role": "model"
+     }
+    }
+   }
+  },
+  {
+   "t": 6400,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "generationComplete": true
+    }
+   }
+  },
+  {
+   "t": 6401,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "turnComplete": true,
+     "interactionStatus": "IN_PROGRESS"
+    },
+    "usageMetadata": {
+     "promptTokenCount": 3364,
+     "responseTokenCount": 50,
+     "totalTokenCount": 3414,
+     "promptTokensDetails": [
+      {
+       "modality": "TEXT",
+       "tokenCount": 2944
+      },
+      {
+       "modality": "AUDIO",
+       "tokenCount": 307
+      }
+     ],
+     "responseTokensDetails": [
+      {
+       "modality": "AUDIO",
+       "tokenCount": 50
+      }
+     ],
+     "thoughtsTokenCount": 65
+    }
+   }
+  },
+  {
+   "t": 7983,
+   "from": "server",
+   "message": {}
+  },
+  {
+   "t": 7983,
+   "from": "server",
+   "message": {
+    "toolCall": {
+     "functionCalls": [
+      {
+       "name": "endSession",
+       "args": {},
+       "id": "call_6252259121540026741_fc_0_0"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "t": 7983,
+   "kind": "toolResponded",
+   "id": "call_6252259121540026741_fc_0_0",
+   "name": "endSession",
+   "result": "ok",
+   "from": "client"
+  },
+  {
+   "t": 9514,
+   "from": "server",
+   "message": {}
+  },
+  {
+   "t": 9712,
+   "from": "server",
+   "message": {}
+  },
+  {
+   "t": 9713,
+   "from": "server",
+   "message": {
+    "serverContent": {}
+   }
+  },
+  {
+   "t": 9882,
+   "from": "server",
+   "message": {}
+  },
+  {
+   "t": 9893,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 11520
+        }
+       }
+      ],
+      "role": "model"
+     },
+     "outputTranscription": {
+      "text": "Goodbye, take "
+     }
+    }
+   }
+  },
+  {
+   "t": 10020,
+   "from": "server",
+   "message": {}
+  },
+  {
+   "t": 10028,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 7680
+        }
+       }
+      ],
+      "role": "model"
+     }
+    }
+   }
+  },
+  {
+   "t": 10181,
+   "from": "server",
+   "message": {}
+  },
+  {
+   "t": 10186,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 7680
+        }
+       }
+      ],
+      "role": "model"
+     }
+    }
+   }
+  },
+  {
+   "t": 10340,
+   "from": "server",
+   "message": {}
+  },
+  {
+   "t": 10347,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 7680
+        }
+       }
+      ],
+      "role": "model"
+     }
+    }
+   }
+  },
+  {
+   "t": 10500,
+   "from": "server",
+   "message": {}
+  },
+  {
+   "t": 10510,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 11520
+        }
+       }
+      ],
+      "role": "model"
+     }
+    }
+   }
+  },
+  {
+   "t": 10741,
+   "from": "server",
+   "message": {}
+  },
+  {
+   "t": 10753,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 13440
+        }
+       }
+      ],
+      "role": "model"
+     },
+     "outputTranscription": {
+      "text": "care!"
+     }
+    }
+   }
+  },
+  {
+   "t": 11019,
+   "from": "server",
+   "message": {}
+  },
+  {
+   "t": 11029,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 7680
+        }
+       }
+      ],
+      "role": "model"
+     }
+    }
+   }
+  },
+  {
+   "t": 11180,
+   "from": "server",
+   "message": {}
+  },
+  {
+   "t": 11183,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "modelTurn": {
+      "parts": [
+       {
+        "inlineData": {
+         "mimeType": "audio/pcm;rate=24000",
+         "bytes": 5760
+        }
+       }
+      ],
+      "role": "model"
+     }
+    }
+   }
+  },
+  {
+   "t": 11301,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "generationComplete": true
+    }
+   }
+  },
+  {
+   "t": 11303,
+   "from": "server",
+   "message": {
+    "serverContent": {
+     "turnComplete": true,
+     "interactionStatus": "IDLE"
+    },
+    "usageMetadata": {
+     "promptTokenCount": 6535,
+     "responseTokenCount": 54,
+     "totalTokenCount": 7231,
+     "promptTokensDetails": [
+      {
+       "modality": "TEXT",
+       "tokenCount": 6043
+      },
+      {
+       "modality": "AUDIO",
+       "tokenCount": 357
+      }
+     ],
+     "responseTokensDetails": [
+      {
+       "modality": "TEXT",
+       "tokenCount": 15
+      },
+      {
+       "modality": "AUDIO",
+       "tokenCount": 39
+      }
+     ],
+     "thoughtsTokenCount": 642
+    }
+   }
+  }
+ ]
+}

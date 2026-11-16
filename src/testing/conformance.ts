@@ -26,8 +26,10 @@ import { buildLiveConnectConfig, resolveLiveModel } from '../services/liveConnec
 import type { ThinkingRequest } from '../services/liveModels';
 import {
   canaryRegistryFreshness,
+  canarySilentToolResponse,
   canaryThinkingContract,
   canaryToolBehaviorContract,
+  canaryToolCallOrdering,
   checkAudioTurn,
   checkBargeIn,
   checkContextWindowCompression,
@@ -101,14 +103,16 @@ export const LIVE_CHECK_NAMES = [
   'thinking-contract',
   'tool-behavior-contract',
   'registry-freshness',
+  'tool-call-ordering',
+  'silent-tool-response',
 ] as const;
 
 export type LiveCheckName = (typeof LIVE_CHECK_NAMES)[number];
 
 /**
  * The default set: everything that exercises the app's production path. The
- * three provider-contract canaries are model-level, not app-level, so they
- * run only when named (VoiceCommon's own live suite runs them weekly).
+ * provider-contract canaries are model-level, not app-level, so they run
+ * only when named (VoiceCommon's own live suite runs them weekly).
  */
 export const DEFAULT_LIVE_CHECKS: readonly LiveCheckName[] = [
   'setup',
@@ -276,6 +280,10 @@ function runOne(
       return canaryToolBehaviorContract(target.apiKey, target.model, { apiVersion: target.apiVersion });
     case 'registry-freshness':
       return canaryRegistryFreshness(target.apiKey);
+    case 'tool-call-ordering':
+      return canaryToolCallOrdering(target.apiKey, target.model, { apiVersion: target.apiVersion });
+    case 'silent-tool-response':
+      return canarySilentToolResponse(target.apiKey, target.model, { apiVersion: target.apiVersion });
     default: {
       const unknown: never = name;
       return Promise.resolve({
