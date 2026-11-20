@@ -34,7 +34,7 @@
  * if the parent component re-renders between session start and message receipt.
  */
 
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { doc, updateDoc } from 'firebase/firestore';
 import { db } from '../services/firebase';
 import { GoogleGenAI } from '@google/genai';
@@ -313,6 +313,14 @@ export interface UseSessionReturn {
   error: string | null;
 }
 
+/** Thrown inside startSession when the owning component unmounted mid-start. Never surfaces to callers. */
+class SessionAbandonedError extends Error {
+  constructor() {
+    super('Session abandoned: the screen closed while it was starting');
+    this.name = 'SessionAbandonedError';
+  }
+}
+
 export function useSession(options: UseSessionOptions): UseSessionReturn {
   const {
     userId,
@@ -566,6 +574,11 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
   // async so two rapid calls (StrictMode double-invoke, double-clicks) can both
   // pass the isRecording check — the ref closes the window.
   const startInProgressRef = useRef(false);
+  // True once the component that owns this hook has unmounted. A session must
+  // never outlive the screen that shows it: an open microphone with nothing
+  // on screen is the worst failure this hook can have. See the unmount effect
+  // below and the checks in startSession.
+  const unmountedRef = useRef(false);
 
   // Session telemetry counters
   const toolCallCountRef = useRef(0);
@@ -1601,6 +1614,11 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
   // Session lifecycle: start
   // ---------------------------------------------------------------------------
 
+  /** Throws if the owning component has unmounted; called after each await in startSession. */
+  const abandonIfUnmounted = () => {
+    if (unmountedRef.current) throw new SessionAbandonedError();
+  };
+
   const startSession = useCallback(async (
     overrideInstruction?: string,
     overrideAutoGreetText?: string,
@@ -1656,6 +1674,7 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
       setSessionId(sId);
       sessionStartRef.current = new Date();
       console.log('[Session] Firestore session created:', sId);
+      abandonIfUnmounted();
 
       // Start audio mixer (captures mic + bot audio for archival). If the
       // recorder fails mid-session, halt — an interview must never continue
@@ -1669,19 +1688,35 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
       scheduleTimeRef.current = 0;
       activeSourcesRef.current.clear();
       console.log('[Session] Audio mixer started');
+      abandonIfUnmounted();
 
       // Connect to Gemini Live
       await connectGemini(instructionToUse, greetToUse, speechConfigRef.current, () => {
+        if (unmountedRef.current) return; // the check below tears everything down
         setConnectionStatus(ConnectionStatus.CONNECTED);
         setIsRecording(true);
         startInProgressRef.current = false;
         console.log('[Session] Session ready, sessionRef set');
       });
+      abandonIfUnmounted();
     } catch (err) {
-      console.error('[Session] Start error:', err);
-      setError(`Failed to start session: ${String(err)}`);
-      setConnectionStatus(ConnectionStatus.ERROR);
+      const abandoned = err instanceof SessionAbandonedError;
+      if (abandoned) {
+        console.log('[Session] Screen closed while the session was starting — tearing down');
+      } else {
+        console.error('[Session] Start error:', err);
+        setError(`Failed to start session: ${String(err)}`);
+        setConnectionStatus(ConnectionStatus.ERROR);
+      }
       startInProgressRef.current = false;
+
+      // If the Live connection is already open (the screen closed while it was
+      // connecting), close it. isStoppingRef makes the close handler treat this
+      // as a deliberate stop rather than an unexpected disconnect to recover from.
+      isStoppingRef.current = true;
+      try { disconnectWorklet(); } catch { /* not wired yet */ }
+      try { liveSessionRef.current?.close(); } catch { /* already closed */ }
+      liveSessionRef.current = null;
 
       // Clean up orphaned Firestore session if connect failed after creation
       if (sessionRef.current) {
@@ -1691,7 +1726,7 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
       }
       mixer.stop().catch(() => null);
     }
-  }, [isRecording, userId, mixer, connectGemini]);
+  }, [isRecording, userId, mixer, connectGemini, disconnectWorklet]);
 
   // ---------------------------------------------------------------------------
   // Session lifecycle: stop
@@ -1792,6 +1827,26 @@ export function useSession(options: UseSessionOptions): UseSessionReturn {
     }
   }, [stopSession]);
   haltWithErrorRef.current = haltWithError;
+
+  // ---------------------------------------------------------------------------
+  // Unmount: a session never outlives its screen
+  // ---------------------------------------------------------------------------
+  // Leaving the screen (a Back button, a route change, sign-out) used to leave
+  // the microphone open, the Live connection streaming and transcript writes
+  // continuing with nothing on screen, and the recording was never uploaded.
+  // On unmount we now stop exactly as the Stop button does: close the
+  // connection, release the microphone, upload the recording and finalize the
+  // session. If the session was still starting, startSession notices via
+  // unmountedRef and tears down instead of going live.
+  const stopSessionRef = useRef(stopSession);
+  stopSessionRef.current = stopSession;
+  useEffect(() => {
+    unmountedRef.current = false;
+    return () => {
+      unmountedRef.current = true;
+      void stopSessionRef.current();
+    };
+  }, []);
 
   return {
     messages,

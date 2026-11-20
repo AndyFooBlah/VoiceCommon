@@ -543,6 +543,65 @@ describe('startSession failure paths', () => {
 });
 
 // ---------------------------------------------------------------------------
+describe('unmount: a session never outlives its screen', () => {
+  it('stops a running session exactly as Stop does: connection closed, microphone released, recording uploaded, session finalized', async () => {
+    const { result, unmount } = renderSession();
+    await startSession(result);
+
+    await act(async () => { unmount(); });
+    await waitFor(() => expect(storageSpies.finalizeSession).toHaveBeenCalled());
+
+    expect(mockLiveSession.close).toHaveBeenCalledTimes(1);
+    expect(mockMixerStop).toHaveBeenCalledTimes(1);
+    expect(storageSpies.archiveAudioToGCS).toHaveBeenCalledTimes(1);
+    expect(storageSpies.finalizeSession.mock.calls[0][1]).toBe('completed');
+  });
+
+  it('does nothing when no session is running', async () => {
+    const { unmount } = renderSession();
+    await act(async () => { unmount(); });
+
+    expect(mockMixerStop).not.toHaveBeenCalled();
+    expect(mockLiveSession.close).not.toHaveBeenCalled();
+    expect(storageSpies.finalizeSession).not.toHaveBeenCalled();
+  });
+
+  it('abandons a session that was still being created: the microphone never opens and nothing connects', async () => {
+    let release!: (id: string) => void;
+    storageSpies.createSession.mockReturnValue(new Promise<string>((r) => { release = r; }));
+    const { result, unmount } = renderSession();
+
+    let started!: Promise<void>;
+    act(() => { started = result.current.startSession(); });
+    unmount();
+    await act(async () => { release('session-late'); await started; });
+
+    expect(mockMixerStart).not.toHaveBeenCalled();
+    expect(mockLiveConnect).not.toHaveBeenCalled();
+    expect(storageSpies.finalizeSession.mock.calls[0].slice(0, 2)).toEqual(['session-late', 'interrupted']);
+  });
+
+  it('closes a connection that opened after the screen had already closed, and releases the microphone', async () => {
+    let release!: (s: typeof mockLiveSession) => void;
+    mockLiveConnect.mockImplementation(({ callbacks }: { callbacks: Record<string, unknown> }) => {
+      capturedCallbacks.current = callbacks as Record<string, (...args: unknown[]) => unknown>;
+      return new Promise<typeof mockLiveSession>((r) => { release = r; });
+    });
+    const { result, unmount } = renderSession();
+
+    let started!: Promise<void>;
+    act(() => { started = result.current.startSession(); });
+    await waitFor(() => expect(mockLiveConnect).toHaveBeenCalled());
+    unmount();
+    await act(async () => { release(mockLiveSession); await started; });
+
+    expect(mockLiveSession.close).toHaveBeenCalled();
+    expect(mockMixerStop).toHaveBeenCalled();
+    expect(storageSpies.finalizeSession.mock.calls[0][1]).toBe('interrupted');
+  });
+});
+
+// ---------------------------------------------------------------------------
 describe('stopSession', () => {
   it('is a no-op when not recording', async () => {
     const { result } = renderSession();

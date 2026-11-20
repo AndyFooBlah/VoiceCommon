@@ -4,6 +4,29 @@ All notable changes to `@andyfooblah/voice-common`. Entries before 0.14.0 were
 reconstructed from git history; where interim work shipped without a version
 bump it is folded into the next released version.
 
+## 0.16.2 (2026-11-19)
+
+**A session no longer outlives its screen.** One behaviour change, no API change; apps on `^0.16.0`
+pick it up with no code change.
+
+Before this release, unmounting the component that owns `useSession` (a Back button, a route change,
+sign-out) left the microphone open, the Live connection streaming and transcript writes continuing,
+with nothing on screen, and the recording was never uploaded. Worse, during the whole connecting phase
+`stopSession` was a no-op, because it is gated on `isRecording` and that is only set once connected:
+a screen closed while connecting went on to become a fully live session.
+
+- **On unmount the hook now stops exactly as the Stop button does**: it closes the connection, releases
+  the microphone, uploads the recording and finalizes the session as `completed`.
+- **A session that was still starting is abandoned instead of going live.** `startSession` checks after
+  each asynchronous step (session record, microphone, connection) whether the component has unmounted,
+  and if so closes whatever it opened and finalizes the session record as `interrupted`.
+
+If your app relied on a session continuing after its screen unmounted, own the hook in a component
+that stays mounted. Nothing in the three apps that use this library did.
+
+Four tests cover it: unmount while running, while idle, while creating the session record, and while
+connecting. The live suite passes unchanged (48 tests).
+
 ## 0.16.1 (2026-11-15)
 
 A patch for how `useSession` keeps its record and its state around tool calls
