@@ -90,6 +90,7 @@
   },
   "overrides": {
     "@andyfooblah/knowledge-common": {
+      "@google/genai": "$@google/genai",
       "firebase": "$firebase"
     },
     "@typescript-eslint/eslint-plugin": {
